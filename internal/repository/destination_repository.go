@@ -200,15 +200,14 @@ func (r *DestinationRepository) Update(ctx context.Context, dest *models.Destina
 	return err
 }
 
-// Upsert inserts a destination if no document with the same name exists, otherwise does nothing.
+// Upsert inserts or updates a destination matched by name.
+// Fields like categories and image_url are always kept current; created_at is only set on insert.
 func (r *DestinationRepository) Upsert(ctx context.Context, dest *models.Destination) error {
 	now := time.Now()
-	dest.Active = true
 
 	filter := bson.M{"name": dest.Name}
 	update := bson.M{
-		"$setOnInsert": bson.M{
-			"name":             dest.Name,
+		"$set": bson.M{
 			"country":          dest.Country,
 			"country_code":     dest.CountryCode,
 			"region":           dest.Region,
@@ -225,8 +224,11 @@ func (r *DestinationRepository) Upsert(ctx context.Context, dest *models.Destina
 			"popularity_score": dest.PopularityScore,
 			"featured":         dest.Featured,
 			"active":           true,
-			"created_at":       now,
 			"updated_at":       now,
+		},
+		"$setOnInsert": bson.M{
+			"name":       dest.Name,
+			"created_at": now,
 		},
 	}
 
