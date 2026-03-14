@@ -1,0 +1,183 @@
+{{template "base.html" .}}
+
+{{define "content"}}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- Hero -->
+    <div class="text-center mb-12">
+        <h1 class="text-4xl font-bold text-gray-900 mb-4">Explore Destinations</h1>
+        <p class="text-xl text-gray-600 max-w-2xl mx-auto">Discover your next adventure. From tropical beaches to mountain retreats, find the perfect destination for your journey.</p>
+    </div>
+
+    <!-- Search Bar -->
+    <div class="max-w-2xl mx-auto mb-12">
+        <form action="/explore" method="GET" class="relative">
+            <input type="text" name="q" value="{{.Filter.Search}}" placeholder="Search destinations..." class="w-full px-6 py-4 pl-12 border-2 border-gray-200 rounded-full focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-lg">
+            <svg class="absolute left-4 top-1/2 -translate-y-1/2 h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <button type="submit" class="absolute right-2 top-1/2 -translate-y-1/2 bg-primary-600 text-white px-6 py-2 rounded-full font-medium hover:bg-primary-700 transition">
+                Search
+            </button>
+        </form>
+    </div>
+
+    <!-- Category Pills -->
+    <div class="flex flex-wrap justify-center gap-3 mb-12">
+        <a href="/explore" class="px-4 py-2 rounded-full font-medium transition {{if not .Filter.Category}}bg-primary-600 text-white{{else}}bg-gray-100 text-gray-700 hover:bg-gray-200{{end}}">
+            All
+        </a>
+        {{range .Categories}}
+        <a href="/explore?category={{.}}" class="px-4 py-2 rounded-full font-medium transition {{if eq $.Filter.Category .}}bg-primary-600 text-white{{else}}bg-gray-100 text-gray-700 hover:bg-gray-200{{end}}">
+            {{.}}
+        </a>
+        {{end}}
+    </div>
+
+    <div class="flex flex-col lg:flex-row gap-8">
+        <!-- Filters Sidebar -->
+        <aside class="lg:w-64 flex-shrink-0">
+            <div class="bg-white rounded-xl shadow-sm p-6 sticky top-24">
+                <h2 class="font-semibold text-gray-900 mb-4">Filters</h2>
+
+                <form action="/explore" method="GET" class="space-y-4">
+                    {{if .Filter.Category}}
+                    <input type="hidden" name="category" value="{{.Filter.Category}}">
+                    {{end}}
+                    {{if .Filter.Search}}
+                    <input type="hidden" name="q" value="{{.Filter.Search}}">
+                    {{end}}
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Region</label>
+                        <select name="region" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm">
+                            <option value="">All Regions</option>
+                            {{range .Regions}}
+                            <option value="{{.}}" {{if eq $.Filter.Region .}}selected{{end}}>{{.}}</option>
+                            {{end}}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Best For</label>
+                        <select name="best_for" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm">
+                            <option value="">Anyone</option>
+                            <option value="couples" {{if eq .Filter.BestFor "couples"}}selected{{end}}>Couples</option>
+                            <option value="families" {{if eq .Filter.BestFor "families"}}selected{{end}}>Families</option>
+                            <option value="solo" {{if eq .Filter.BestFor "solo"}}selected{{end}}>Solo Travelers</option>
+                            <option value="adventurers" {{if eq .Filter.BestFor "adventurers"}}selected{{end}}>Adventurers</option>
+                            <option value="honeymooners" {{if eq .Filter.BestFor "honeymooners"}}selected{{end}}>Honeymooners</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Travel Month</label>
+                        <select name="month" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm">
+                            <option value="">Any Month</option>
+                            <option value="1" {{if eq .Filter.Month 1}}selected{{end}}>January</option>
+                            <option value="2" {{if eq .Filter.Month 2}}selected{{end}}>February</option>
+                            <option value="3" {{if eq .Filter.Month 3}}selected{{end}}>March</option>
+                            <option value="4" {{if eq .Filter.Month 4}}selected{{end}}>April</option>
+                            <option value="5" {{if eq .Filter.Month 5}}selected{{end}}>May</option>
+                            <option value="6" {{if eq .Filter.Month 6}}selected{{end}}>June</option>
+                            <option value="7" {{if eq .Filter.Month 7}}selected{{end}}>July</option>
+                            <option value="8" {{if eq .Filter.Month 8}}selected{{end}}>August</option>
+                            <option value="9" {{if eq .Filter.Month 9}}selected{{end}}>September</option>
+                            <option value="10" {{if eq .Filter.Month 10}}selected{{end}}>October</option>
+                            <option value="11" {{if eq .Filter.Month 11}}selected{{end}}>November</option>
+                            <option value="12" {{if eq .Filter.Month 12}}selected{{end}}>December</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Daily Budget (USD)</label>
+                        <div class="flex space-x-2">
+                            <input type="number" name="min_budget" value="{{.Filter.MinBudget}}" placeholder="Min" class="w-1/2 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm">
+                            <input type="number" name="max_budget" value="{{.Filter.MaxBudget}}" placeholder="Max" class="w-1/2 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Sort By</label>
+                        <select name="sort" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm">
+                            <option value="popularity" {{if eq .Filter.SortBy "popularity"}}selected{{end}}>Most Popular</option>
+                            <option value="name" {{if eq .Filter.SortBy "name"}}selected{{end}}>Name A-Z</option>
+                            <option value="budget_asc" {{if eq .Filter.SortBy "budget_asc"}}selected{{end}}>Budget: Low to High</option>
+                            <option value="budget_desc" {{if eq .Filter.SortBy "budget_desc"}}selected{{end}}>Budget: High to Low</option>
+                        </select>
+                    </div>
+
+                    <button type="submit" class="w-full bg-primary-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-primary-700 transition text-sm">
+                        Apply Filters
+                    </button>
+
+                    <a href="/explore" class="block text-center text-sm text-gray-500 hover:text-gray-700">Clear all filters</a>
+                </form>
+            </div>
+        </aside>
+
+        <!-- Destinations Grid -->
+        <div class="flex-1">
+            <div class="flex justify-between items-center mb-6">
+                <p class="text-gray-600">{{.Total}} destinations found</p>
+            </div>
+
+            {{if .Destinations}}
+            <div class="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {{range .Destinations}}
+                <a href="/explore/{{.Name}}" class="group bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-lg transition">
+                    <div class="aspect-[4/3] overflow-hidden relative">
+                        <img src="{{.ImageURL}}" alt="{{.Name}}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" onerror="this.src='https://via.placeholder.com/400x300?text={{.Name}}'">
+                        {{if .Featured}}
+                        <div class="absolute top-3 left-3">
+                            <span class="bg-yellow-400 text-yellow-900 text-xs font-medium px-2 py-1 rounded">Featured</span>
+                        </div>
+                        {{end}}
+                        <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-4">
+                            <h3 class="text-xl font-bold text-white">{{.Name}}</h3>
+                            <p class="text-white/90 text-sm">{{.Country}}</p>
+                        </div>
+                    </div>
+                    <div class="p-4">
+                        <p class="text-sm text-gray-600 line-clamp-2 mb-3">{{.Description}}</p>
+
+                        <div class="flex flex-wrap gap-1 mb-3">
+                            {{range $i, $cat := .Categories}}
+                            {{if lt $i 3}}
+                            <span class="text-xs bg-primary-50 text-primary-700 px-2 py-1 rounded">{{$cat}}</span>
+                            {{end}}
+                            {{end}}
+                        </div>
+
+                        <div class="flex items-center justify-between text-sm">
+                            <div class="flex items-center text-gray-500">
+                                <svg class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                ${{.AvgDailyBudget}}/day
+                            </div>
+                            {{if .PopularityScore}}
+                            <div class="flex items-center">
+                                <svg class="h-4 w-4 text-yellow-400 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                                </svg>
+                                <span class="font-medium">{{.PopularityScore}}%</span>
+                            </div>
+                            {{end}}
+                        </div>
+                    </div>
+                </a>
+                {{end}}
+            </div>
+            {{else}}
+            <div class="text-center py-12">
+                <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <h3 class="mt-2 text-sm font-medium text-gray-900">No destinations found</h3>
+                <p class="mt-1 text-sm text-gray-500">Try adjusting your filters or search criteria.</p>
+            </div>
+            {{end}}
+        </div>
+    </div>
+</div>
+{{end}}

@@ -1,0 +1,258 @@
+{{template "base.html" .}}
+
+{{define "content"}}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-data="flightSearch()">
+    <h1 class="text-3xl font-bold text-gray-900 mb-8">Search Flights</h1>
+
+    <!-- Search Form -->
+    <div class="bg-white rounded-xl shadow-sm p-6 mb-8">
+        <form @submit.prevent="searchFlights" class="space-y-4">
+            <!-- Trip Type -->
+            <div class="flex space-x-4 mb-4">
+                <label class="flex items-center">
+                    <input type="radio" x-model="search.tripType" value="roundtrip" class="text-primary-600 focus:ring-primary-500">
+                    <span class="ml-2 text-sm text-gray-700">Round trip</span>
+                </label>
+                <label class="flex items-center">
+                    <input type="radio" x-model="search.tripType" value="oneway" class="text-primary-600 focus:ring-primary-500">
+                    <span class="ml-2 text-sm text-gray-700">One way</span>
+                </label>
+            </div>
+
+            <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">From</label>
+                    <input type="text" x-model="search.origin" placeholder="City or airport (e.g., LAX)" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">To</label>
+                    <input type="text" x-model="search.destination" placeholder="City or airport (e.g., JFK)" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Departure</label>
+                    <input type="date" x-model="search.departureDate" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" required>
+                </div>
+                <div x-show="search.tripType === 'roundtrip'">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Return</label>
+                    <input type="date" x-model="search.returnDate" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" :required="search.tripType === 'roundtrip'">
+                </div>
+            </div>
+
+            <div class="grid md:grid-cols-4 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Passengers</label>
+                    <input type="number" x-model="search.passengers" min="1" max="9" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Class</label>
+                    <select x-model="search.travelClass" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                        <option value="ECONOMY">Economy</option>
+                        <option value="PREMIUM_ECONOMY">Premium Economy</option>
+                        <option value="BUSINESS">Business</option>
+                        <option value="FIRST">First Class</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Max Stops</label>
+                    <select x-model="search.maxStops" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                        <option value="">Any</option>
+                        <option value="0">Non-stop only</option>
+                        <option value="1">1 stop max</option>
+                        <option value="2">2 stops max</option>
+                    </select>
+                </div>
+                <div class="flex items-end">
+                    <button type="submit" class="w-full bg-primary-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-primary-700 transition disabled:opacity-50" :disabled="loading">
+                        <span x-show="!loading">Search Flights</span>
+                        <span x-show="loading" x-cloak>Searching...</span>
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Results -->
+    <div x-show="flights.length > 0" x-cloak>
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-semibold text-gray-900" x-text="`${flights.length} flights found`"></h2>
+            <select x-model="sortBy" @change="sortFlights" class="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                <option value="price_asc">Price: Low to High</option>
+                <option value="price_desc">Price: High to Low</option>
+                <option value="duration">Duration</option>
+                <option value="departure">Departure Time</option>
+            </select>
+        </div>
+
+        <div class="space-y-4">
+            <template x-for="flight in flights" :key="flight.id">
+                <div class="bg-white rounded-xl shadow-sm p-6 hover:shadow-lg transition">
+                    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                        <!-- Outbound -->
+                        <div class="flex-1">
+                            <template x-for="(segment, idx) in flight.segments" :key="idx">
+                                <div class="flex items-center gap-4 mb-2" :class="idx > 0 ? 'mt-4 pt-4 border-t' : ''">
+                                    <div class="text-center">
+                                        <p class="text-lg font-bold text-gray-900" x-text="formatTime(segment.departure_time)"></p>
+                                        <p class="text-sm text-gray-500" x-text="segment.departure_airport"></p>
+                                    </div>
+                                    <div class="flex-1 px-4">
+                                        <div class="flex items-center">
+                                            <div class="h-px bg-gray-300 flex-1"></div>
+                                            <svg class="h-4 w-4 text-gray-400 mx-2" fill="currentColor" viewBox="0 0 20 20">
+                                                <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+                                            </svg>
+                                            <div class="h-px bg-gray-300 flex-1"></div>
+                                        </div>
+                                        <p class="text-xs text-gray-500 text-center mt-1" x-text="segment.duration"></p>
+                                    </div>
+                                    <div class="text-center">
+                                        <p class="text-lg font-bold text-gray-900" x-text="formatTime(segment.arrival_time)"></p>
+                                        <p class="text-sm text-gray-500" x-text="segment.arrival_airport"></p>
+                                    </div>
+                                    <div class="ml-4 text-sm text-gray-600">
+                                        <p x-text="segment.airline + ' ' + segment.flight_number"></p>
+                                        <p class="text-xs text-gray-400" x-text="segment.aircraft"></p>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- Price & Book -->
+                        <div class="lg:text-right lg:pl-6 lg:border-l flex lg:flex-col items-center lg:items-end justify-between lg:justify-start gap-4">
+                            <div>
+                                <p class="text-2xl font-bold text-primary-600">$<span x-text="flight.price.total.toFixed(2)"></span></p>
+                                <p class="text-sm text-gray-500" x-text="flight.price.currency + ' per person'"></p>
+                            </div>
+                            <button @click="selectFlight(flight)" class="bg-primary-600 text-white py-2 px-6 rounded-lg font-medium hover:bg-primary-700 transition">
+                                Select
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Flight details toggle -->
+                    <div class="mt-4 pt-4 border-t">
+                        <button @click="flight.showDetails = !flight.showDetails" class="text-sm text-primary-600 hover:text-primary-700">
+                            <span x-text="flight.showDetails ? 'Hide details' : 'Show details'"></span>
+                        </button>
+                        <div x-show="flight.showDetails" x-cloak class="mt-4 text-sm text-gray-600">
+                            <div class="grid md:grid-cols-3 gap-4">
+                                <div>
+                                    <p class="font-medium">Baggage</p>
+                                    <p x-text="flight.baggage || 'Check airline policy'"></p>
+                                </div>
+                                <div>
+                                    <p class="font-medium">Stops</p>
+                                    <p x-text="flight.segments.length - 1 === 0 ? 'Non-stop' : flight.segments.length - 1 + ' stop(s)'"></p>
+                                </div>
+                                <div>
+                                    <p class="font-medium">Total Duration</p>
+                                    <p x-text="flight.total_duration"></p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <!-- Empty state -->
+    <div x-show="searched && flights.length === 0" x-cloak class="text-center py-12">
+        <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+        </svg>
+        <h3 class="mt-2 text-sm font-medium text-gray-900">No flights found</h3>
+        <p class="mt-1 text-sm text-gray-500">Try adjusting your search criteria or dates.</p>
+    </div>
+
+    <!-- Initial state -->
+    <div x-show="!searched && flights.length === 0" class="text-center py-12">
+        <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+        <h3 class="mt-2 text-sm font-medium text-gray-900">Search for flights</h3>
+        <p class="mt-1 text-sm text-gray-500">Enter your origin, destination, and dates to find available flights.</p>
+    </div>
+</div>
+
+<script>
+function flightSearch() {
+    return {
+        search: {
+            tripType: 'roundtrip',
+            origin: '',
+            destination: '',
+            departureDate: '',
+            returnDate: '',
+            passengers: 1,
+            travelClass: 'ECONOMY',
+            maxStops: ''
+        },
+        flights: [],
+        loading: false,
+        searched: false,
+        sortBy: 'price_asc',
+
+        async searchFlights() {
+            this.loading = true;
+            this.searched = true;
+
+            const params = new URLSearchParams({
+                origin: this.search.origin.toUpperCase(),
+                destination: this.search.destination.toUpperCase(),
+                departure_date: this.search.departureDate,
+                adults: this.search.passengers,
+                travel_class: this.search.travelClass,
+                non_stop: this.search.maxStops === '0' ? 'true' : 'false'
+            });
+
+            if (this.search.tripType === 'roundtrip' && this.search.returnDate) {
+                params.append('return_date', this.search.returnDate);
+            }
+
+            try {
+                const response = await fetch(`/api/v1/flights/search?${params}`);
+                const data = await response.json();
+                this.flights = (data.flights || []).map(f => ({...f, showDetails: false}));
+                this.sortFlights();
+            } catch (error) {
+                console.error('Search failed:', error);
+                this.flights = [];
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        sortFlights() {
+            if (this.sortBy === 'price_asc') {
+                this.flights.sort((a, b) => a.price.total - b.price.total);
+            } else if (this.sortBy === 'price_desc') {
+                this.flights.sort((a, b) => b.price.total - a.price.total);
+            } else if (this.sortBy === 'duration') {
+                this.flights.sort((a, b) => this.parseDuration(a.total_duration) - this.parseDuration(b.total_duration));
+            } else if (this.sortBy === 'departure') {
+                this.flights.sort((a, b) => new Date(a.segments[0].departure_time) - new Date(b.segments[0].departure_time));
+            }
+        },
+
+        parseDuration(duration) {
+            const match = duration.match(/(\d+)h\s*(\d*)m?/);
+            if (match) {
+                return parseInt(match[1]) * 60 + (parseInt(match[2]) || 0);
+            }
+            return 0;
+        },
+
+        formatTime(datetime) {
+            return new Date(datetime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        },
+
+        selectFlight(flight) {
+            sessionStorage.setItem('selectedFlight', JSON.stringify(flight));
+            sessionStorage.setItem('flightSearchParams', JSON.stringify(this.search));
+            window.location.href = '/flights/book';
+        }
+    }
+}
+</script>
+{{end}}

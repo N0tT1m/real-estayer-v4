@@ -1,0 +1,273 @@
+package repository
+
+import (
+	"context"
+	"errors"
+	"regexp"
+	"strconv"
+	"strings"
+
+	"github.com/realestayer/v3/internal/database"
+	"github.com/realestayer/v3/internal/models"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+)
+
+var ErrListingNotFound = errors.New("listing not found")
+
+// ListingRepository handles listing data operations
+type ListingRepository struct {
+	collection *mongo.Collection
+}
+
+// NewListingRepository creates a new listing repository
+func NewListingRepository(db *database.DB) *ListingRepository {
+	return &ListingRepository{
+		collection: db.Collection("listings"),
+	}
+}
+
+// FindByID finds a listing by ID
+func (r *ListingRepository) FindByID(ctx context.Context, id primitive.ObjectID) (*models.Listing, error) {
+	var listing models.Listing
+	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&listing)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, ErrListingNotFound
+	}
+	return &listing, err
+}
+
+// Search finds listings based on search parameters
+func (r *ListingRepository) Search(ctx context.Context, params models.ListingSearchParams) (*models.ListingSearchResult, error) {
+	// Set defaults
+	if params.Page < 1 {
+		params.Page = 1
+	}
+	// Limit of 0 or -1 means no limit (get all)
+	unlimited := params.Limit <= 0
+	if params.Limit < 1 {
+		params.Limit = 20 // Default for pagination display
+	}
+
+	// Build filter
+	filter := bson.M{}
+
+	// Text search across multiple fields
+	if params.Query != "" {
+		filter["$or"] = []bson.M{
+			{"title": bson.M{"$regex": params.Query, "$options": "i"}},
+			{"description": bson.M{"$regex": params.Query, "$options": "i"}},
+			{"location": bson.M{"$regex": params.Query, "$options": "i"}},
+		}
+	}
+
+	// Location filter
+	if params.Location != "" {
+		filter["location"] = bson.M{"$regex": params.Location, "$options": "i"}
+	}
+
+	// Region filter
+	if params.Region != "" {
+		filter["region"] = bson.M{"$regex": params.Region, "$options": "i"}
+	}
+
+	// Country filter
+	if params.Country != "" {
+		filter["country"] = bson.M{"$regex": params.Country, "$options": "i"}
+	}
+
+	// Price range filter
+	if params.MinPrice > 0 || params.MaxPrice > 0 {
+		priceFilter := bson.M{}
+		if params.MinPrice > 0 {
+			priceFilter["$gte"] = params.MinPrice
+		}
+		if params.MaxPrice > 0 {
+			priceFilter["$lte"] = params.MaxPrice
+		}
+		filter["price_numeric"] = priceFilter
+	}
+
+	// Rating filter
+	if params.MinRating > 0 {
+		filter["rating_numeric"] = bson.M{"$gte": params.MinRating}
+	}
+
+	// Features filter (must have all specified features)
+	if len(params.Features) > 0 {
+		filter["features"] = bson.M{"$all": params.Features}
+	}
+
+	// Property type filter
+	if params.PropertyType != "" {
+		filter["property_type"] = params.PropertyType
+	}
+
+	// Count total
+	total, err := r.collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build sort
+	sort := bson.M{"created_at": -1} // default: newest first
+	switch params.SortBy {
+	case "price_asc":
+		sort = bson.M{"price_numeric": 1}
+	case "price_desc":
+		sort = bson.M{"price_numeric": -1}
+	case "rating_desc":
+		sort = bson.M{"rating_numeric": -1}
+	case "newest":
+		sort = bson.M{"created_at": -1}
+	}
+
+	// Execute query
+	skip := (params.Page - 1) * params.Limit
+	opts := options.Find().SetSort(sort)
+	if !unlimited {
+		opts.SetSkip(int64(skip)).SetLimit(int64(params.Limit))
+	}
+
+	cursor, err := r.collection.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var listings []models.Listing
+	if err := cursor.All(ctx, &listings); err != nil {
+		return nil, err
+	}
+
+	// Parse and set numeric values if not already set
+	for i := range listings {
+		if listings[i].PriceNumeric == 0 && listings[i].Price != "" {
+			listings[i].PriceNumeric = parsePrice(listings[i].Price)
+		}
+		if listings[i].RatingNumeric == 0 && listings[i].Rating != "" {
+			listings[i].RatingNumeric = parseRating(listings[i].Rating)
+		}
+	}
+
+	totalPages := 1
+	if !unlimited {
+		totalPages = int(total) / params.Limit
+		if int(total)%params.Limit != 0 {
+			totalPages++
+		}
+	}
+
+	return &models.ListingSearchResult{
+		Listings:   listings,
+		Total:      total,
+		Page:       params.Page,
+		Limit:      params.Limit,
+		TotalPages: totalPages,
+	}, nil
+}
+
+// GetFeatures returns all unique features across listings
+func (r *ListingRepository) GetFeatures(ctx context.Context) ([]string, error) {
+	pipeline := []bson.M{
+		{"$unwind": "$features"},
+		{"$group": bson.M{"_id": "$features"}},
+		{"$sort": bson.M{"_id": 1}},
+	}
+
+	cursor, err := r.collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var results []struct {
+		ID string `bson:"_id"`
+	}
+	if err := cursor.All(ctx, &results); err != nil {
+		return nil, err
+	}
+
+	features := make([]string, len(results))
+	for i, r := range results {
+		features[i] = r.ID
+	}
+
+	return features, nil
+}
+
+// GetRegions returns all unique regions
+func (r *ListingRepository) GetRegions(ctx context.Context) ([]string, error) {
+	results, err := r.collection.Distinct(ctx, "region", bson.M{})
+	if err != nil {
+		return nil, err
+	}
+
+	regions := make([]string, 0, len(results))
+	for _, v := range results {
+		if s, ok := v.(string); ok && s != "" {
+			regions = append(regions, s)
+		}
+	}
+
+	return regions, nil
+}
+
+// GetCountries returns all unique countries
+func (r *ListingRepository) GetCountries(ctx context.Context) ([]string, error) {
+	results, err := r.collection.Distinct(ctx, "country", bson.M{})
+	if err != nil {
+		return nil, err
+	}
+
+	countries := make([]string, 0, len(results))
+	for _, v := range results {
+		if s, ok := v.(string); ok && s != "" {
+			countries = append(countries, s)
+		}
+	}
+
+	return countries, nil
+}
+
+// Count returns total listing count
+func (r *ListingRepository) Count(ctx context.Context) (int64, error) {
+	return r.collection.CountDocuments(ctx, bson.M{})
+}
+
+// Delete removes a listing by ID
+func (r *ListingRepository) Delete(ctx context.Context, id primitive.ObjectID) error {
+	result, err := r.collection.DeleteOne(ctx, bson.M{"_id": id})
+	if err != nil {
+		return err
+	}
+	if result.DeletedCount == 0 {
+		return ErrListingNotFound
+	}
+	return nil
+}
+
+// parsePrice extracts numeric value from price string like "$199"
+func parsePrice(price string) float64 {
+	// Remove currency symbols and non-numeric characters
+	re := regexp.MustCompile(`[\d.]+`)
+	match := re.FindString(strings.ReplaceAll(price, ",", ""))
+	if match == "" {
+		return 0
+	}
+	val, _ := strconv.ParseFloat(match, 64)
+	return val
+}
+
+// parseRating extracts numeric value from rating string like "4.89"
+func parseRating(rating string) float64 {
+	re := regexp.MustCompile(`[\d.]+`)
+	match := re.FindString(rating)
+	if match == "" {
+		return 0
+	}
+	val, _ := strconv.ParseFloat(match, 64)
+	return val
+}

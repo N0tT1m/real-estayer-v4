@@ -1,0 +1,118 @@
+{{template "base.html" .}}
+
+{{define "content"}}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-900">Welcome back, {{.User.Name}}</h1>
+        <p class="text-gray-600">Here's what's happening with your trips.</p>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="grid md:grid-cols-4 gap-4 mb-8">
+        <a href="/listings" class="bg-white rounded-xl shadow-sm p-6 hover:shadow-lg transition group">
+            <div class="w-12 h-12 bg-primary-100 rounded-lg flex items-center justify-center mb-4 group-hover:bg-primary-200 transition">
+                <svg class="h-6 w-6 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                </svg>
+            </div>
+            <h3 class="font-semibold text-gray-900">Browse Stays</h3>
+            <p class="text-sm text-gray-500">Find your next destination</p>
+        </a>
+
+        <a href="/flights" class="bg-white rounded-xl shadow-sm p-6 hover:shadow-lg transition group">
+            <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4 group-hover:bg-blue-200 transition">
+                <svg class="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+            </div>
+            <h3 class="font-semibold text-gray-900">Book Flights</h3>
+            <p class="text-sm text-gray-500">Search and compare flights</p>
+        </a>
+
+        <a href="/hotels" class="bg-white rounded-xl shadow-sm p-6 hover:shadow-lg transition group">
+            <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4 group-hover:bg-purple-200 transition">
+                <svg class="h-6 w-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+            </div>
+            <h3 class="font-semibold text-gray-900">Find Hotels</h3>
+            <p class="text-sm text-gray-500">Book accommodations</p>
+        </a>
+
+        <a href="/cars" class="bg-white rounded-xl shadow-sm p-6 hover:shadow-lg transition group">
+            <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mb-4 group-hover:bg-green-200 transition">
+                <svg class="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                </svg>
+            </div>
+            <h3 class="font-semibold text-gray-900">Rent a Car</h3>
+            <p class="text-sm text-gray-500">Get around your destination</p>
+        </a>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-8">
+        <!-- Upcoming Trips -->
+        <div class="bg-white rounded-xl shadow-sm p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-semibold text-gray-900">Upcoming Trips</h2>
+                <a href="/trips" class="text-sm text-primary-600 hover:text-primary-700">View all</a>
+            </div>
+
+            {{if .UpcomingTrips}}
+            <div class="space-y-4">
+                {{range .UpcomingTrips}}
+                <a href="/trips/{{.ID.Hex}}" class="block p-4 border rounded-lg hover:border-primary-300 hover:bg-primary-50 transition">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h3 class="font-medium text-gray-900">{{.Name}}</h3>
+                            <p class="text-sm text-gray-500">{{.StartDate.Format "Jan 2"}} - {{.EndDate.Format "Jan 2, 2006"}}</p>
+                        </div>
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{if eq .Status "planning"}}bg-yellow-100 text-yellow-800{{else if eq .Status "booked"}}bg-green-100 text-green-800{{else}}bg-gray-100 text-gray-800{{end}}">
+                            {{.Status}}
+                        </span>
+                    </div>
+                </a>
+                {{end}}
+            </div>
+            {{else}}
+            <div class="text-center py-8">
+                <svg class="mx-auto h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <p class="mt-2 text-sm text-gray-500">No upcoming trips</p>
+                <a href="/trips" class="mt-2 inline-block text-sm text-primary-600 hover:text-primary-700">Plan a new trip</a>
+            </div>
+            {{end}}
+        </div>
+
+        <!-- Watchlist Stats -->
+        <div class="bg-white rounded-xl shadow-sm p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-semibold text-gray-900">Watchlist</h2>
+                <a href="/watchlist" class="text-sm text-primary-600 hover:text-primary-700">View all</a>
+            </div>
+
+            {{if .WatchlistStats}}
+            <div class="grid grid-cols-2 gap-4">
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <p class="text-2xl font-bold text-gray-900">{{.WatchlistStats.TotalItems}}</p>
+                    <p class="text-sm text-gray-500">Total items</p>
+                </div>
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <p class="text-2xl font-bold text-gray-900">{{.WatchlistStats.ActiveItems}}</p>
+                    <p class="text-sm text-gray-500">Active alerts</p>
+                </div>
+            </div>
+            {{else}}
+            <div class="text-center py-8">
+                <svg class="mx-auto h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                </svg>
+                <p class="mt-2 text-sm text-gray-500">No items in watchlist</p>
+                <a href="/listings" class="mt-2 inline-block text-sm text-primary-600 hover:text-primary-700">Browse listings</a>
+            </div>
+            {{end}}
+        </div>
+    </div>
+</div>
+{{end}}

@@ -1,0 +1,84 @@
+package service
+
+import (
+	"context"
+
+	"github.com/realestayer/v3/internal/models"
+	"github.com/realestayer/v3/internal/repository"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+// ListingService handles listing-related business logic
+type ListingService struct {
+	listingRepo *repository.ListingRepository
+}
+
+// NewListingService creates a new listing service
+func NewListingService(listingRepo *repository.ListingRepository) *ListingService {
+	return &ListingService{
+		listingRepo: listingRepo,
+	}
+}
+
+// GetByID retrieves a listing by ID
+func (s *ListingService) GetByID(ctx context.Context, id string) (*models.Listing, error) {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, repository.ErrListingNotFound
+	}
+	return s.listingRepo.FindByID(ctx, objID)
+}
+
+// Search finds listings based on parameters
+func (s *ListingService) Search(ctx context.Context, params models.ListingSearchParams) (*models.ListingSearchResult, error) {
+	return s.listingRepo.Search(ctx, params)
+}
+
+// GetFeatures returns all available features
+func (s *ListingService) GetFeatures(ctx context.Context) ([]string, error) {
+	return s.listingRepo.GetFeatures(ctx)
+}
+
+// GetRegions returns all available regions
+func (s *ListingService) GetRegions(ctx context.Context) ([]string, error) {
+	return s.listingRepo.GetRegions(ctx)
+}
+
+// GetCountries returns all available countries
+func (s *ListingService) GetCountries(ctx context.Context) ([]string, error) {
+	return s.listingRepo.GetCountries(ctx)
+}
+
+// GetStats returns listing statistics
+func (s *ListingService) GetStats(ctx context.Context) (map[string]interface{}, error) {
+	count, err := s.listingRepo.Count(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	regions, err := s.listingRepo.GetRegions(ctx)
+	if err != nil {
+		regions = []string{}
+	}
+
+	countries, err := s.listingRepo.GetCountries(ctx)
+	if err != nil {
+		countries = []string{}
+	}
+
+	return map[string]interface{}{
+		"total":     count,
+		"total_listings": count,
+		"regions":        len(regions),
+		"countries":      len(countries),
+	}, nil
+}
+
+// Delete removes a listing by ID
+func (s *ListingService) Delete(ctx context.Context, id string) error {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return repository.ErrListingNotFound
+	}
+	return s.listingRepo.Delete(ctx, objID)
+}
