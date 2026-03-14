@@ -14,58 +14,60 @@ import (
 )
 
 // seedCities is the list of popular destinations used to seed MongoDB via the Amadeus API.
-// Only city names + known regions are hardcoded; all other data comes from Amadeus.
+// Coordinates, IATA codes, and country data come from Amadeus; only the metadata below is static.
 var seedCities = []struct {
-	Name   string
-	Region string
+	Name       string
+	Region     string
+	Categories []string
+	ImageID    string // Unsplash photo ID
 }{
 	// Europe
-	{"Paris", "Europe"},
-	{"London", "Europe"},
-	{"Rome", "Europe"},
-	{"Barcelona", "Europe"},
-	{"Amsterdam", "Europe"},
-	{"Prague", "Europe"},
-	{"Lisbon", "Europe"},
-	{"Istanbul", "Europe"},
-	{"Vienna", "Europe"},
-	{"Athens", "Europe"},
+	{"Paris", "Europe", []string{"city", "romantic", "cultural"}, "1502602898657-3e91760cbb34"},
+	{"London", "Europe", []string{"city", "cultural", "historical"}, "1513635269975-59663e0ac1ad"},
+	{"Rome", "Europe", []string{"city", "cultural", "historical"}, "1552832230-c0197dd311b5"},
+	{"Barcelona", "Europe", []string{"city", "beach", "cultural"}, "1583422409516-2895a77efded"},
+	{"Amsterdam", "Europe", []string{"city", "cultural", "romantic"}, "1534351590666-13e3e96b5017"},
+	{"Prague", "Europe", []string{"city", "historical", "romantic"}, "1519677100203-a0e668c92439"},
+	{"Lisbon", "Europe", []string{"city", "cultural", "beach"}, "1555881400-74d7acaacd47"},
+	{"Istanbul", "Europe", []string{"city", "cultural", "historical"}, "1524231757912-21f4fe3a7200"},
+	{"Vienna", "Europe", []string{"city", "cultural", "romantic"}, "1516550135131-5b4b2f5c5b5e"},
+	{"Athens", "Europe", []string{"city", "historical", "cultural"}, "1555993539-1732b0258f8a"},
 	// Asia
-	{"Tokyo", "Asia"},
-	{"Bangkok", "Asia"},
-	{"Bali", "Asia"},
-	{"Singapore", "Asia"},
-	{"Seoul", "Asia"},
-	{"Kuala Lumpur", "Asia"},
-	{"Hong Kong", "Asia"},
-	{"Mumbai", "Asia"},
+	{"Tokyo", "Asia", []string{"city", "cultural", "food"}, "1540959733332-eab4deabeeaf"},
+	{"Bangkok", "Asia", []string{"city", "cultural", "food"}, "1508009603885-50cf7c579365"},
+	{"Bali", "Asia", []string{"beach", "nature", "spiritual"}, "1537996194471-e657df975ab4"},
+	{"Singapore", "Asia", []string{"city", "luxury", "food"}, "1525625293386-3f8f99389edd"},
+	{"Seoul", "Asia", []string{"city", "cultural", "food"}, "1517154421773-0855dc628f9f"},
+	{"Kuala Lumpur", "Asia", []string{"city", "cultural", "food"}, "1596422846543-cb4fc8fc79e7"},
+	{"Hong Kong", "Asia", []string{"city", "cultural", "luxury"}, "1536599018102-9f803c140fc1"},
+	{"Mumbai", "Asia", []string{"city", "cultural", "food"}, "1570168007204-dfb528c6958f"},
 	// North America
-	{"New York", "North America"},
-	{"Los Angeles", "North America"},
-	{"Miami", "North America"},
-	{"Chicago", "North America"},
-	{"Toronto", "North America"},
-	{"Vancouver", "North America"},
-	{"Mexico City", "North America"},
-	{"Las Vegas", "North America"},
+	{"New York", "North America", []string{"city", "cultural", "entertainment"}, "1496442226666-8d4d0e62e6e9"},
+	{"Los Angeles", "North America", []string{"city", "beach", "entertainment"}, "1444723121867-7a241cacace9"},
+	{"Miami", "North America", []string{"beach", "city", "nightlife"}, "1533106497176-45ae19e68ba2"},
+	{"Chicago", "North America", []string{"city", "cultural", "food"}, "1477959858617-67f85cf4f1df"},
+	{"Toronto", "North America", []string{"city", "cultural", "food"}, "1517935706615-2717063c2225"},
+	{"Vancouver", "North America", []string{"nature", "city", "adventure"}, "1559511260-66a654ae982a"},
+	{"Mexico City", "North America", []string{"city", "cultural", "food"}, "1518105779142-d975f22f1b0a"},
+	{"Las Vegas", "North America", []string{"city", "entertainment", "luxury"}, "1506665523900-b94e4cf4a6ea"},
 	// South America
-	{"Rio de Janeiro", "South America"},
-	{"Buenos Aires", "South America"},
-	{"Bogota", "South America"},
-	{"Lima", "South America"},
+	{"Rio de Janeiro", "South America", []string{"beach", "city", "cultural"}, "1483729558449-99ef09a8c325"},
+	{"Buenos Aires", "South America", []string{"city", "cultural", "food"}, "1585208798174-6cedd86e019a"},
+	{"Bogota", "South America", []string{"city", "cultural", "adventure"}, "1597635742116-5bb30c1d2d85"},
+	{"Lima", "South America", []string{"city", "cultural", "food"}, "1609962234813-aa7e8286c4a8"},
 	// Africa
-	{"Cape Town", "Africa"},
-	{"Marrakech", "Africa"},
-	{"Cairo", "Africa"},
-	{"Nairobi", "Africa"},
+	{"Cape Town", "Africa", []string{"nature", "beach", "adventure"}, "1580060839134-75a5edca2e99"},
+	{"Marrakech", "Africa", []string{"cultural", "adventure", "city"}, "1539020140153-e479b8c22e70"},
+	{"Cairo", "Africa", []string{"historical", "cultural", "city"}, "1572252009286-96463070674e"},
+	{"Nairobi", "Africa", []string{"nature", "adventure", "city"}, "1611348586804-61bf6c080437"},
 	// Middle East
-	{"Dubai", "Middle East"},
-	{"Abu Dhabi", "Middle East"},
-	{"Doha", "Middle East"},
+	{"Dubai", "Middle East", []string{"city", "luxury", "shopping"}, "1512453979798-5ea266f8880c"},
+	{"Abu Dhabi", "Middle East", []string{"city", "luxury", "cultural"}, "1604928141064-207cea6f571f"},
+	{"Doha", "Middle East", []string{"city", "luxury", "cultural"}, "1570197788417-0e82375c9371"},
 	// Oceania
-	{"Sydney", "Oceania"},
-	{"Melbourne", "Oceania"},
-	{"Auckland", "Oceania"},
+	{"Sydney", "Oceania", []string{"city", "beach", "nature"}, "1506973035872-a4ec16b8e8d9"},
+	{"Melbourne", "Oceania", []string{"city", "cultural", "food"}, "1545044846-351ba102b6d5"},
+	{"Auckland", "Oceania", []string{"city", "nature", "adventure"}, "1507699622322-13fe651affd3"},
 }
 
 // regionBudgets holds a typical average daily budget (USD) per region used when seeding.
@@ -127,7 +129,7 @@ func (s *DestinationService) GetDestinationByName(ctx context.Context, name stri
 		Latitude:       result.Latitude,
 		Longitude:      result.Longitude,
 		Description:    fmt.Sprintf("Discover %s, a vibrant destination in %s with unforgettable experiences awaiting every traveller.", formatCityName(result.Name, name), formatCountryName(result.CountryName)),
-		ImageURL:       unsplashURL(name),
+		ImageURL:       unsplashFallback(name),
 		AvgDailyBudget: budget,
 		Currency:       "USD",
 		PopularityScore: 70,
@@ -171,7 +173,7 @@ func (s *DestinationService) GetRegions(ctx context.Context) ([]string, error) {
 }
 
 // SeedFromAmadeus populates MongoDB with destinations from the Amadeus city search API.
-// It is idempotent — cities that already exist are skipped.
+// Existing documents are updated with the latest metadata (categories, images, etc.).
 func (s *DestinationService) SeedFromAmadeus(ctx context.Context) error {
 	if s.amadeusClient == nil {
 		return fmt.Errorf("amadeus client not configured")
@@ -194,16 +196,19 @@ func (s *DestinationService) SeedFromAmadeus(ctx context.Context) error {
 			budget = 100
 		}
 
+		cityName := formatCityName(result.Name, city.Name)
+		countryName := formatCountryName(result.CountryName)
 		dest := &models.Destination{
-			Name:            formatCityName(result.Name, city.Name),
-			Country:         formatCountryName(result.CountryName),
+			Name:            cityName,
+			Country:         countryName,
 			CountryCode:     result.CountryCode,
 			Region:          region,
 			AirportCode:     result.IataCode,
 			Latitude:        result.Latitude,
 			Longitude:       result.Longitude,
-			Description:     fmt.Sprintf("Discover %s, a vibrant destination in %s with unforgettable experiences awaiting every traveller.", formatCityName(result.Name, city.Name), formatCountryName(result.CountryName)),
-			ImageURL:        unsplashURL(city.Name),
+			Description:     fmt.Sprintf("Discover %s, a vibrant destination in %s with unforgettable experiences awaiting every traveller.", cityName, countryName),
+			ImageURL:        unsplashURL(city.ImageID),
+			Categories:      city.Categories,
 			AvgDailyBudget:  budget,
 			Currency:        "USD",
 			PopularityScore: 70,
@@ -289,10 +294,17 @@ func regionForCountry(countryCode string) string {
 	return "Other"
 }
 
-// unsplashURL returns a free Unsplash source image URL for the given city name.
-func unsplashURL(city string) string {
-	slug := strings.ToLower(strings.ReplaceAll(city, " ", "-"))
-	return fmt.Sprintf("https://source.unsplash.com/featured/800x600/?%s,travel,city", slug)
+// unsplashURL returns a direct Unsplash image URL from a known photo ID.
+func unsplashURL(photoID string) string {
+	return fmt.Sprintf("https://images.unsplash.com/photo-%s?w=800&q=80&fit=crop", photoID)
+}
+
+// unsplashFallback returns a generic travel image for cities without a known photo ID.
+func unsplashFallback(city string) string {
+	slug := strings.ToLower(strings.ReplaceAll(city, " ", "+"))
+	// Use a stable curated travel photo as fallback
+	_ = slug
+	return "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800&q=80&fit=crop"
 }
 
 // formatCityName returns the proper-cased city name, preferring the seed name when the
