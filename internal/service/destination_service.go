@@ -97,7 +97,44 @@ func (s *DestinationService) GetDestination(ctx context.Context, id string) (*mo
 }
 
 func (s *DestinationService) GetDestinationByName(ctx context.Context, name string) (*models.Destination, error) {
-	return s.repo.FindByName(ctx, name)
+	dest, err := s.repo.FindByName(ctx, name)
+	if err == nil {
+		return dest, nil
+	}
+
+	// Not in DB — look up live from Amadeus and cache it.
+	if s.amadeusClient == nil {
+		return nil, err
+	}
+
+	result, amErr := s.amadeusClient.SearchCity(ctx, name)
+	if amErr != nil {
+		return nil, err // return original not-found error
+	}
+
+	region := regionForCountry(result.CountryCode)
+	budget := regionBudgets[region]
+	if budget == 0 {
+		budget = 100
+	}
+
+	dest = &models.Destination{
+		Name:           formatCityName(result.Name, name),
+		Country:        formatCountryName(result.CountryName),
+		CountryCode:    result.CountryCode,
+		Region:         region,
+		AirportCode:    result.IataCode,
+		Latitude:       result.Latitude,
+		Longitude:      result.Longitude,
+		Description:    fmt.Sprintf("Discover %s, a vibrant destination in %s with unforgettable experiences awaiting every traveller.", formatCityName(result.Name, name), formatCountryName(result.CountryName)),
+		ImageURL:       unsplashURL(name),
+		AvgDailyBudget: budget,
+		Currency:       "USD",
+		PopularityScore: 70,
+	}
+
+	_ = s.repo.Upsert(ctx, dest)
+	return dest, nil
 }
 
 func (s *DestinationService) SearchDestinations(ctx context.Context, filter models.DestinationFilter) ([]models.Destination, int64, error) {
@@ -148,7 +185,11 @@ func (s *DestinationService) SeedFromAmadeus(ctx context.Context) error {
 			continue
 		}
 
-		budget := regionBudgets[city.Region]
+		region := regionForCountry(result.CountryCode)
+		if region == "Other" {
+			region = city.Region // fall back to seed hint
+		}
+		budget := regionBudgets[region]
 		if budget == 0 {
 			budget = 100
 		}
@@ -157,7 +198,7 @@ func (s *DestinationService) SeedFromAmadeus(ctx context.Context) error {
 			Name:            formatCityName(result.Name, city.Name),
 			Country:         formatCountryName(result.CountryName),
 			CountryCode:     result.CountryCode,
-			Region:          city.Region,
+			Region:          region,
 			AirportCode:     result.IataCode,
 			Latitude:        result.Latitude,
 			Longitude:       result.Longitude,
@@ -204,6 +245,48 @@ func (s *DestinationService) GetHighlights(ctx context.Context, latitude, longit
 		})
 	}
 	return highlights, nil
+}
+
+// countryRegions maps ISO country codes to display region names.
+var countryRegions = map[string]string{
+	// Europe
+	"FR": "Europe", "GB": "Europe", "DE": "Europe", "IT": "Europe",
+	"ES": "Europe", "NL": "Europe", "PT": "Europe", "GR": "Europe",
+	"AT": "Europe", "CH": "Europe", "BE": "Europe", "SE": "Europe",
+	"NO": "Europe", "DK": "Europe", "FI": "Europe", "PL": "Europe",
+	"CZ": "Europe", "HU": "Europe", "HR": "Europe", "IS": "Europe",
+	"TR": "Europe", "RO": "Europe", "BG": "Europe", "SK": "Europe",
+	// Asia
+	"JP": "Asia", "CN": "Asia", "IN": "Asia", "TH": "Asia",
+	"ID": "Asia", "MY": "Asia", "SG": "Asia", "VN": "Asia",
+	"PH": "Asia", "KR": "Asia", "HK": "Asia", "TW": "Asia",
+	"MV": "Asia", "LK": "Asia", "NP": "Asia", "MM": "Asia",
+	// North America
+	"US": "North America", "CA": "North America", "MX": "North America",
+	"CR": "North America", "PA": "North America", "CU": "North America",
+	"JM": "North America", "DO": "North America",
+	// South America
+	"BR": "South America", "AR": "South America", "CO": "South America",
+	"PE": "South America", "CL": "South America", "EC": "South America",
+	"BO": "South America", "UY": "South America", "PY": "South America",
+	// Africa
+	"ZA": "Africa", "MA": "Africa", "EG": "Africa", "KE": "Africa",
+	"TZ": "Africa", "GH": "Africa", "NG": "Africa", "ET": "Africa",
+	"SN": "Africa", "TN": "Africa", "MU": "Africa", "CI": "Africa",
+	// Middle East
+	"AE": "Middle East", "SA": "Middle East", "QA": "Middle East",
+	"BH": "Middle East", "KW": "Middle East", "OM": "Middle East",
+	"IL": "Middle East", "JO": "Middle East", "LB": "Middle East",
+	// Oceania
+	"AU": "Oceania", "NZ": "Oceania", "FJ": "Oceania", "PG": "Oceania",
+}
+
+// regionForCountry returns the display region for an ISO country code.
+func regionForCountry(countryCode string) string {
+	if r, ok := countryRegions[countryCode]; ok {
+		return r
+	}
+	return "Other"
 }
 
 // unsplashURL returns a free Unsplash source image URL for the given city name.
