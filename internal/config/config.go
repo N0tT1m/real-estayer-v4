@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Config holds all application configuration
@@ -59,7 +60,7 @@ func Load() (*Config, error) {
 		Amadeus: AmadeusConfig{
 			ClientID:     getEnv("AMADEUS_API_KEY", getEnv("AMADEUS_CLIENT_ID", "")),
 			ClientSecret: getEnv("AMADEUS_API_SECRET", getEnv("AMADEUS_CLIENT_SECRET", "")),
-			BaseURL:      getEnv("AMADEUS_API_BASE_URL", getEnv("AMADEUS_BASE_URL", "https://test.api.amadeus.com")),
+			BaseURL:      ensureHTTPS(getEnv("AMADEUS_API_BASE_URL", getEnv("AMADEUS_BASE_URL", "https://test.api.amadeus.com"))),
 		},
 		Email: EmailConfig{
 			SMTPHost:     getEnv("SMTP_HOST", ""),
@@ -90,6 +91,13 @@ func (c *Config) IsDevelopment() bool {
 
 func (c *Config) IsProduction() bool {
 	return c.Env == "production"
+}
+
+func ensureHTTPS(url string) string {
+	if url != "" && !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		return "https://" + url
+	}
+	return url
 }
 
 func getEnv(key, defaultValue string) string {
