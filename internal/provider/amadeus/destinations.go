@@ -39,11 +39,15 @@ type CityResult struct {
 }
 
 // SearchCity returns the best-matching city for the given keyword.
-func (c *Client) SearchCity(ctx context.Context, keyword string) (*CityResult, error) {
+// countryCode is an optional ISO 3166-1 alpha-2 code to narrow the search (e.g. "GR" for Greece).
+func (c *Client) SearchCity(ctx context.Context, keyword, countryCode string) (*CityResult, error) {
 	params := url.Values{}
 	params.Set("subType", "CITY")
 	params.Set("keyword", keyword)
 	params.Set("page[limit]", "1")
+	if countryCode != "" {
+		params.Set("countryCode", countryCode)
+	}
 
 	resp, err := c.get(ctx, "/v1/reference-data/locations?"+params.Encode())
 	if err != nil {

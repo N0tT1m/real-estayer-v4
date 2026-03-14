@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -144,6 +145,28 @@ func (h *DestinationHandler) FeaturedAPI(w http.ResponseWriter, r *http.Request)
 	}
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{"destinations": destinations})
+}
+
+// AdminAddDestination adds any city to the destinations collection by calling Amadeus + Wikipedia.
+// POST /api/v1/admin/destinations  {"name":"Lisbon","country_code":"PT","region":"Europe"}
+func (h *DestinationHandler) AdminAddDestination(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name        string `json:"name"`
+		CountryCode string `json:"country_code"`
+		Region      string `json:"region"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return
+	}
+
+	dest, err := h.destService.AddDestination(r.Context(), body.Name, body.CountryCode, body.Region)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, dest)
 }
 
 func (h *DestinationHandler) SearchAPI(w http.ResponseWriter, r *http.Request) {
