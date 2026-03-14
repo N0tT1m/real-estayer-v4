@@ -5,15 +5,14 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
+    env_file:
+      - .env
     environment:
       - APP_ENV=development
       - PORT=8080
       - MONGODB_URI=mongodb://mongodb:27017
       - MONGODB_DATABASE=real_estayer
       - REDIS_URL=redis://redis:6379
-      - SESSION_SECRET=${SESSION_SECRET:-your-session-secret-change-in-production}
-      - AMADEUS_CLIENT_ID=${AMADEUS_CLIENT_ID:-}
-      - AMADEUS_CLIENT_SECRET=${AMADEUS_CLIENT_SECRET:-}
       - RUST_SCRAPER_URL=http://REMOTE_HOST_REMOVED:3001
     depends_on:
       - mongodb
