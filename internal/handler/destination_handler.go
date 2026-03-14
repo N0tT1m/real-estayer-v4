@@ -147,6 +147,17 @@ func (h *DestinationHandler) FeaturedAPI(w http.ResponseWriter, r *http.Request)
 	respondJSON(w, http.StatusOK, map[string]interface{}{"destinations": destinations})
 }
 
+// AdminReseedDestinations re-seeds all destinations from Amadeus + Wikipedia.
+// POST /api/v1/admin/destinations/reseed
+func (h *DestinationHandler) AdminReseedDestinations(w http.ResponseWriter, r *http.Request) {
+	go func() {
+		if err := h.destService.SeedFromAmadeus(r.Context()); err != nil {
+			return
+		}
+	}()
+	respondJSON(w, http.StatusAccepted, map[string]string{"status": "reseed started in background"})
+}
+
 // AdminAddDestination adds any city to the destinations collection by calling Amadeus + Wikipedia.
 // POST /api/v1/admin/destinations  {"name":"Lisbon","country_code":"PT","region":"Europe"}
 func (h *DestinationHandler) AdminAddDestination(w http.ResponseWriter, r *http.Request) {
