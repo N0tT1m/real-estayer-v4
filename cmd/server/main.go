@@ -221,6 +221,7 @@ func main() {
 			r.Get("/scraping/status", h.ScrapingStatus)
 			r.Post("/scraping/trigger", h.TriggerScraping)
 			r.Delete("/listings/{id}", h.AdminDeleteListing)
+			r.Post("/destinations", destHandler.AdminAddDestination)
 		})
 	})
 
