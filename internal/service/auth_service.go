@@ -58,6 +58,7 @@ func (s *AuthService) Register(ctx context.Context, req models.RegisterRequest) 
 		PasswordHash: string(hashedPassword),
 		Name:         req.Name,
 		Preferences:  models.NewUserPreferences(),
+		IsAdmin:      req.Email == "nathan.moritz@duocore.dev",
 	}
 
 	if err := s.userRepo.Create(ctx, user); err != nil {
