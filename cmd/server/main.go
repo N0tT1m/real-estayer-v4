@@ -222,6 +222,7 @@ func main() {
 			r.Post("/scraping/trigger", h.TriggerScraping)
 			r.Delete("/listings/{id}", h.AdminDeleteListing)
 			r.Post("/destinations", destHandler.AdminAddDestination)
+			r.Post("/destinations/reseed", destHandler.AdminReseedDestinations)
 		})
 	})
 
