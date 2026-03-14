@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} | Real-Estayer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        [x-cloak] { display: none !important; }
+    </style>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: { 50: '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe', 300: '#93c5fd', 400: '#60a5fa', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8', 800: '#1e40af', 900: '#1e3a8a' }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="h-full bg-gray-50" x-data="{ mobileMenu: false }">
+    <!-- Navigation -->
+    <nav class="bg-white shadow-sm sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <a href="/" class="flex items-center space-x-2">
+                        <svg class="h-8 w-8 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                        </svg>
+                        <span class="text-xl font-bold text-gray-900">Real-Estayer</span>
+                    </a>
+                    <div class="hidden md:ml-10 md:flex md:space-x-8">
+                        <a href="/explore" class="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium {{if hasPrefix .Path "/explore"}}text-primary-600{{end}}">Explore</a>
+                        <a href="/listings" class="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium {{if eq .Path "/listings"}}text-primary-600{{end}}">Stays</a>
+                        <a href="/flights" class="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium {{if eq .Path "/flights"}}text-primary-600{{end}}">Flights</a>
+                        <a href="/hotels" class="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium {{if eq .Path "/hotels"}}text-primary-600{{end}}">Hotels</a>
+                        <a href="/cars" class="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium {{if eq .Path "/cars"}}text-primary-600{{end}}">Cars</a>
+                        <a href="/scrape" class="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium {{if eq .Path "/scrape"}}text-primary-600{{end}}">Find Rentals</a>
+                    </div>
+                </div>
+                <div class="hidden md:flex md:items-center md:space-x-4">
+                    {{if .User}}
+                    <a href="/trips" class="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium">My Trips</a>
+                    <a href="/watchlist" class="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium">Watchlist</a>
+                    <div class="relative" x-data="{ open: false }">
+                        <button @click="open = !open" class="flex items-center space-x-2 text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium">
+                            <span>{{.User.Name}}</span>
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
+                        <div x-show="open" @click.away="open = false" x-cloak class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 ring-1 ring-black ring-opacity-5">
+                            <a href="/dashboard" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Dashboard</a>
+                            <a href="/profile" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Profile</a>
+                            <a href="/bookings" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">My Bookings</a>
+                            <hr class="my-1">
+                            <form action="/auth/logout" method="POST">
+                                <button type="submit" class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Sign out</button>
+                            </form>
+                        </div>
+                    </div>
+                    {{else}}
+                    <a href="/auth/login" class="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium">Sign in</a>
+                    <a href="/auth/register" class="bg-primary-600 text-white hover:bg-primary-700 px-4 py-2 rounded-lg text-sm font-medium transition">Sign up</a>
+                    {{end}}
+                </div>
+                <div class="flex items-center md:hidden">
+                    <button @click="mobileMenu = !mobileMenu" class="text-gray-600 hover:text-gray-900">
+                        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path x-show="!mobileMenu" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                            <path x-show="mobileMenu" x-cloak stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <!-- Mobile menu -->
+        <div x-show="mobileMenu" x-cloak class="md:hidden border-t">
+            <div class="px-2 pt-2 pb-3 space-y-1">
+                <a href="/explore" class="block px-3 py-2 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md">Explore</a>
+                <a href="/listings" class="block px-3 py-2 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md">Stays</a>
+                <a href="/flights" class="block px-3 py-2 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md">Flights</a>
+                <a href="/hotels" class="block px-3 py-2 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md">Hotels</a>
+                <a href="/cars" class="block px-3 py-2 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md">Cars</a>
+                <a href="/scrape" class="block px-3 py-2 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md">Find Rentals</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main content -->
+    <main>
+        {{template "content" .}}
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t mt-auto">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-8">
+                <div>
+                    <h3 class="text-sm font-semibold text-gray-900">Explore</h3>
+                    <ul class="mt-4 space-y-2">
+                        <li><a href="/listings" class="text-sm text-gray-600 hover:text-gray-900">Stays</a></li>
+                        <li><a href="/flights" class="text-sm text-gray-600 hover:text-gray-900">Flights</a></li>
+                        <li><a href="/hotels" class="text-sm text-gray-600 hover:text-gray-900">Hotels</a></li>
+                        <li><a href="/cars" class="text-sm text-gray-600 hover:text-gray-900">Car Rentals</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 class="text-sm font-semibold text-gray-900">Account</h3>
+                    <ul class="mt-4 space-y-2">
+                        <li><a href="/dashboard" class="text-sm text-gray-600 hover:text-gray-900">Dashboard</a></li>
+                        <li><a href="/trips" class="text-sm text-gray-600 hover:text-gray-900">My Trips</a></li>
+                        <li><a href="/watchlist" class="text-sm text-gray-600 hover:text-gray-900">Watchlist</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 class="text-sm font-semibold text-gray-900">Support</h3>
+                    <ul class="mt-4 space-y-2">
+                        <li><a href="#" class="text-sm text-gray-600 hover:text-gray-900">Help Center</a></li>
+                        <li><a href="#" class="text-sm text-gray-600 hover:text-gray-900">Contact Us</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 class="text-sm font-semibold text-gray-900">Legal</h3>
+                    <ul class="mt-4 space-y-2">
+                        <li><a href="#" class="text-sm text-gray-600 hover:text-gray-900">Privacy Policy</a></li>
+                        <li><a href="#" class="text-sm text-gray-600 hover:text-gray-900">Terms of Service</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="mt-8 pt-8 border-t text-center text-sm text-gray-500">
+                <p>&copy; 2024 Real-Estayer. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,321 @@
+{{template "base.html" .}}
+
+{{define "content"}}
+<div class="min-h-screen bg-gray-50" x-data="scrapePage()">
+    <!-- Header -->
+    <div class="bg-white border-b">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div class="text-center">
+                <h1 class="text-3xl font-bold text-gray-900">Find Vacation Rentals</h1>
+                <p class="text-gray-500 mt-2">Search and scrape Airbnb listings for any destination</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Scrape Form -->
+            <div class="lg:col-span-2">
+                <div class="bg-white rounded-xl shadow-sm p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-lg font-semibold text-gray-900">Search Listings</h2>
+                        <!-- Status Indicator -->
+                        <div class="flex items-center space-x-2">
+                            <div class="h-2 w-2 rounded-full" :class="{
+                                'bg-yellow-400 animate-pulse': scraping,
+                                'bg-green-400': !scraping && scraperStatus.status === 'online',
+                                'bg-red-400': !scraping && scraperStatus.status === 'offline',
+                                'bg-gray-300': scraperStatus.status === 'checking'
+                            }"></div>
+                            <span class="text-xs text-gray-500" x-text="scraping ? 'Scraping...' : (scraperStatus.status === 'online' ? 'Ready' : (scraperStatus.status === 'offline' ? 'Offline' : 'Checking...'))"></span>
+                        </div>
+                    </div>
+
+                    <form @submit.prevent="triggerScrape" class="space-y-5">
+                        <!-- City -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">City *</label>
+                            <input type="text" x-model="scrapeForm.city" placeholder="e.g., Miami" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition" required>
+                        </div>
+
+                        <!-- State & Country -->
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">State/Province</label>
+                                <input type="text" x-model="scrapeForm.state" placeholder="e.g., Florida" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Country</label>
+                                <input type="text" x-model="scrapeForm.country" placeholder="e.g., USA" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition">
+                            </div>
+                        </div>
+
+                        <!-- Dates -->
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Check-in Date *</label>
+                                <input type="date" x-model="scrapeForm.checkIn" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Check-out Date *</label>
+                                <input type="date" x-model="scrapeForm.checkOut" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition" required>
+                            </div>
+                        </div>
+
+                        <!-- Guest Counts -->
+                        <div class="grid grid-cols-4 gap-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Adults</label>
+                                <input type="number" x-model="scrapeForm.adults" min="1" max="16" class="w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition text-center">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Children</label>
+                                <input type="number" x-model="scrapeForm.children" min="0" max="10" class="w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition text-center">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Infants</label>
+                                <input type="number" x-model="scrapeForm.infants" min="0" max="5" class="w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition text-center">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Pets</label>
+                                <input type="number" x-model="scrapeForm.pets" min="0" max="5" class="w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition text-center">
+                            </div>
+                        </div>
+
+                        <!-- Max Results -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Max Results</label>
+                            <select x-model="scrapeForm.limit" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition">
+                                <option value="0">All listings</option>
+                                <option value="10">10 listings</option>
+                                <option value="20">20 listings</option>
+                                <option value="50">50 listings</option>
+                                <option value="100">100 listings</option>
+                                <option value="200">200 listings</option>
+                                <option value="500">500 listings</option>
+                            </select>
+                        </div>
+
+                        <!-- Amenity Filters -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Amenity Filters</label>
+                            <div class="grid grid-cols-3 gap-3">
+                                <label class="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition" :class="{'border-primary-500 bg-primary-50': scrapeForm.hotTub}">
+                                    <input type="checkbox" x-model="scrapeForm.hotTub" class="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded">
+                                    <span class="ml-2 text-sm text-gray-700">Hot Tub</span>
+                                </label>
+                                <label class="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition" :class="{'border-primary-500 bg-primary-50': scrapeForm.pool}">
+                                    <input type="checkbox" x-model="scrapeForm.pool" class="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded">
+                                    <span class="ml-2 text-sm text-gray-700">Pool</span>
+                                </label>
+                                <label class="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition" :class="{'border-primary-500 bg-primary-50': scrapeForm.waterfront}">
+                                    <input type="checkbox" x-model="scrapeForm.waterfront" class="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded">
+                                    <span class="ml-2 text-sm text-gray-700">Waterfront</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Badges Only -->
+                        <div class="flex items-center">
+                            <input type="checkbox" id="badgesOnly" x-model="scrapeForm.badgesOnly" class="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded">
+                            <label for="badgesOnly" class="ml-2 block text-sm text-gray-700">
+                                Badges only <span class="text-gray-500">(Superhost, Guest favorite, Rare find, etc.)</span>
+                            </label>
+                        </div>
+
+                        <!-- Submit Button -->
+                        <button type="submit" :disabled="scraping || scraperStatus.status === 'offline'" class="w-full bg-primary-600 text-white py-4 px-4 rounded-lg font-medium hover:bg-primary-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-lg">
+                            <template x-if="scraping">
+                                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                            </template>
+                            <span x-text="scraping ? 'Scraping in progress...' : 'Start Scraping'"></span>
+                        </button>
+                    </form>
+
+                    <!-- Info Note -->
+                    <p class="mt-4 text-xs text-gray-500 text-center">
+                        Scraping runs in the background. You can close this page and results will be saved automatically.
+                    </p>
+                </div>
+
+                <!-- Results Section -->
+                <div x-show="scrapeResult" x-cloak class="mt-6 bg-white rounded-xl shadow-sm p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-lg font-semibold text-gray-900">Scrape Started</h2>
+                        <button @click="scrapeResult = null" class="text-gray-400 hover:text-gray-600">
+                            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                        <div class="flex items-center">
+                            <svg class="h-5 w-5 text-green-600 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                            </svg>
+                            <span class="text-green-800 font-medium">Scraping started successfully!</span>
+                        </div>
+                        <p class="mt-2 text-sm text-green-700" x-text="scrapeResult?.message"></p>
+                        <a href="/listings" class="mt-3 inline-flex items-center text-sm text-primary-600 hover:text-primary-700 font-medium">
+                            View listings
+                            <svg class="ml-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Error Display -->
+                <div x-show="scrapeError" x-cloak class="mt-6 bg-red-50 border border-red-200 rounded-xl p-6">
+                    <div class="flex items-center">
+                        <svg class="h-5 w-5 text-red-600 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span class="text-red-800 font-medium">Something went wrong</span>
+                        <button @click="scrapeError = null" class="ml-auto text-red-400 hover:text-red-600">
+                            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                    <p class="mt-2 text-sm text-red-700" x-text="scrapeError"></p>
+                </div>
+            </div>
+
+            <!-- Popular Locations Sidebar -->
+            <div class="lg:col-span-1">
+                <div class="bg-white rounded-xl shadow-sm p-6 sticky top-24">
+                    <h2 class="text-lg font-semibold text-gray-900 mb-4">Popular Destinations</h2>
+                    <p class="text-sm text-gray-500 mb-4">Quick scrape popular locations</p>
+                    <div class="space-y-2">
+                        <template x-for="loc in popularLocations" :key="loc.city">
+                            <button @click="quickScrape(loc)" :disabled="scraping" class="w-full flex items-center p-3 border rounded-lg hover:bg-gray-50 transition text-left disabled:opacity-50 disabled:cursor-not-allowed">
+                                <span class="text-2xl mr-3" x-text="loc.flag"></span>
+                                <div>
+                                    <p class="font-medium text-gray-900 text-sm" x-text="loc.city"></p>
+                                    <p class="text-xs text-gray-500" x-text="loc.country"></p>
+                                </div>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function scrapePage() {
+    return {
+        scraperStatus: { status: 'checking' },
+        scraping: false,
+        scrapeForm: {
+            city: '',
+            state: '',
+            country: '',
+            checkIn: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            checkOut: new Date(Date.now() + 12 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            adults: 2,
+            children: 0,
+            infants: 0,
+            pets: 0,
+            limit: '0',
+            badgesOnly: false,
+            hotTub: false,
+            pool: false,
+            waterfront: false
+        },
+        scrapeResult: null,
+        scrapeError: null,
+        popularLocations: [
+            { city: 'Miami', state: 'Florida', country: 'USA', flag: '🇺🇸' },
+            { city: 'New York', state: 'New York', country: 'USA', flag: '🇺🇸' },
+            { city: 'Los Angeles', state: 'California', country: 'USA', flag: '🇺🇸' },
+            { city: 'Toronto', state: 'Ontario', country: 'Canada', flag: '🇨🇦' },
+            { city: 'Vancouver', state: 'British Columbia', country: 'Canada', flag: '🇨🇦' },
+            { city: 'Montreal', state: 'Quebec', country: 'Canada', flag: '🇨🇦' },
+            { city: 'Cancun', state: 'Quintana Roo', country: 'Mexico', flag: '🇲🇽' },
+            { city: 'Paris', state: '', country: 'France', flag: '🇫🇷' },
+        ],
+
+        async init() {
+            await this.checkScraperStatus();
+            setInterval(() => this.checkScraperStatus(), 15000);
+        },
+
+        async checkScraperStatus() {
+            try {
+                const res = await fetch('/api/v1/scraper/status');
+                if (res.ok) {
+                    const data = await res.json();
+                    this.scraperStatus = data;
+                    // Check if a scrape is currently running
+                    if (data.status === 'scraping') {
+                        this.scraping = true;
+                    }
+                } else {
+                    this.scraperStatus = { status: 'offline' };
+                }
+            } catch (e) {
+                this.scraperStatus = { status: 'offline' };
+            }
+        },
+
+        async triggerScrape() {
+            if (!this.scrapeForm.city) return;
+
+            this.scraping = true;
+            this.scrapeError = null;
+            this.scrapeResult = null;
+
+            try {
+                const params = new URLSearchParams({
+                    city: this.scrapeForm.city,
+                    state: this.scrapeForm.state,
+                    country: this.scrapeForm.country,
+                    check_in: this.scrapeForm.checkIn,
+                    check_out: this.scrapeForm.checkOut,
+                    adults: this.scrapeForm.adults,
+                    children: this.scrapeForm.children,
+                    infants: this.scrapeForm.infants,
+                    pets: this.scrapeForm.pets,
+                    limit: this.scrapeForm.limit,
+                    badges_only: this.scrapeForm.badgesOnly ? 'true' : 'false',
+                    hot_tub: this.scrapeForm.hotTub ? 'true' : 'false',
+                    pool: this.scrapeForm.pool ? 'true' : 'false',
+                    waterfront: this.scrapeForm.waterfront ? 'true' : 'false'
+                });
+
+                const res = await fetch(`/api/v1/scraper/scrape?${params}`, {
+                    method: 'POST'
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.error || err.message || 'Scraping failed to start');
+                }
+
+                const data = await res.json();
+                this.scrapeResult = {
+                    message: data.message || `Scraping started for ${this.scrapeForm.city}. Results will be saved automatically.`
+                };
+
+            } catch (e) {
+                this.scrapeError = e.message;
+                this.scraping = false;
+            }
+        },
+
+        async quickScrape(loc) {
+            this.scrapeForm.city = loc.city;
+            this.scrapeForm.state = loc.state;
+            this.scrapeForm.country = loc.country;
+            await this.triggerScrape();
+        }
+    }
+}
+</script>
+{{end}}
