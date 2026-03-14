@@ -57,9 +57,9 @@ func Load() (*Config, error) {
 		ScraperURL:        getEnv("RUST_SCRAPER_URL", "http://localhost:3001"),
 		DiscordWebhookURL: getEnv("DISCORD_WEBHOOK_URL", ""),
 		Amadeus: AmadeusConfig{
-			ClientID:     getEnv("AMADEUS_CLIENT_ID", ""),
-			ClientSecret: getEnv("AMADEUS_CLIENT_SECRET", ""),
-			BaseURL:      getEnv("AMADEUS_BASE_URL", "https://test.api.amadeus.com"),
+			ClientID:     getEnv("AMADEUS_API_KEY", getEnv("AMADEUS_CLIENT_ID", "")),
+			ClientSecret: getEnv("AMADEUS_API_SECRET", getEnv("AMADEUS_CLIENT_SECRET", "")),
+			BaseURL:      getEnv("AMADEUS_API_BASE_URL", getEnv("AMADEUS_BASE_URL", "https://test.api.amadeus.com")),
 		},
 		Email: EmailConfig{
 			SMTPHost:     getEnv("SMTP_HOST", ""),
