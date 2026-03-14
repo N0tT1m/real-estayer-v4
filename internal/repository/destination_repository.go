@@ -200,6 +200,41 @@ func (r *DestinationRepository) Update(ctx context.Context, dest *models.Destina
 	return err
 }
 
+// Upsert inserts a destination if no document with the same name exists, otherwise does nothing.
+func (r *DestinationRepository) Upsert(ctx context.Context, dest *models.Destination) error {
+	now := time.Now()
+	dest.Active = true
+
+	filter := bson.M{"name": dest.Name}
+	update := bson.M{
+		"$setOnInsert": bson.M{
+			"name":             dest.Name,
+			"country":          dest.Country,
+			"country_code":     dest.CountryCode,
+			"region":           dest.Region,
+			"description":      dest.Description,
+			"image_url":        dest.ImageURL,
+			"airport_code":     dest.AirportCode,
+			"latitude":         dest.Latitude,
+			"longitude":        dest.Longitude,
+			"categories":       dest.Categories,
+			"best_for":         dest.BestFor,
+			"best_months":      dest.BestMonths,
+			"avg_daily_budget": dest.AvgDailyBudget,
+			"currency":         dest.Currency,
+			"popularity_score": dest.PopularityScore,
+			"featured":         dest.Featured,
+			"active":           true,
+			"created_at":       now,
+			"updated_at":       now,
+		},
+	}
+
+	opts := options.Update().SetUpsert(true)
+	_, err := r.collection.UpdateOne(ctx, filter, update, opts)
+	return err
+}
+
 func (r *DestinationRepository) IncrementListingsCount(ctx context.Context, id primitive.ObjectID) error {
 	_, err := r.collection.UpdateOne(ctx,
 		bson.M{"_id": id},

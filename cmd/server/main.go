@@ -16,6 +16,7 @@ import (
 	"github.com/realestayer/v3/internal/database"
 	"github.com/realestayer/v3/internal/handler"
 	authMiddleware "github.com/realestayer/v3/internal/middleware"
+	"github.com/realestayer/v3/internal/models"
 	"github.com/realestayer/v3/internal/provider"
 	"github.com/realestayer/v3/internal/provider/amadeus"
 	"github.com/realestayer/v3/internal/repository"
@@ -67,7 +68,7 @@ func main() {
 	scraperService := service.NewScraperService(cfg.ScraperURL)
 	tripService := service.NewTripService(repos.Trip)
 	watchlistService := service.NewWatchlistService(repos.Watchlist)
-	destService := service.NewDestinationService(destRepo)
+	destService := service.NewDestinationService(destRepo, amadeusClient)
 
 	// Initialize booking services
 	flightService := booking.NewFlightService(providerRegistry, repos.Booking)
@@ -252,6 +253,18 @@ func main() {
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
+
+	// Seed destinations from Amadeus in the background if the collection is empty.
+	go func() {
+		seedCtx := context.Background()
+		existing, _, err := destService.SearchDestinations(seedCtx, models.DestinationFilter{Limit: 1})
+		if err == nil && len(existing) == 0 {
+			slog.Info("destinations collection empty — seeding from Amadeus")
+			if err := destService.SeedFromAmadeus(seedCtx); err != nil {
+				slog.Warn("destination seed failed", "error", err)
+			}
+		}
+	}()
 
 	// Graceful shutdown
 	go func() {
