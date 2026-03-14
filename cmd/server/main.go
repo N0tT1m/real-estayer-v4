@@ -114,8 +114,8 @@ func main() {
 	r.Handle("/static/*", http.StripPrefix("/static/", fileServer))
 
 	// Public routes
-	r.Get("/", h.Home)
 	r.Get("/health", h.Health)
+	r.With(authMiddleware.OptionalAuth(authService)).Get("/", h.Home)
 
 	// Auth routes
 	r.Route("/auth", func(r chi.Router) {
@@ -126,17 +126,21 @@ func main() {
 		r.Post("/logout", h.Logout)
 	})
 
-	// Public browsing
-	r.Get("/listings", h.ListingsPage)
-	r.Get("/listings/{id}", h.ListingDetailPage)
-	r.Get("/flights", h.FlightsPage)
-	r.Get("/hotels", h.HotelsPage)
-	r.Get("/cars", h.CarsPage)
-	r.Get("/scrape", h.ScrapePage)
+	// Public browsing (with optional auth so logged-in users stay logged in)
+	r.Group(func(r chi.Router) {
+		r.Use(authMiddleware.OptionalAuth(authService))
 
-	// Explore destinations
-	r.Get("/explore", destHandler.ExplorePage)
-	r.Get("/explore/{id}", destHandler.DestinationPage)
+		r.Get("/listings", h.ListingsPage)
+		r.Get("/listings/{id}", h.ListingDetailPage)
+		r.Get("/flights", h.FlightsPage)
+		r.Get("/hotels", h.HotelsPage)
+		r.Get("/cars", h.CarsPage)
+		r.Get("/scrape", h.ScrapePage)
+
+		// Explore destinations
+		r.Get("/explore", destHandler.ExplorePage)
+		r.Get("/explore/{id}", destHandler.DestinationPage)
+	})
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
