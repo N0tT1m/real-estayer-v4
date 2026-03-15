@@ -99,6 +99,9 @@
                 <button @click="activeTab = 'users'" :class="activeTab === 'users' ? 'border-primary-500 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'" class="px-4 py-3 font-medium text-sm border-b-2 transition">
                     Users
                 </button>
+                <button @click="activeTab = 'destinations'" :class="activeTab === 'destinations' ? 'border-primary-500 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'" class="px-4 py-3 font-medium text-sm border-b-2 transition">
+                    Destinations
+                </button>
                 <button @click="activeTab = 'jobs'" :class="activeTab === 'jobs' ? 'border-primary-500 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'" class="px-4 py-3 font-medium text-sm border-b-2 transition">
                     Job History
                 </button>
@@ -400,6 +403,74 @@
             </div>
         </div>
 
+        <!-- Destinations Tab -->
+        <div x-show="activeTab === 'destinations'" x-cloak>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <!-- Reseed Explore Page -->
+                <div class="bg-white rounded-xl shadow-sm p-6">
+                    <h2 class="text-lg font-semibold text-gray-900 mb-2">Reseed Explore Page</h2>
+                    <p class="text-sm text-gray-500 mb-4">Re-fetch all 78 destinations from Amadeus and Wikipedia. This runs in the background and may take a few minutes.</p>
+                    <div x-show="reseedResult" class="mb-4 p-3 rounded-lg bg-green-50 border border-green-200">
+                        <p class="text-sm text-green-700" x-text="reseedResult"></p>
+                    </div>
+                    <div x-show="reseedError" class="mb-4 p-3 rounded-lg bg-red-50 border border-red-200">
+                        <p class="text-sm text-red-700" x-text="reseedError"></p>
+                    </div>
+                    <button @click="reseedDestinations" :disabled="reseeding" class="w-full px-4 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition font-medium">
+                        <span x-show="!reseeding">Reseed All Destinations</span>
+                        <span x-show="reseeding" class="flex items-center justify-center">
+                            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                            </svg>
+                            Reseeding...
+                        </span>
+                    </button>
+                </div>
+
+                <!-- Add Single Destination -->
+                <div class="bg-white rounded-xl shadow-sm p-6">
+                    <h2 class="text-lg font-semibold text-gray-900 mb-2">Add Destination</h2>
+                    <p class="text-sm text-gray-500 mb-4">Add a single city to the explore page. It will be looked up via Amadeus and enriched with Wikipedia data.</p>
+                    <form @submit.prevent="addDestination" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">City Name *</label>
+                            <input type="text" x-model="addDestForm.name" placeholder="e.g., Lisbon" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" required>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Country Code *</label>
+                                <input type="text" x-model="addDestForm.country_code" placeholder="e.g., PT" maxlength="2" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Region *</label>
+                                <select x-model="addDestForm.region" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" required>
+                                    <option value="">Select region</option>
+                                    <option value="Europe">Europe</option>
+                                    <option value="Asia">Asia</option>
+                                    <option value="North America">North America</option>
+                                    <option value="South America">South America</option>
+                                    <option value="Africa">Africa</option>
+                                    <option value="Middle East">Middle East</option>
+                                    <option value="Oceania">Oceania</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div x-show="addDestResult" class="p-3 rounded-lg bg-green-50 border border-green-200">
+                            <p class="text-sm text-green-700" x-text="addDestResult"></p>
+                        </div>
+                        <div x-show="addDestError" class="p-3 rounded-lg bg-red-50 border border-red-200">
+                            <p class="text-sm text-red-700" x-text="addDestError"></p>
+                        </div>
+                        <button type="submit" :disabled="addingDest" class="w-full px-4 py-3 bg-gray-800 text-white rounded-lg hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed transition font-medium">
+                            <span x-show="!addingDest">Add Destination</span>
+                            <span x-show="addingDest">Adding...</span>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
         <!-- Jobs Tab -->
         <div x-show="activeTab === 'jobs'" x-cloak>
             <div class="bg-white rounded-xl shadow-sm overflow-hidden">
@@ -485,6 +556,17 @@ function adminDashboard() {
         listingSearch: '',
         users: [],
         jobs: [],
+        reseeding: false,
+        reseedResult: null,
+        reseedError: null,
+        addingDest: false,
+        addDestResult: null,
+        addDestError: null,
+        addDestForm: {
+            name: '',
+            country_code: '',
+            region: ''
+        },
         popularLocations: [
             { city: 'Miami', state: 'Florida', country: 'USA', flag: '🇺🇸' },
             { city: 'New York', state: 'New York', country: 'USA', flag: '🇺🇸' },
@@ -743,6 +825,59 @@ function adminDashboard() {
         async loadJobs() {
             // Jobs are stored locally for now
             // Could be persisted to backend if needed
+        },
+
+        async reseedDestinations() {
+            this.reseeding = true;
+            this.reseedResult = null;
+            this.reseedError = null;
+
+            try {
+                const res = await fetch('/api/v1/admin/destinations/reseed', {
+                    method: 'POST'
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.error || 'Reseed failed');
+                }
+
+                const data = await res.json();
+                this.reseedResult = data.message || 'Reseed started successfully. This may take a few minutes to complete.';
+            } catch (e) {
+                this.reseedError = e.message;
+            } finally {
+                this.reseeding = false;
+            }
+        },
+
+        async addDestination() {
+            if (!this.addDestForm.name || !this.addDestForm.country_code || !this.addDestForm.region) return;
+
+            this.addingDest = true;
+            this.addDestResult = null;
+            this.addDestError = null;
+
+            try {
+                const res = await fetch('/api/v1/admin/destinations', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.addDestForm)
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.error || 'Failed to add destination');
+                }
+
+                const data = await res.json();
+                this.addDestResult = `Successfully added ${this.addDestForm.name} to the explore page.`;
+                this.addDestForm = { name: '', country_code: '', region: '' };
+            } catch (e) {
+                this.addDestError = e.message;
+            } finally {
+                this.addingDest = false;
+            }
         },
 
         formatDate(dateStr) {
