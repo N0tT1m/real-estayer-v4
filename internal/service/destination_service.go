@@ -317,7 +317,17 @@ func (s *DestinationService) GetDestinationByName(ctx context.Context, name stri
 	}
 
 	// Not in DB — look up live and cache it.
-	return s.fetchAndCache(ctx, name, "", "")
+	// Use seed data's country code if available so we don't get wrong cities
+	// (e.g. Cairo, IL instead of Cairo, Egypt).
+	countryCode, region := "", ""
+	for _, sc := range seedCities {
+		if strings.EqualFold(sc.Name, name) {
+			countryCode = sc.CountryCode
+			region = sc.Region
+			break
+		}
+	}
+	return s.fetchAndCache(ctx, name, countryCode, region)
 }
 
 // AddDestination looks up a city by name from Amadeus + Wikipedia and stores it in MongoDB.
@@ -393,7 +403,7 @@ func (s *DestinationService) SeedFromAmadeus(ctx context.Context) error {
 		dest := &models.Destination{
 			Name:            cityName,
 			Country:         countryName,
-			CountryCode:     amResult.CountryCode,
+			CountryCode:     city.CountryCode,
 			Region:          city.Region,
 			AirportCode:     amResult.IataCode,
 			Latitude:        amResult.Latitude,
@@ -458,7 +468,13 @@ func (s *DestinationService) fetchAndCache(ctx context.Context, name, countryCod
 	}
 
 	cityName := formatCityName(amResult.Name, name)
-	countryName := isoCountryNames[amResult.CountryCode]
+	// Prefer the caller-supplied country code over Amadeus result to avoid
+	// mismatches (e.g. Cairo, IL instead of Cairo, Egypt).
+	storedCode := amResult.CountryCode
+	if countryCode != "" {
+		storedCode = countryCode
+	}
+	countryName := isoCountryNames[storedCode]
 	if countryName == "" {
 		countryName = formatCountryName(amResult.CountryName)
 	}
@@ -475,7 +491,7 @@ func (s *DestinationService) fetchAndCache(ctx context.Context, name, countryCod
 	dest := &models.Destination{
 		Name:            cityName,
 		Country:         countryName,
-		CountryCode:     amResult.CountryCode,
+		CountryCode:     storedCode,
 		Region:          region,
 		AirportCode:     amResult.IataCode,
 		Latitude:        amResult.Latitude,
