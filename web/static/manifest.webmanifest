@@ -1,0 +1,19 @@
+{
+	"name": "Real-Estayer",
+	"short_name": "Real-Estayer",
+	"description": "Find stays, flights, and hotels for your next trip.",
+	"start_url": "/",
+	"scope": "/",
+	"display": "standalone",
+	"orientation": "portrait",
+	"background_color": "#f9fafb",
+	"theme_color": "#2563eb",
+	"icons": [
+		{
+			"src": "/static/icons/icon.svg",
+			"sizes": "any",
+			"type": "image/svg+xml",
+			"purpose": "any maskable"
+		}
+	]
+}

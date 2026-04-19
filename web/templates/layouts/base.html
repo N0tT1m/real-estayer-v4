@@ -3,30 +3,106 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{.CSRFToken}}">
+    <meta name="theme-color" content="#0d7a6d">
+    <link rel="manifest" href="/static/manifest.webmanifest">
+    <link rel="icon" type="image/svg+xml" href="/static/icons/icon.svg">
     <title>{{.Title}} | Real-Estayer</title>
+
+    {{/* Social + SEO meta — pages may override by setting OGTitle /
+         OGDescription / OGImage / OGType / CanonicalURL / JSONLD on the
+         render data. Defaults keep the link-preview sane on every page. */}}
+    {{$ogTitle := .OGTitle}}{{if not $ogTitle}}{{$ogTitle = printf "%s | Real-Estayer" .Title}}{{end}}
+    {{$ogDesc := .OGDescription}}{{if not $ogDesc}}{{$ogDesc = "Plan trips end-to-end: stays, flights, drag-and-drop itinerary, budget, weather, and collaborators."}}{{end}}
+    {{$ogImage := .OGImage}}{{if not $ogImage}}{{$ogImage = "/static/icons/icon.svg"}}{{end}}
+    <meta name="description" content="{{$ogDesc}}">
+    <meta property="og:site_name" content="Real-Estayer">
+    <meta property="og:type" content="{{if .OGType}}{{.OGType}}{{else}}website{{end}}">
+    <meta property="og:title" content="{{$ogTitle}}">
+    <meta property="og:description" content="{{$ogDesc}}">
+    <meta property="og:image" content="{{$ogImage}}">
+    <meta name="twitter:card" content="{{if .OGImage}}summary_large_image{{else}}summary{{end}}">
+    <meta name="twitter:title" content="{{$ogTitle}}">
+    <meta name="twitter:description" content="{{$ogDesc}}">
+    {{if .OGImage}}<meta name="twitter:image" content="{{$ogImage}}">{{end}}
+    {{if .CanonicalURL}}<link rel="canonical" href="{{.CanonicalURL}}">{{end}}
+    {{if .JSONLD}}<script type="application/ld+json">{{json .JSONLD}}</script>{{end}}
+
+    {{/* Apply the persisted theme pref before the first paint to avoid a flash
+         of the wrong theme. `re:theme` matches the key used in app.js. */}}
+    <script>
+      (function () {
+        try {
+          var pref = localStorage.getItem('re:theme') || 'system';
+          var resolved = pref === 'dark' || pref === 'light'
+            ? pref
+            : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          if (resolved === 'dark') document.documentElement.classList.add('dark');
+          document.documentElement.setAttribute('data-theme', resolved);
+        } catch (e) {}
+      })();
+    </script>
+
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      /* Real-Estayer palette.
+       *
+       * primary = warm teal — "compass" — our go-to for links, CTAs, focus.
+       * accent  = sunset apricot — used sparingly to flag new/featured things.
+       * sand    = warm neutrals (vs gray-*) so surfaces feel travel-brochure,
+       *           not SaaS dashboard. Map with care: gray-50 etc. still ship
+       *           from Tailwind core.
+       *
+       * The font stack pairs a variable serif (Fraunces) for display with
+       * Inter for body — distinctive enough to not read as the default AI
+       * template without being precious.
+       */
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              primary: { 50:'#effcfa',100:'#c9f3ec',200:'#94e6d9',300:'#5fd1bf',400:'#2fb4a1',500:'#119684',600:'#0d7a6d',700:'#0f6158',800:'#124e47',900:'#10413c',950:'#052622' },
+              accent:  { 50:'#fff5ed',100:'#ffe7d4',200:'#ffcca6',300:'#ffa76d',400:'#ff7f3e',500:'#f25f19',600:'#e34911',700:'#bc3612',800:'#962d16',900:'#7a2815',950:'#421107' },
+              sand:    { 50:'#faf7f2',100:'#f4eee3',200:'#e6d9c1',300:'#d4bd97',400:'#bf9d6e',500:'#a98551',600:'#8c6a3f',700:'#6f5333',800:'#54402a',900:'#3b2d20',950:'#1f1611' }
+            },
+            fontFamily: {
+              sans:    ['Inter', 'system-ui', 'sans-serif'],
+              display: ['Fraunces', 'ui-serif', 'Georgia', 'serif']
+            },
+            boxShadow: {
+              soft:  '0 1px 2px rgba(17,24,39,0.04), 0 4px 12px rgba(17,24,39,0.06)',
+              lift:  '0 2px 4px rgba(17,24,39,0.05), 0 12px 32px rgba(17,24,39,0.10)',
+              inner_soft: 'inset 0 1px 0 rgba(255,255,255,0.6), inset 0 0 0 1px rgba(17,24,39,0.04)'
+            },
+            transitionTimingFunction: {
+              'soft-out':  'cubic-bezier(0.22, 1, 0.36, 1)',
+              'spring-out':'cubic-bezier(0.34, 1.56, 0.64, 1)'
+            },
+            borderRadius: {
+              xl2: '1.25rem'
+            }
+          }
+        }
+      };
+    </script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/app.css">
     <style>
-        body { font-family: 'Inter', sans-serif; }
+        body { font-family: 'Inter', system-ui, sans-serif; }
+        .font-display { font-family: 'Fraunces', ui-serif, Georgia, serif; font-optical-sizing: auto; }
         [x-cloak] { display: none !important; }
     </style>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        primary: { 50: '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe', 300: '#93c5fd', 400: '#60a5fa', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8', 800: '#1e40af', 900: '#1e3a8a' }
-                    }
-                }
-            }
-        }
-    </script>
+    <script src="/static/js/app.js" defer></script>
 </head>
-<body class="h-full bg-gray-50" x-data="{ mobileMenu: false }">
+<body class="h-full bg-gray-50 text-gray-900 dark:bg-[color:var(--re-bg)] dark:text-[color:var(--re-text)] pb-16 md:pb-0" x-data="{ mobileMenu: false }">
+    <a href="#main" class="skip-link">Skip to main content</a>
+
     <!-- Navigation -->
-    <nav class="bg-white shadow-sm sticky top-0 z-50">
+    <nav class="bg-white dark:bg-gray-900 shadow-sm sticky top-0 z-50 border-b dark:border-gray-800">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16">
                 <div class="flex items-center">
@@ -34,45 +110,58 @@
                         <svg class="h-8 w-8 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
                         </svg>
-                        <span class="text-xl font-bold text-gray-900">Real-Estayer</span>
+                        <span class="text-xl font-bold">Real-Estayer</span>
                     </a>
                     <div class="hidden md:ml-10 md:flex md:space-x-8">
-                        <a href="/explore" class="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium {{if hasPrefix .Path "/explore"}}text-primary-600{{end}}">Explore</a>
-                        <a href="/listings" class="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium {{if eq .Path "/listings"}}text-primary-600{{end}}">Stays</a>
-                        <a href="/flights" class="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium {{if eq .Path "/flights"}}text-primary-600{{end}}">Flights</a>
-                        <a href="/hotels" class="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium {{if eq .Path "/hotels"}}text-primary-600{{end}}">Hotels</a>
-                        <a href="/cars" class="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium {{if eq .Path "/cars"}}text-primary-600{{end}}">Cars</a>
-                        <a href="/scrape" class="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium {{if eq .Path "/scrape"}}text-primary-600{{end}}">Find Rentals</a>
+                        <a href="/explore"  class="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white px-3 py-2 text-sm font-medium {{if hasPrefix .Path "/explore"}}text-primary-600 dark:text-primary-400{{end}}">Explore</a>
+                        <a href="/listings" class="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white px-3 py-2 text-sm font-medium {{if eq .Path "/listings"}}text-primary-600 dark:text-primary-400{{end}}">Stays</a>
+                        <a href="/flights"  class="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white px-3 py-2 text-sm font-medium {{if eq .Path "/flights"}}text-primary-600 dark:text-primary-400{{end}}">Flights</a>
+                        <a href="/hotels"   class="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white px-3 py-2 text-sm font-medium {{if eq .Path "/hotels"}}text-primary-600 dark:text-primary-400{{end}}">Hotels</a>
+                        <a href="/cars"     class="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white px-3 py-2 text-sm font-medium {{if eq .Path "/cars"}}text-primary-600 dark:text-primary-400{{end}}">Cars</a>
+                        <a href="/scrape"   class="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white px-3 py-2 text-sm font-medium {{if eq .Path "/scrape"}}text-primary-600 dark:text-primary-400{{end}}">Find Rentals</a>
                     </div>
                 </div>
-                <div class="hidden md:flex md:items-center md:space-x-4">
+                <div class="hidden md:flex md:items-center md:space-x-3">
+                    <!-- Theme toggle -->
+                    <button type="button" x-data
+                            @click="$store.theme.toggle()"
+                            :aria-label="$store.theme.pref === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
+                            class="p-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">
+                        <svg x-show="$store.theme.pref !== 'dark'" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                        </svg>
+                        <svg x-show="$store.theme.pref === 'dark'" x-cloak class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                        </svg>
+                    </button>
+
                     {{if .User}}
-                    <a href="/trips" class="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium">My Trips</a>
-                    <a href="/watchlist" class="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium">Watchlist</a>
+                    <a href="/trips"     class="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white px-3 py-2 text-sm font-medium">My Trips</a>
+                    <a href="/watchlist" class="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white px-3 py-2 text-sm font-medium">Watchlist</a>
                     <div class="relative" x-data="{ open: false }">
-                        <button @click="open = !open" class="flex items-center space-x-2 text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium">
+                        <button @click="open = !open" class="flex items-center space-x-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white px-3 py-2 text-sm font-medium" :aria-expanded="open" aria-haspopup="true">
                             <span>{{.User.Name}}</span>
-                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                            </svg>
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
                         </button>
-                        <div x-show="open" @click.away="open = false" x-cloak class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 ring-1 ring-black ring-opacity-5">
-                            <a href="/dashboard" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Dashboard</a>
-                            <a href="/profile" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Profile</a>
-                            <a href="/bookings" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">My Bookings</a>
-                            <hr class="my-1">
-                            <form action="/auth/logout" method="POST">
-                                <button type="submit" class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Sign out</button>
+                        <div x-show="open" @click.away="open = false" @keydown.escape="open = false" x-cloak role="menu"
+                             class="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 ring-1 ring-black ring-opacity-5 dark:ring-white/10">
+                            <a href="/dashboard" role="menuitem" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">Dashboard</a>
+                            <a href="/profile"   role="menuitem" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">Profile</a>
+                            <a href="/bookings"  role="menuitem" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">My Bookings</a>
+                            <hr class="my-1 border-gray-200 dark:border-gray-700">
+                            <form action="/auth/logout" method="POST" role="none">
+                                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                                <button type="submit" role="menuitem" class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">Sign out</button>
                             </form>
                         </div>
                     </div>
                     {{else}}
-                    <a href="/auth/login" class="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium">Sign in</a>
+                    <a href="/auth/login"    class="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white px-3 py-2 text-sm font-medium">Sign in</a>
                     <a href="/auth/register" class="bg-primary-600 text-white hover:bg-primary-700 px-4 py-2 rounded-lg text-sm font-medium transition">Sign up</a>
                     {{end}}
                 </div>
                 <div class="flex items-center md:hidden">
-                    <button @click="mobileMenu = !mobileMenu" class="text-gray-600 hover:text-gray-900">
+                    <button @click="mobileMenu = !mobileMenu" class="p-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800" :aria-expanded="mobileMenu" aria-label="Toggle menu">
                         <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path x-show="!mobileMenu" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
                             <path x-show="mobileMenu" x-cloak stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -81,64 +170,178 @@
                 </div>
             </div>
         </div>
-        <!-- Mobile menu -->
-        <div x-show="mobileMenu" x-cloak class="md:hidden border-t">
+        <!-- Mobile menu (drop-down). Bottom nav covers the primary routes. -->
+        <div x-show="mobileMenu" x-cloak class="md:hidden border-t dark:border-gray-800">
             <div class="px-2 pt-2 pb-3 space-y-1">
-                <a href="/explore" class="block px-3 py-2 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md">Explore</a>
-                <a href="/listings" class="block px-3 py-2 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md">Stays</a>
-                <a href="/flights" class="block px-3 py-2 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md">Flights</a>
-                <a href="/hotels" class="block px-3 py-2 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md">Hotels</a>
-                <a href="/cars" class="block px-3 py-2 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md">Cars</a>
-                <a href="/scrape" class="block px-3 py-2 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md">Find Rentals</a>
+                {{if .User}}
+                <a href="/dashboard" class="block px-3 py-2 text-base font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md">Dashboard</a>
+                <a href="/profile"   class="block px-3 py-2 text-base font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md">Profile</a>
+                <a href="/bookings"  class="block px-3 py-2 text-base font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md">My Bookings</a>
+                <form action="/auth/logout" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                    <button type="submit" class="w-full text-left px-3 py-2 text-base font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md">Sign out</button>
+                </form>
+                {{else}}
+                <a href="/auth/login"    class="block px-3 py-2 text-base font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md">Sign in</a>
+                <a href="/auth/register" class="block px-3 py-2 text-base font-medium text-primary-600 dark:text-primary-400 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md">Sign up</a>
+                {{end}}
+                <button type="button" x-data @click="$store.theme.toggle()" class="w-full text-left px-3 py-2 text-base font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md">
+                    Toggle theme
+                </button>
             </div>
         </div>
     </nav>
 
     <!-- Main content -->
-    <main>
+    <main id="main">
         {{template "content" .}}
     </main>
 
     <!-- Footer -->
-    <footer class="bg-white border-t mt-auto">
+    <footer class="bg-white dark:bg-gray-900 border-t dark:border-gray-800 mt-auto">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
             <div class="grid grid-cols-2 md:grid-cols-4 gap-8">
                 <div>
-                    <h3 class="text-sm font-semibold text-gray-900">Explore</h3>
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Explore</h3>
                     <ul class="mt-4 space-y-2">
-                        <li><a href="/listings" class="text-sm text-gray-600 hover:text-gray-900">Stays</a></li>
-                        <li><a href="/flights" class="text-sm text-gray-600 hover:text-gray-900">Flights</a></li>
-                        <li><a href="/hotels" class="text-sm text-gray-600 hover:text-gray-900">Hotels</a></li>
-                        <li><a href="/cars" class="text-sm text-gray-600 hover:text-gray-900">Car Rentals</a></li>
+                        <li><a href="/listings" class="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">Stays</a></li>
+                        <li><a href="/flights" class="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">Flights</a></li>
+                        <li><a href="/hotels" class="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">Hotels</a></li>
+                        <li><a href="/cars" class="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">Car Rentals</a></li>
                     </ul>
                 </div>
                 <div>
-                    <h3 class="text-sm font-semibold text-gray-900">Account</h3>
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Account</h3>
                     <ul class="mt-4 space-y-2">
-                        <li><a href="/dashboard" class="text-sm text-gray-600 hover:text-gray-900">Dashboard</a></li>
-                        <li><a href="/trips" class="text-sm text-gray-600 hover:text-gray-900">My Trips</a></li>
-                        <li><a href="/watchlist" class="text-sm text-gray-600 hover:text-gray-900">Watchlist</a></li>
+                        <li><a href="/dashboard" class="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">Dashboard</a></li>
+                        <li><a href="/trips" class="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">My Trips</a></li>
+                        <li><a href="/watchlist" class="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">Watchlist</a></li>
                     </ul>
                 </div>
                 <div>
-                    <h3 class="text-sm font-semibold text-gray-900">Support</h3>
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Support</h3>
                     <ul class="mt-4 space-y-2">
-                        <li><a href="#" class="text-sm text-gray-600 hover:text-gray-900">Help Center</a></li>
-                        <li><a href="#" class="text-sm text-gray-600 hover:text-gray-900">Contact Us</a></li>
+                        <li><a href="#" class="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">Help Center</a></li>
+                        <li><a href="#" class="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">Contact Us</a></li>
                     </ul>
                 </div>
                 <div>
-                    <h3 class="text-sm font-semibold text-gray-900">Legal</h3>
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Legal</h3>
                     <ul class="mt-4 space-y-2">
-                        <li><a href="#" class="text-sm text-gray-600 hover:text-gray-900">Privacy Policy</a></li>
-                        <li><a href="#" class="text-sm text-gray-600 hover:text-gray-900">Terms of Service</a></li>
+                        <li><a href="#" class="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">Privacy Policy</a></li>
+                        <li><a href="#" class="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">Terms of Service</a></li>
                     </ul>
                 </div>
             </div>
-            <div class="mt-8 pt-8 border-t text-center text-sm text-gray-500">
+            <div class="mt-8 pt-8 border-t dark:border-gray-800 text-center text-sm text-gray-500">
                 <p>&copy; 2024 Real-Estayer. All rights reserved.</p>
+                <p class="mt-2 text-xs">Press <kbd class="px-1.5 py-0.5 border rounded">/</kbd> to search · <kbd class="px-1.5 py-0.5 border rounded">Shift + ?</kbd> for shortcuts</p>
             </div>
         </div>
     </footer>
+
+    <!-- Mobile bottom navigation -->
+    <nav class="mobile-nav md:hidden fixed bottom-0 inset-x-0 z-40 bg-white dark:bg-gray-900 border-t dark:border-gray-800 shadow-lg">
+        <div class="grid grid-cols-5 h-16">
+            {{template "mobile_nav_link" (dict "Path" .Path "To" "/explore" "Label" "Explore" "Match" "/explore" "Icon" "compass")}}
+            {{template "mobile_nav_link" (dict "Path" .Path "To" "/listings" "Label" "Stays" "Match" "/listings" "Icon" "home")}}
+            {{template "mobile_nav_link" (dict "Path" .Path "To" "/scrape" "Label" "Search" "Match" "/scrape" "Icon" "search")}}
+            {{if .User}}
+            {{template "mobile_nav_link" (dict "Path" .Path "To" "/trips" "Label" "Trips" "Match" "/trips" "Icon" "map")}}
+            {{template "mobile_nav_link" (dict "Path" .Path "To" "/watchlist" "Label" "Watch" "Match" "/watchlist" "Icon" "heart")}}
+            {{else}}
+            {{template "mobile_nav_link" (dict "Path" .Path "To" "/auth/login" "Label" "Sign in" "Match" "/auth" "Icon" "user")}}
+            {{template "mobile_nav_link" (dict "Path" .Path "To" "/auth/register" "Label" "Join" "Match" "/auth/register" "Icon" "plus")}}
+            {{end}}
+        </div>
+    </nav>
+
+    <!-- Command palette -->
+    {{template "command_palette" .}}
+
+    <!-- Shortcut cheatsheet -->
+    <div x-data="{ open: false, init() { window.addEventListener('re:open-shortcuts', () => this.open = true) } }"
+         x-show="open" x-cloak @keydown.escape.window="open = false"
+         class="fixed inset-0 z-[90] flex items-center justify-center">
+        <div class="absolute inset-0 bg-black/50" @click="open = false"></div>
+        <div class="relative bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-md w-full p-6 mx-4">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-semibold">Keyboard shortcuts</h2>
+                <button @click="open = false" class="text-gray-400 hover:text-gray-600" aria-label="Close">✕</button>
+            </div>
+            <dl class="space-y-2 text-sm">
+                <div class="flex justify-between"><dt>Focus search</dt><dd><kbd class="px-1.5 py-0.5 border rounded">/</kbd></dd></div>
+                <div class="flex justify-between"><dt>Command palette</dt><dd><kbd class="px-1.5 py-0.5 border rounded">Cmd/Ctrl + K</kbd></dd></div>
+                <div class="flex justify-between"><dt>Toggle theme</dt><dd><kbd class="px-1.5 py-0.5 border rounded">T</kbd></dd></div>
+                <div class="flex justify-between"><dt>This help</dt><dd><kbd class="px-1.5 py-0.5 border rounded">Shift + ?</kbd></dd></div>
+                <div class="flex justify-between"><dt>Close dialogs</dt><dd><kbd class="px-1.5 py-0.5 border rounded">Esc</kbd></dd></div>
+            </dl>
+        </div>
+    </div>
+
+    <!-- Compare drawer (global; items persisted in localStorage) -->
+    <div x-data x-show="$store.compare.items.length > 0" x-cloak
+         class="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-40 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-full shadow-lg pl-4 pr-2 py-2 flex items-center gap-3">
+        <span class="text-sm font-medium" x-text="`${$store.compare.items.length} selected to compare`"></span>
+        <button type="button" @click="$store.compare.open = true"
+                class="text-sm bg-primary-600 text-white px-3 py-1.5 rounded-full hover:bg-primary-700">
+            Compare
+        </button>
+        <button type="button" @click="$store.compare.clear()"
+                class="text-sm px-2 py-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-gray-200" aria-label="Clear compare">
+            Clear
+        </button>
+    </div>
+
+    <!-- Compare drawer modal -->
+    <div x-data x-show="$store.compare.open" x-cloak @keydown.escape.window="$store.compare.open = false"
+         class="fixed inset-0 z-[95] flex items-end md:items-center justify-center">
+        <div class="absolute inset-0 bg-black/50" @click="$store.compare.open = false"></div>
+        <div class="relative bg-white dark:bg-gray-900 w-full md:max-w-5xl md:rounded-xl shadow-xl max-h-[85vh] overflow-auto">
+            <div class="sticky top-0 bg-white dark:bg-gray-900 border-b dark:border-gray-800 flex items-center justify-between px-6 py-4">
+                <h2 class="text-lg font-semibold">Compare</h2>
+                <button @click="$store.compare.open = false" class="text-gray-400 hover:text-gray-600" aria-label="Close">✕</button>
+            </div>
+            <div class="p-6 overflow-x-auto">
+                <template x-if="$store.compare.items.length === 0">
+                    <p class="text-gray-600 dark:text-gray-400">No items selected.</p>
+                </template>
+                <template x-if="$store.compare.items.length > 0">
+                    <div class="grid gap-4" :style="`grid-template-columns: repeat(${$store.compare.items.length}, minmax(200px, 1fr))`">
+                        <template x-for="item in $store.compare.items" :key="item.id">
+                            <div class="border dark:border-gray-800 rounded-lg overflow-hidden">
+                                <img :src="item.picture" :alt="item.title" class="w-full aspect-[4/3] object-cover" onerror="this.style.display='none'">
+                                <div class="p-3 space-y-2 text-sm">
+                                    <a :href="`/listings/${item.id}`" class="font-semibold hover:text-primary-600" x-text="item.title"></a>
+                                    <p class="text-gray-500" x-text="item.location"></p>
+                                    <p class="text-primary-600 font-semibold" x-text="item.price"></p>
+                                    <p class="text-gray-500" x-text="item.rating ? `★ ${item.rating}` : 'No rating'"></p>
+                                    <button type="button" @click="$store.compare.remove(item.id)" class="text-xs text-red-600 hover:underline">Remove</button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
+
+{{/* Icon set for the mobile bottom nav, kept as a single block so it doesn't
+     get duplicated per link. */}}
+{{define "mobile_nav_link"}}
+<a href="{{.To}}" class="flex flex-col items-center justify-center gap-0.5 text-xs {{if eq .Path .Match}}text-primary-600 dark:text-primary-400{{else}}text-gray-500 dark:text-gray-400{{end}}">
+    {{template "mobile_nav_icon" .Icon}}
+    <span>{{.Label}}</span>
+</a>
+{{end}}
+{{define "mobile_nav_icon"}}
+{{if eq . "compass"}}<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" stroke-linejoin="round" d="M8 16l2-6 6-2-2 6-6 2z"/></svg>{{end}}
+{{if eq . "home"}}<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>{{end}}
+{{if eq . "search"}}<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"/></svg>{{end}}
+{{if eq . "map"}}<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.553 2.776A1 1 0 0021 18.882V8.118a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>{{end}}
+{{if eq . "heart"}}<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>{{end}}
+{{if eq . "user"}}<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>{{end}}
+{{if eq . "plus"}}<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>{{end}}
+{{end}}

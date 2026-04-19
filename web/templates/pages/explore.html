@@ -1,7 +1,10 @@
 {{template "base.html" .}}
 
 {{define "content"}}
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-data="exploreView()">
     <!-- Hero -->
     <div class="text-center mb-12">
         <h1 class="text-4xl font-bold text-gray-900 mb-4">Explore Destinations</h1>
@@ -118,15 +121,27 @@
         <!-- Destinations Grid -->
         <div class="flex-1">
             <div class="flex justify-between items-center mb-6">
-                <p class="text-gray-600">{{.Total}} destinations found</p>
+                <p class="text-gray-600 dark:text-gray-400">{{.Total}} destinations found</p>
+                <div class="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden" role="tablist" aria-label="View mode">
+                    <button type="button" role="tab" @click="setView('grid')" :aria-selected="view === 'grid'" :class="view === 'grid' ? 'bg-primary-600 text-white' : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300'" class="px-3 py-1.5 text-sm font-medium">Grid</button>
+                    <button type="button" role="tab" @click="setView('map')" :aria-selected="view === 'map'" :class="view === 'map' ? 'bg-primary-600 text-white' : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300'" class="px-3 py-1.5 text-sm font-medium border-l border-gray-200 dark:border-gray-700">Map</button>
+                </div>
             </div>
+
+            <!-- Map view (MapLibre with CARTO tiles — free for non-commercial use) -->
+            <div x-show="view === 'map'" x-cloak class="mb-6">
+                <div id="explore-map" class="w-full h-[600px] rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden" aria-label="Map of destinations"></div>
+                <p class="mt-2 text-xs text-gray-500">Tiles © <a href="https://carto.com/attributions" class="underline" rel="noopener">CARTO</a>, data © <a href="https://www.openstreetmap.org/copyright" class="underline" rel="noopener">OpenStreetMap</a> contributors.</p>
+            </div>
+
+            <div x-show="view === 'grid'">
 
             {{if .Destinations}}
             <div class="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
                 {{range .Destinations}}
                 <a href="/explore/{{.Name}}" class="group bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-lg transition">
                     <div class="aspect-[4/3] overflow-hidden relative">
-                        <img src="{{.ImageURL}}" alt="{{.Name}}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" onerror="this.src='https://via.placeholder.com/400x300?text={{.Name}}'">
+                        <img src="{{.ImageURL}}" alt="{{.Name}}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" data-fallback="https://via.placeholder.com/400x300?text=Destination" onerror="if(!this.dataset.fallbackApplied){this.dataset.fallbackApplied='1';this.src=this.dataset.fallback;}">
                         {{if .Featured}}
                         <div class="absolute top-3 left-3">
                             <span class="bg-yellow-400 text-yellow-900 text-xs font-medium px-2 py-1 rounded">Featured</span>
@@ -173,11 +188,97 @@
                 <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <h3 class="mt-2 text-sm font-medium text-gray-900">No destinations found</h3>
+                <h3 class="mt-2 text-sm font-medium">No destinations found</h3>
                 <p class="mt-1 text-sm text-gray-500">Try adjusting your filters or search criteria.</p>
             </div>
             {{end}}
+            </div> <!-- /grid container -->
         </div>
     </div>
 </div>
+
+<script id="explore-destinations" type="application/json">
+[
+    {{range $i, $d := .Destinations}}{{if $i}},{{end}}{"name": {{.Name | printf "%q"}}, "country": {{.Country | printf "%q"}}, "lat": {{.Latitude}}, "lng": {{.Longitude}}, "image": {{.ImageURL | printf "%q"}}}{{end}}
+]
+</script>
+
+<script>
+function exploreView() {
+    return {
+        view: 'grid',
+        map: null,
+        markers: [],
+        init() {
+            // Persist view choice in the URL so back/forward and shares keep it.
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('view') === 'map') this.view = 'map';
+            this.$watch('view', (v) => {
+                const p = new URLSearchParams(window.location.search);
+                if (v === 'map') p.set('view', 'map'); else p.delete('view');
+                const qs = p.toString();
+                const url = window.location.pathname + (qs ? '?' + qs : '');
+                window.history.replaceState(null, '', url);
+                if (v === 'map') this.$nextTick(() => this.initMap());
+            });
+            if (this.view === 'map') this.$nextTick(() => this.initMap());
+        },
+        setView(v) { this.view = v; },
+        initMap() {
+            if (this.map || typeof maplibregl === 'undefined') {
+                // MapLibre script may not have loaded yet; retry briefly.
+                if (!this.map && typeof maplibregl === 'undefined') {
+                    setTimeout(() => this.initMap(), 200);
+                }
+                return;
+            }
+            const raw = document.getElementById('explore-destinations');
+            let destinations = [];
+            try { destinations = JSON.parse(raw.textContent || '[]'); } catch (e) {}
+            destinations = destinations.filter((d) => d.lat && d.lng);
+
+            // Center on the mean of the destinations, falling back to the
+            // Atlantic so Europe + the Americas are both in frame.
+            let lat = 20, lng = -20, zoom = 1.5;
+            if (destinations.length) {
+                lat = destinations.reduce((s, d) => s + d.lat, 0) / destinations.length;
+                lng = destinations.reduce((s, d) => s + d.lng, 0) / destinations.length;
+                zoom = 2.5;
+            }
+
+            this.map = new maplibregl.Map({
+                container: 'explore-map',
+                style: {{.MapStyleURL | printf "%q"}},
+                center: [lng, lat],
+                zoom,
+            });
+            this.map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+            this.map.on('load', () => {
+                const bounds = new maplibregl.LngLatBounds();
+                destinations.forEach((d) => {
+                    const el = document.createElement('div');
+                    el.className = 'w-8 h-8 rounded-full bg-primary-600 border-2 border-white shadow-md flex items-center justify-center text-white text-xs font-bold cursor-pointer';
+                    el.textContent = d.name.charAt(0).toUpperCase();
+                    const popup = new maplibregl.Popup({ offset: 18 }).setHTML(
+                        `<a href="/explore/${encodeURIComponent(d.name)}" class="block w-48">`
+                        + (d.image ? `<img src="${d.image}" alt="" class="w-full h-24 object-cover rounded">` : '')
+                        + `<div class="p-2"><div class="font-semibold text-sm">${escapeHTML(d.name)}</div>`
+                        + `<div class="text-xs text-gray-500">${escapeHTML(d.country)}</div></div></a>`
+                    );
+                    new maplibregl.Marker({ element: el })
+                        .setLngLat([d.lng, d.lat])
+                        .setPopup(popup)
+                        .addTo(this.map);
+                    bounds.extend([d.lng, d.lat]);
+                });
+                if (destinations.length > 1) this.map.fitBounds(bounds, { padding: 60, maxZoom: 6 });
+            });
+        },
+    };
+}
+function escapeHTML(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+</script>
 {{end}}

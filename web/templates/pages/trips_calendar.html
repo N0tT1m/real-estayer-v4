@@ -1,0 +1,75 @@
+{{template "base.html" .}}
+
+{{define "content"}}
+<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-data="tripCalendar({ trips: {{json .Trips}} })">
+    <div class="flex items-center justify-between mb-6">
+        <h1 class="text-3xl font-bold">Trip calendar</h1>
+        <div class="flex items-center gap-2">
+            <button type="button" @click="shift(-1)" class="px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 rounded-lg">←</button>
+            <span class="font-medium" x-text="yearLabel"></span>
+            <button type="button" @click="shift(1)" class="px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 rounded-lg">→</button>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <template x-for="m in months" :key="m.index">
+            <div class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-lg p-3">
+                <h2 class="font-semibold text-sm mb-2" x-text="m.label"></h2>
+                <div class="grid grid-cols-7 gap-0.5 text-[10px] text-gray-400 mb-1">
+                    <div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div><div>S</div>
+                </div>
+                <div class="grid grid-cols-7 gap-0.5">
+                    <template x-for="cell in m.cells" :key="cell.key">
+                        <div class="aspect-square rounded flex items-center justify-center text-[10px]"
+                             :class="cell.trip ? 'text-white font-medium ring-1 ring-primary-700' : 'text-gray-500'"
+                             :style="cell.trip ? 'background: ' + colorFor(cell.trip.id) : ''"
+                             :title="cell.trip ? cell.trip.name : ''">
+                            <template x-if="cell.day > 0">
+                                <span x-text="cell.day"></span>
+                            </template>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <div class="mt-6 text-sm text-gray-500">
+        <p>Colored squares mark days covered by one of your trips. Hover to see the name.</p>
+    </div>
+</div>
+
+<script>
+function tripCalendar(init) {
+    const palette = ['#2563eb','#16a34a','#d97706','#db2777','#9333ea','#0891b2','#e11d48','#65a30d'];
+    return {
+        year: new Date().getFullYear(),
+        trips: (init.trips || []).map(t => ({...t, _start: new Date(t.start_date), _end: new Date(t.end_date)})),
+        get yearLabel() { return String(this.year); },
+        shift(d) { this.year += d; },
+        colorFor(id) {
+            let h = 0; for (const c of id) h = (h*31 + c.charCodeAt(0)) >>> 0;
+            return palette[h % palette.length];
+        },
+        get months() {
+            const out = [];
+            for (let m = 0; m < 12; m++) {
+                const first = new Date(Date.UTC(this.year, m, 1));
+                const daysInMonth = new Date(Date.UTC(this.year, m+1, 0)).getUTCDate();
+                const leading = (first.getUTCDay() + 6) % 7; // Monday = 0
+                const cells = [];
+                for (let i = 0; i < leading; i++) cells.push({ key: `b${m}-${i}`, day: 0, trip: null });
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const date = new Date(Date.UTC(this.year, m, d));
+                    const trip = this.trips.find(t => date >= stripTime(t._start) && date <= stripTime(t._end));
+                    cells.push({ key: `d${m}-${d}`, day: d, trip });
+                }
+                out.push({ index: m, label: first.toLocaleString(undefined, { month: 'long' }) + ' ' + this.year, cells });
+            }
+            return out;
+        },
+    };
+}
+function stripTime(d) { return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())); }
+</script>
+{{end}}

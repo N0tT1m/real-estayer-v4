@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/realestayer/v3/internal/models"
-	"github.com/realestayer/v3/internal/service"
+	"github.com/realestayer/v4/internal/models"
+	"github.com/realestayer/v4/internal/service"
 )
 
 // HealthAPI returns health status as JSON

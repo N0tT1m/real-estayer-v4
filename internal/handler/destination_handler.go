@@ -1,14 +1,17 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/realestayer/v3/internal/models"
-	"github.com/realestayer/v3/internal/service"
+	"github.com/realestayer/v4/internal/models"
+	"github.com/realestayer/v4/internal/service"
 )
 
 type DestinationHandler struct {
@@ -150,9 +153,13 @@ func (h *DestinationHandler) FeaturedAPI(w http.ResponseWriter, r *http.Request)
 // AdminReseedDestinations re-seeds all destinations from Amadeus + Wikipedia.
 // POST /api/v1/admin/destinations/reseed
 func (h *DestinationHandler) AdminReseedDestinations(w http.ResponseWriter, r *http.Request) {
+	// Detach from the request context so the goroutine survives the response
+	// being written, but cap it at 30 minutes.
 	go func() {
-		if err := h.destService.SeedFromAmadeus(r.Context()); err != nil {
-			return
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		if err := h.destService.SeedFromAmadeus(ctx); err != nil {
+			slog.Warn("admin reseed failed", "error", err)
 		}
 	}()
 	respondJSON(w, http.StatusAccepted, map[string]string{"status": "reseed started in background"})

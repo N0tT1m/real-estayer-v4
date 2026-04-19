@@ -1,11 +1,12 @@
 package handler
 
 import (
+	"log/slog"
 	"net/http"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/realestayer/v3/internal/models"
+	"github.com/realestayer/v4/internal/models"
 )
 
 // Home renders the home page
@@ -33,10 +34,15 @@ func (h *Handler) DashboardPage(w http.ResponseWriter, r *http.Request) {
 	// Get watchlist stats
 	watchlistStats, _ := h.watchlistService.GetStats(r.Context(), userID)
 
+	// Lifetime-count check drives the onboarding nudge. Cheap on small N;
+	// flip to an aggregation count later if users frequently have dozens.
+	allTrips, _, _ := h.tripService.GetUserTrips(r.Context(), userID, 1, 1)
+
 	h.render(w, r, "dashboard.html", map[string]interface{}{
 		"Title":          "Dashboard",
 		"UpcomingTrips":  trips,
 		"WatchlistStats": watchlistStats,
+		"HasTrips":       len(allTrips) > 0,
 	})
 }
 
@@ -160,8 +166,8 @@ func (h *Handler) WatchlistPage(w http.ResponseWriter, r *http.Request) {
 	items, _ := h.watchlistService.GetWithListings(r.Context(), userID)
 
 	h.render(w, r, "watchlist.html", map[string]interface{}{
-		"Title": "My Watchlist",
-		"Items": items,
+		"Title":          "My Watchlist",
+		"WatchlistItems": items,
 	})
 }
 
@@ -169,6 +175,24 @@ func (h *Handler) WatchlistPage(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ProfilePage(w http.ResponseWriter, r *http.Request) {
 	h.render(w, r, "profile.html", map[string]interface{}{
 		"Title": "My Profile",
+	})
+}
+
+// SecurityPage shows the caller the last 100 sensitive events on their own
+// account — password changes, identity edits, share links. It reads from the
+// audit log that the rest of the app writes to. Admins can't see other
+// users' events from here; that belongs behind a RequireAdmin route.
+func (h *Handler) SecurityPage(w http.ResponseWriter, r *http.Request) {
+	uid := h.getUserOID(r)
+	events, err := h.auditService.ListByUser(r.Context(), uid, 100)
+	if err != nil {
+		slog.Warn("security page: list audit events failed", "user_id", uid.Hex(), "error", err)
+		h.ServerError(w, r)
+		return
+	}
+	h.render(w, r, "security.html", map[string]interface{}{
+		"Title":  "Security activity",
+		"Events": events,
 	})
 }
 

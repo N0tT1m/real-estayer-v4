@@ -39,8 +39,8 @@ ring = "0.17"
 
 [dev-dependencies]
 tokio-test = "0.4.4"
-axum-test = "14.5.1"
-mockall = "0.12.1"
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
 
 [[test]]
 name = "integration_tests"

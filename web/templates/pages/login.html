@@ -1,54 +1,111 @@
 {{template "base.html" .}}
 
 {{define "content"}}
-<div class="min-h-[80vh] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+<div class="min-h-[80vh] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8" x-data="loginForm()">
     <div class="max-w-md w-full space-y-8">
         <div class="text-center">
-            <h2 class="text-3xl font-bold text-gray-900">Welcome back</h2>
-            <p class="mt-2 text-sm text-gray-600">Sign in to your account</p>
+            <h2 class="text-3xl font-bold">Welcome back</h2>
+            <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">Sign in to your account</p>
         </div>
 
         {{if .Error}}
-        <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+        <div class="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 px-4 py-3 rounded-lg" role="alert">
             {{.Error}}
         </div>
         {{end}}
 
-        <form class="mt-8 space-y-6" action="/auth/login" method="POST">
-            {{if .Redirect}}
-            <input type="hidden" name="redirect" value="{{.Redirect}}">
-            {{end}}
+        <form class="mt-8 space-y-6" action="/auth/login" method="POST" @submit="onSubmit($event)" novalidate>
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            {{if .Redirect}}<input type="hidden" name="redirect" value="{{.Redirect}}">{{end}}
 
+            {{if .TOTPPrompt}}
+            {{/* The server rejected the first login with ErrTOTPRequired —
+                 re-submit the form with the email/password and now the 2FA
+                 code. We keep email visible but hide the password field so
+                 users don't have to retype it if the browser auto-filled. */}}
+            <div class="space-y-4">
+                <p class="text-sm text-gray-600 dark:text-gray-400">Enter the 6-digit code from your authenticator app for <strong>{{.Email}}</strong>.</p>
+                <input type="hidden" name="email" value="{{.Email}}">
+                <input type="password" name="password" placeholder="Password" autocomplete="current-password" required
+                       class="block w-full px-4 py-3 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 rounded-lg shadow-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                <input id="totp" name="totp" type="text" inputmode="numeric" pattern="\d{6}" maxlength="6" required autofocus
+                       class="block w-full px-4 py-3 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 rounded-lg shadow-sm text-center text-xl tracking-widest focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                       placeholder="123456">
+            </div>
+            <button type="submit"
+                    class="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700">
+                Verify
+            </button>
+            {{else}}
             <div class="space-y-4">
                 <div>
-                    <label for="email" class="block text-sm font-medium text-gray-700">Email address</label>
-                    <input id="email" name="email" type="email" required value="{{.Email}}" class="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="you@example.com">
+                    <label for="email" class="block text-sm font-medium">Email address</label>
+                    <input id="email" name="email" type="email" required autocomplete="email"
+                           value="{{.Email}}" x-model="email" @blur="validateEmail()"
+                           :class="errors.email ? 'border-red-400 focus:ring-red-400 focus:border-red-400' : ''"
+                           class="mt-1 block w-full px-4 py-3 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 rounded-lg shadow-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                           placeholder="you@example.com">
+                    <p x-show="errors.email" x-cloak class="mt-1 text-xs text-red-600" x-text="errors.email"></p>
                 </div>
 
                 <div>
-                    <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
-                    <input id="password" name="password" type="password" required class="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Enter your password">
+                    <label for="password" class="block text-sm font-medium">Password</label>
+                    <input id="password" name="password" type="password" required autocomplete="current-password"
+                           x-model="password" @blur="validatePassword()"
+                           :class="errors.password ? 'border-red-400 focus:ring-red-400 focus:border-red-400' : ''"
+                           class="mt-1 block w-full px-4 py-3 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 rounded-lg shadow-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                           placeholder="Enter your password">
+                    <p x-show="errors.password" x-cloak class="mt-1 text-xs text-red-600" x-text="errors.password"></p>
                 </div>
             </div>
 
             <div class="flex items-center justify-between">
-                <div class="flex items-center">
-                    <input id="remember" name="remember" type="checkbox" class="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded">
-                    <label for="remember" class="ml-2 block text-sm text-gray-900">Remember me</label>
-                </div>
-
-                <a href="#" class="text-sm font-medium text-primary-600 hover:text-primary-500">Forgot password?</a>
+                <label class="flex items-center text-sm">
+                    <input type="checkbox" name="remember" class="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded">
+                    <span class="ml-2">Remember me</span>
+                </label>
+                <a href="/auth/forgot" class="text-sm font-medium text-primary-600 hover:text-primary-500">Forgot password?</a>
             </div>
 
-            <button type="submit" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition">
-                Sign in
+            <button type="submit" :disabled="submitting"
+                    class="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition disabled:opacity-60 disabled:cursor-not-allowed">
+                <span x-show="!submitting">Sign in</span>
+                <span x-show="submitting" x-cloak>Signing in…</span>
             </button>
+            {{end}}
         </form>
 
-        <p class="text-center text-sm text-gray-600">
+        <p class="text-center text-sm text-gray-600 dark:text-gray-400">
             Don't have an account?
             <a href="/auth/register" class="font-medium text-primary-600 hover:text-primary-500">Sign up</a>
         </p>
     </div>
 </div>
+<script>
+function loginForm() {
+    return {
+        email: '{{.Email}}',
+        password: '',
+        errors: {},
+        submitting: false,
+        validateEmail() {
+            if (!this.email) { this.errors.email = 'Email is required.'; return false; }
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.email)) { this.errors.email = 'Enter a valid email.'; return false; }
+            delete this.errors.email;
+            return true;
+        },
+        validatePassword() {
+            if (!this.password) { this.errors.password = 'Password is required.'; return false; }
+            delete this.errors.password;
+            return true;
+        },
+        onSubmit(e) {
+            const okEmail = this.validateEmail();
+            const okPassword = this.validatePassword();
+            if (!okEmail || !okPassword) { e.preventDefault(); return; }
+            this.submitting = true;
+        },
+    };
+}
+</script>
 {{end}}

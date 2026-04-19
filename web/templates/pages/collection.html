@@ -1,0 +1,88 @@
+{{template "base.html" .}}
+
+{{define "content"}}
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+
+<article class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <header class="mb-8">
+        <a href="/explore/{{.Collection.Destination}}" class="text-sm text-gray-500 hover:text-gray-700">← {{.Collection.Destination}}</a>
+        {{if .Collection.CoverImage}}
+        <div class="mt-4 aspect-[21/9] rounded-xl overflow-hidden">
+            <img src="{{.Collection.CoverImage}}" alt="{{.Collection.Title}}" class="w-full h-full object-cover">
+        </div>
+        {{end}}
+        <h1 class="mt-4 text-3xl md:text-4xl font-bold">{{.Collection.Title}}</h1>
+        {{if .Collection.Subtitle}}<p class="text-lg text-gray-600 dark:text-gray-400 mt-1">{{.Collection.Subtitle}}</p>{{end}}
+        <div class="flex flex-wrap gap-2 mt-3 text-sm text-gray-500">
+            {{if .Collection.DurationHours}}<span>⏱ {{.Collection.DurationHours}}h</span>{{end}}
+            <span>📍 {{len .Collection.Stops}} stops</span>
+            {{range .Collection.Tags}}<span class="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">{{.}}</span>{{end}}
+        </div>
+        {{if .Collection.Description}}
+        <p class="mt-4 text-gray-700 dark:text-gray-300 leading-relaxed">{{.Collection.Description}}</p>
+        {{end}}
+    </header>
+
+    <section>
+        <ol class="relative border-l dark:border-gray-800 ml-3 space-y-6">
+            {{range $i, $s := .Collection.Stops}}
+            <li class="ml-6 relative">
+                <span class="absolute -left-9 flex items-center justify-center w-5 h-5 rounded-full bg-primary-100 dark:bg-primary-900 ring-4 ring-white dark:ring-gray-900 text-[10px] font-semibold text-primary-600 dark:text-primary-300">{{add $i 1}}</span>
+                <div class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-lg p-4">
+                    <div class="flex items-center gap-2 text-xs text-gray-500">
+                        <span class="uppercase tracking-wide">{{.Category}}</span>
+                        {{if .DurationMin}}<span>· {{.DurationMin}} min</span>{{end}}
+                    </div>
+                    <h3 class="mt-1 font-semibold">{{.Title}}</h3>
+                    {{if .Description}}<p class="mt-1 text-sm text-gray-600 dark:text-gray-400">{{.Description}}</p>{{end}}
+                    {{if .URL}}<a href="{{.URL}}" target="_blank" rel="noopener" class="text-sm text-primary-600 hover:underline">Learn more →</a>{{end}}
+                </div>
+            </li>
+            {{end}}
+        </ol>
+    </section>
+
+    <section class="mt-10">
+        <h2 class="text-xl font-semibold mb-3">Map</h2>
+        <div id="collection-map" class="h-[420px] rounded-xl border dark:border-gray-800 overflow-hidden"></div>
+    </section>
+</article>
+
+<script id="collection-stops" type="application/json">
+[
+    {{range $i, $s := .Collection.Stops}}{{if $i}},{{end}}{"title":{{.Title | printf "%q"}}, "lat":{{.Lat}}, "lng":{{.Lng}}}{{end}}
+]
+</script>
+<script>
+(function() {
+    const style = {{.MapStyleURL | printf "%q"}};
+    const wait = () => {
+        if (typeof maplibregl === 'undefined') return setTimeout(wait, 200);
+        let stops = [];
+        try { stops = JSON.parse(document.getElementById('collection-stops').textContent || '[]'); } catch (e) {}
+        stops = stops.filter(s => s.lat && s.lng);
+        if (stops.length === 0) { document.getElementById('collection-map').innerHTML = '<div class="h-full flex items-center justify-center text-gray-500 text-sm">No coordinates for this collection yet.</div>'; return; }
+        const map = new maplibregl.Map({container:'collection-map', style, center:[stops[0].lng, stops[0].lat], zoom: 13});
+        map.addControl(new maplibregl.NavigationControl(), 'top-right');
+        map.on('load', () => {
+            const coords = stops.map(s => [s.lng, s.lat]);
+            stops.forEach((s, i) => {
+                const el = document.createElement('div');
+                el.className = 'w-8 h-8 rounded-full bg-primary-600 border-2 border-white text-white text-xs font-bold flex items-center justify-center shadow';
+                el.textContent = String(i + 1);
+                new maplibregl.Marker({element: el}).setLngLat([s.lng, s.lat])
+                    .setPopup(new maplibregl.Popup().setText(s.title)).addTo(map);
+            });
+            if (coords.length > 1) {
+                map.addSource('route', {type:'geojson', data:{type:'Feature', geometry:{type:'LineString', coordinates: coords}}});
+                map.addLayer({id:'route', type:'line', source:'route', paint:{'line-color':'#2563eb', 'line-width':2, 'line-dasharray':[1.5,1.5]}});
+                const b = coords.reduce((a,c)=>a.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
+                map.fitBounds(b, { padding: 40, maxZoom: 15 });
+            }
+        });
+    };
+    wait();
+})();
+</script>
+{{end}}

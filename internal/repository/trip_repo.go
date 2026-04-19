@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/realestayer/v3/internal/database"
-	"github.com/realestayer/v3/internal/models"
+	"github.com/realestayer/v4/internal/database"
+	"github.com/realestayer/v4/internal/models"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -186,6 +186,122 @@ func (r *TripRepository) UnshareWithUser(ctx context.Context, tripID, userID pri
 		},
 	)
 	return err
+}
+
+// AddCollaborator appends a collaborator entry (idempotent on user_id).
+func (r *TripRepository) AddCollaborator(ctx context.Context, tripID primitive.ObjectID, c models.TripCollaborator) error {
+	c.AddedAt = time.Now()
+	// Remove any existing entry for that user first so role changes take effect.
+	_, err := r.collection.UpdateOne(ctx,
+		bson.M{"_id": tripID},
+		bson.M{"$pull": bson.M{"collaborators": bson.M{"user_id": c.UserID}}},
+	)
+	if err != nil {
+		return err
+	}
+	_, err = r.collection.UpdateOne(ctx,
+		bson.M{"_id": tripID},
+		bson.M{
+			"$push": bson.M{"collaborators": c},
+			"$set":  bson.M{"updated_at": time.Now()},
+		},
+	)
+	return err
+}
+
+// RemoveCollaborator drops a collaborator by user ID.
+func (r *TripRepository) RemoveCollaborator(ctx context.Context, tripID, userID primitive.ObjectID) error {
+	_, err := r.collection.UpdateOne(ctx,
+		bson.M{"_id": tripID},
+		bson.M{
+			"$pull": bson.M{"collaborators": bson.M{"user_id": userID}},
+			"$set":  bson.M{"updated_at": time.Now()},
+		},
+	)
+	return err
+}
+
+// ReorderItems replaces the items array with the provided slice, preserving
+// item IDs. Caller is responsible for ensuring the slice contains the same
+// set of items (in whatever new order).
+func (r *TripRepository) ReorderItems(ctx context.Context, tripID primitive.ObjectID, items []models.TripItem) error {
+	_, err := r.collection.UpdateOne(ctx,
+		bson.M{"_id": tripID},
+		bson.M{
+			"$set": bson.M{
+				"items":      items,
+				"updated_at": time.Now(),
+			},
+		},
+	)
+	return err
+}
+
+// SetPackingList replaces the packing list wholesale — simpler than doing
+// array surgery over websockets.
+func (r *TripRepository) SetPackingList(ctx context.Context, tripID primitive.ObjectID, items []models.PackingItem) error {
+	_, err := r.collection.UpdateOne(ctx,
+		bson.M{"_id": tripID},
+		bson.M{"$set": bson.M{"packing_list": items, "updated_at": time.Now()}},
+	)
+	return err
+}
+
+// SetChecklist replaces the checklist wholesale.
+func (r *TripRepository) SetChecklist(ctx context.Context, tripID primitive.ObjectID, items []models.ChecklistItem) error {
+	_, err := r.collection.UpdateOne(ctx,
+		bson.M{"_id": tripID},
+		bson.M{"$set": bson.M{"checklist": items, "updated_at": time.Now()}},
+	)
+	return err
+}
+
+// FindBySlug returns a trip by its public share slug, or ErrTripNotFound.
+func (r *TripRepository) FindBySlug(ctx context.Context, slug string) (*models.Trip, error) {
+	if slug == "" {
+		return nil, ErrTripNotFound
+	}
+	var trip models.Trip
+	err := r.collection.FindOne(ctx, bson.M{"share_slug": slug}).Decode(&trip)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, ErrTripNotFound
+	}
+	return &trip, err
+}
+
+// SetShareSlug writes or clears the slug. Callers generate the slug themselves.
+func (r *TripRepository) SetShareSlug(ctx context.Context, tripID primitive.ObjectID, slug string) error {
+	update := bson.M{"$set": bson.M{"updated_at": time.Now()}}
+	if slug == "" {
+		update["$unset"] = bson.M{"share_slug": ""}
+	} else {
+		update["$set"].(bson.M)["share_slug"] = slug
+	}
+	_, err := r.collection.UpdateOne(ctx, bson.M{"_id": tripID}, update)
+	return err
+}
+
+// FindUpcomingAll returns all future trips across every user, ordered by
+// start date ascending. Used by the notification worker.
+func (r *TripRepository) FindUpcomingAll(ctx context.Context, from time.Time, limit int) ([]models.Trip, error) {
+	if limit <= 0 || limit > 2000 {
+		limit = 500
+	}
+	filter := bson.M{
+		"start_date": bson.M{"$gte": from.Add(-24 * time.Hour)}, // include today
+		"status":     bson.M{"$ne": models.TripStatusCancelled},
+	}
+	opts := options.Find().SetSort(bson.M{"start_date": 1}).SetLimit(int64(limit))
+	cursor, err := r.collection.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var out []models.Trip
+	if err := cursor.All(ctx, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // GetUpcoming returns upcoming trips for a user

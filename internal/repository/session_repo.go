@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/realestayer/v3/internal/database"
-	"github.com/realestayer/v3/internal/models"
+	"github.com/realestayer/v4/internal/database"
+	"github.com/realestayer/v4/internal/models"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -85,6 +85,17 @@ func (r *SessionRepository) DeleteByToken(ctx context.Context, token string) err
 // DeleteByUserID removes all sessions for a user
 func (r *SessionRepository) DeleteByUserID(ctx context.Context, userID primitive.ObjectID) error {
 	_, err := r.collection.DeleteMany(ctx, bson.M{"user_id": userID})
+	return err
+}
+
+// DeleteByUserIDExceptToken removes every session for a user except the one
+// matching the supplied token. Used during login rotation so the freshly
+// issued cookie survives while older sessions are invalidated.
+func (r *SessionRepository) DeleteByUserIDExceptToken(ctx context.Context, userID primitive.ObjectID, keepToken string) error {
+	_, err := r.collection.DeleteMany(ctx, bson.M{
+		"user_id": userID,
+		"token":   bson.M{"$ne": keepToken},
+	})
 	return err
 }
 

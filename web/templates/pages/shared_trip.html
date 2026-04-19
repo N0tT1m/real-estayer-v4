@@ -1,0 +1,22 @@
+{{template "base.html" .}}
+
+{{define "content"}}
+<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div class="mb-8">
+        <p class="text-xs uppercase tracking-wide text-gray-500 mb-1">Shared itinerary</p>
+        <h1 class="text-3xl font-bold">{{.Trip.Name}}</h1>
+        <p class="text-gray-600 dark:text-gray-400 mt-1">
+            {{.Trip.StartDate.Format "Jan 2"}} – {{.Trip.EndDate.Format "Jan 2, 2006"}}
+        </p>
+        {{if .Trip.Description}}
+        <p class="mt-4 text-gray-700 dark:text-gray-300">{{.Trip.Description}}</p>
+        {{end}}
+    </div>
+
+    {{template "trip_timeline" .Trip}}
+
+    <p class="mt-12 text-xs text-gray-500 text-center">
+        This is a read-only view. Built with Real-Estayer — <a href="/" class="text-primary-600 hover:underline">plan your own trip</a>.
+    </p>
+</div>
+{{end}}

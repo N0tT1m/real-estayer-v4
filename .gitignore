@@ -1,4 +1,4 @@
-# Binaries
+# Go binaries
 bin/
 tmp/
 *.exe
@@ -6,11 +6,13 @@ tmp/
 *.dll
 *.so
 *.dylib
+/server
+cmd/server/server
 
 # Test binary
 *.test
 
-# Output of the go coverage tool
+# Coverage tool output
 *.out
 coverage.html
 
@@ -28,6 +30,7 @@ vendor/
 .env
 .env.local
 .env.*.local
+rust-scraper/.env
 
 # OS files
 .DS_Store
@@ -36,6 +39,12 @@ Thumbs.db
 # Build artifacts
 dist/
 build/
+/target/
+rust-scraper/target/
+
+# rustc internal compiler error dumps
+rustc-ice-*.txt
+**/rustc-ice-*.txt
 
 # Logs
 *.log

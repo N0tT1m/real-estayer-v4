@@ -1,0 +1,133 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel older runs on the same PR so pushing rapidly doesn't stack queues.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test with race detector
+        # -race catches concurrent map/channel misuse we wouldn't see
+        # locally; it's cheap in CI and well worth it.
+        run: go test -race -count=1 ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+        continue-on-error: true  # ratchet gradually; don't fail PRs yet
+
+      - name: Security scan (gosec)
+        uses: securego/gosec@master
+        with:
+          args: -exclude-dir=rust-scraper -exclude-dir=web ./...
+        continue-on-error: true
+
+      - name: Vulnerability check (govulncheck)
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+        continue-on-error: true
+
+  rust:
+    name: Rust build + test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust-scraper
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-scraper
+
+      - name: Clippy (warnings only — doesn't fail)
+        run: cargo clippy --no-deps -- -A warnings
+        continue-on-error: true
+
+      - name: Build binary
+        run: cargo build --bin rust-scraper
+
+      - name: Integration tests
+        run: cargo test --test integration_tests
+
+  templates:
+    name: Template parse check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+
+      # Spot-check that every HTML template parses. Catches missing `{{end}}`
+      # and such without spinning up Mongo.
+      - name: Parse templates
+        run: |
+          cat > /tmp/check_templates.go <<'EOF'
+          package main
+          import (
+              "fmt"; "html/template"; "os"; "path/filepath"; "strings"
+          )
+          func main() {
+              layouts, _ := filepath.Glob("web/templates/layouts/*.html")
+              partials, _ := filepath.Glob("web/templates/partials/*.html")
+              pages, _ := filepath.Glob("web/templates/pages/*.html")
+              fails := 0
+              for _, p := range pages {
+                  files := append([]string{}, layouts...)
+                  files = append(files, partials...)
+                  files = append(files, p)
+                  funcs := template.FuncMap{
+                      "json": func(v any) template.JS { return "" },
+                      "jsonld": func(v any) template.JS { return "" },
+                      "hasPrefix": strings.HasPrefix,
+                      "contains": func([]int, int) bool { return false },
+                      "add": func(a, b int) int { return a + b },
+                      "subtract": func(a, b int) int { return a - b },
+                      "slice": func(a, b int) []int { return nil },
+                      "pages": func(int, int) []int { return nil },
+                      "dict": func(values ...any) (map[string]any, error) { return map[string]any{}, nil },
+                  }
+                  _, err := template.New(filepath.Base(p)).Funcs(funcs).ParseFiles(files...)
+                  if err != nil {
+                      fmt.Println(p, err)
+                      fails++
+                  }
+              }
+              if fails > 0 { os.Exit(1) }
+          }
+          EOF
+          go run /tmp/check_templates.go

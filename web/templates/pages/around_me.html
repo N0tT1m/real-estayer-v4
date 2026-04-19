@@ -1,0 +1,114 @@
+{{template "base.html" .}}
+
+{{define "content"}}
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6" x-data="aroundMe({ mapStyle: {{.MapStyleURL | printf "%q"}} })">
+    <header class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+            <h1 class="text-2xl font-bold">Around me</h1>
+            <p class="text-sm text-gray-500">Find food, sights, and events near your current location.</p>
+        </div>
+        <div class="flex flex-wrap gap-1" role="tablist" aria-label="Category">
+            <template x-for="c in categories" :key="c.id">
+                <button type="button" @click="setCategory(c.id)"
+                        :class="active === c.id ? 'bg-primary-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'"
+                        class="px-3 py-1.5 rounded-full text-sm font-medium" x-text="c.label"></button>
+            </template>
+        </div>
+    </header>
+
+    <div class="grid md:grid-cols-[1fr_2fr] gap-4">
+        <aside class="max-h-[70vh] overflow-y-auto">
+            <template x-if="loading">
+                <div class="space-y-2">
+                    <div class="skeleton h-16"></div><div class="skeleton h-16"></div><div class="skeleton h-16"></div>
+                </div>
+            </template>
+            <ul class="space-y-2">
+                <template x-for="p in places" :key="p.id">
+                    <li @mouseenter="focusMarker(p.id)"
+                        class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-lg p-3 hover:shadow-md transition cursor-pointer">
+                        <div class="font-medium" x-text="p.name"></div>
+                        <div class="text-xs text-gray-500" x-text="[p.subtype, p.cuisine].filter(Boolean).join(' · ')"></div>
+                        <div x-show="p.address" class="text-xs text-gray-500" x-text="p.address"></div>
+                        <div class="flex gap-3 mt-1 text-xs">
+                            <a x-show="p.website" :href="p.website" target="_blank" rel="noopener" class="text-primary-600 hover:underline">Website</a>
+                            <span x-show="p.phone" class="text-gray-500" x-text="p.phone"></span>
+                        </div>
+                    </li>
+                </template>
+                <template x-if="!loading && places.length === 0">
+                    <li class="text-sm text-gray-500 italic">Allow location access, then pick a category to start browsing.</li>
+                </template>
+            </ul>
+        </aside>
+
+        <div id="around-map" class="h-[70vh] rounded-xl border dark:border-gray-800"></div>
+    </div>
+</div>
+
+<script>
+function aroundMe(init) {
+    return {
+        mapStyle: init.mapStyle,
+        active: 'food',
+        categories: [
+            {id:'food', label:'Food'}, {id:'coffee', label:'Coffee'},
+            {id:'bar', label:'Bars'},  {id:'sight', label:'Sights'},
+            {id:'museum', label:'Museums'}, {id:'park', label:'Parks'},
+            {id:'shop', label:'Shops'},
+        ],
+        loading: false,
+        places: [],
+        markers: {},
+        map: null, lat: null, lng: null,
+        init() {
+            this.initMap();
+            if (!navigator.geolocation) { toast.error('Geolocation not supported'); return; }
+            navigator.geolocation.getCurrentPosition(
+                (pos) => { this.lat = pos.coords.latitude; this.lng = pos.coords.longitude; this.fetchPlaces(); this.centerMap(); },
+                (err) => toast.error('Could not get location: ' + err.message),
+                { maximumAge: 5 * 60 * 1000 }
+            );
+        },
+        initMap() {
+            const wait = () => { if (typeof maplibregl === 'undefined') return setTimeout(wait, 200);
+                this.map = new maplibregl.Map({container:'around-map', style:this.mapStyle, center:[-20,20], zoom:1.5});
+                this.map.addControl(new maplibregl.NavigationControl(), 'top-right');
+            };
+            wait();
+        },
+        centerMap() {
+            if (!this.map) return setTimeout(() => this.centerMap(), 200);
+            this.map.flyTo({ center: [this.lng, this.lat], zoom: 13 });
+            new maplibregl.Marker({color:'#2563eb'}).setLngLat([this.lng, this.lat]).setPopup(new maplibregl.Popup().setText('You are here')).addTo(this.map);
+        },
+        async setCategory(c) { this.active = c; if (this.lat != null) this.fetchPlaces(); },
+        async fetchPlaces() {
+            this.loading = true;
+            for (const id in this.markers) { this.markers[id].remove(); }
+            this.markers = {};
+            try {
+                const d = await api(`/api/v1/places/nearby?category=${this.active}&lat=${this.lat}&lng=${this.lng}&radius=1500`);
+                this.places = d.places || [];
+                for (const p of this.places) {
+                    if (!this.map) continue;
+                    const el = document.createElement('div');
+                    el.className = 'w-6 h-6 bg-primary-600 border-2 border-white rounded-full shadow';
+                    const m = new maplibregl.Marker({element: el})
+                        .setLngLat([p.lng, p.lat])
+                        .setPopup(new maplibregl.Popup().setHTML(`<strong>${escapeHTML(p.name)}</strong><br><small>${escapeHTML(p.subtype||'')}</small>`))
+                        .addTo(this.map);
+                    this.markers[p.id] = m;
+                }
+            } catch (e) { toast.error(e.message); }
+            finally { this.loading = false; }
+        },
+        focusMarker(id) { const m = this.markers[id]; if (m) m.togglePopup(); },
+    };
+}
+function escapeHTML(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+</script>
+{{end}}

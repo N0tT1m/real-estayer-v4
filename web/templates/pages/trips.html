@@ -80,14 +80,16 @@
         {{end}}
     </div>
     {{else}}
-    <div class="text-center py-12">
-        <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    <div class="empty-state surface">
+        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M4 7l1.5-3h13L20 7M4 7v11a2 2 0 002 2h12a2 2 0 002-2V7"/>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 11v6M15 11v6"/>
         </svg>
-        <h3 class="mt-2 text-sm font-medium text-gray-900">No trips yet</h3>
-        <p class="mt-1 text-sm text-gray-500">Start planning your next adventure!</p>
-        <button @click="showCreateModal = true" class="mt-4 bg-primary-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-primary-700 transition">
-            Create Your First Trip
+        <p class="font-display text-xl font-medium text-[color:var(--re-text)]">No trips on the horizon yet</p>
+        <p class="mt-1 text-sm">Every real trip starts with a dumb spreadsheet. Replace yours.</p>
+        <button @click="showCreateModal = true" class="btn btn-primary mt-5">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v14M5 12h14"/></svg>
+            Plan your first trip
         </button>
     </div>
     {{end}}
@@ -162,9 +164,9 @@ function tripManager() {
             try {
                 const response = await fetch('/api/v1/trips', {
                     method: 'POST',
-                    headers: {
+                    headers: window.csrfHeaders({
                         'Content-Type': 'application/json'
-                    },
+                    }),
                     body: JSON.stringify({
                         name: this.newTrip.name,
                         destination: this.newTrip.destination,

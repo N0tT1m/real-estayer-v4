@@ -1028,52 +1028,72 @@ pub async fn get_place_urls(driver: &WebDriver, location: &str, check_in_date: O
     Ok(url_list)
 }
 
-// Send email once done scraper
+// Send email once scraper completes. All configuration comes from environment
+// variables so the binary ships no credentials. If SMTP_HOST or SMTP_USER is
+// missing the function no-ops so development can run without an SMTP setup.
 pub async fn send_email() -> Result<()> {
-    // Build a simple multipart message
+    let host = match std::env::var("SMTP_HOST") {
+        Ok(v) if !v.is_empty() => v,
+        _ => {
+            tracing::info!("SMTP_HOST not set; skipping completion email");
+            return Ok(());
+        }
+    };
+    let port: u16 = std::env::var("SMTP_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(587);
+    let implicit_tls = std::env::var("SMTP_IMPLICIT_TLS")
+        .ok()
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(port == 465);
+
+    let user = std::env::var("SMTP_USER").unwrap_or_default();
+    let password = std::env::var("SMTP_PASSWORD").unwrap_or_default();
+    if user.is_empty() || password.is_empty() {
+        tracing::info!("SMTP credentials not set; skipping completion email");
+        return Ok(());
+    }
+
+    let from_address = std::env::var("SMTP_FROM").unwrap_or_else(|_| user.clone());
+    let to_addresses: Vec<(String, String)> = std::env::var("SMTP_TO")
+        .unwrap_or_default()
+        .split(',')
+        .filter_map(|raw| {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(("Recipient".to_string(), trimmed.to_string()))
+            }
+        })
+        .collect();
+    if to_addresses.is_empty() {
+        tracing::info!("SMTP_TO not set; skipping completion email");
+        return Ok(());
+    }
+
+    let to_refs: Vec<(&str, &str)> = to_addresses
+        .iter()
+        .map(|(n, a)| (n.as_str(), a.as_str()))
+        .collect();
+
     let message = MessageBuilder::new()
-        .from(("Automation", "automation@duocore.dev"))
-        .to(vec![
-            ("Nathan Moritz", "nathan.moritz@duocore.dev"),
-            ("Nathan Moritz", "nathan.moritz@protonmail.com"),
-        ])
+        .from(("Automation", from_address.as_str()))
+        .to(to_refs)
         .subject("Scraping Complete")
         .html_body("<h1>Scraping has completed</h1>")
         .text_body("Scraping has completed, you should now see new listing available.");
 
-    // Try connecting with different common SMTP ports and configurations
-    let smtp_configs = [
-        ("box.duocore.space", 587, false), // STARTTLS submission port (most common)
-        ("box.duocore.space", 465, true),  // Implicit TLS submission port
-        ("box.duocore.space", 25, false),  // Standard SMTP port with STARTTLS
-    ];
-    
-    let mut last_error = None;
-    
-    for (host, port, implicit_tls) in smtp_configs.iter() {
-        tracing::info!("Trying SMTP connection to {}:{} (implicit_tls: {})", host, port, implicit_tls);
-        
-        let result = SmtpClientBuilder::new(*host, *port)
-            .implicit_tls(*implicit_tls)
-            .allow_invalid_certs() // Accept self-signed certificates
-            .credentials(("automation@duocore.dev", "B@bycakes15!"))
-            .connect()
-            .await;
-            
-        match result {
-            Ok(mut client) => {
-                tracing::info!("Successfully connected to SMTP server {}:{}", host, port);
-                return client.send(message).await.map_err(|e| e.into());
-            }
-            Err(e) => {
-                tracing::warn!("Failed to connect to {}:{} - {}", host, port, e);
-                last_error = Some(e);
-            }
-        }
-    }
-    
-    // If all connections failed, return the last error
-    Err(last_error.unwrap().into())
+    tracing::info!("Connecting to SMTP {}:{} (implicit_tls: {})", host, port, implicit_tls);
+
+    let mut client = SmtpClientBuilder::new(host.as_str(), port)
+        .implicit_tls(implicit_tls)
+        .credentials((user.as_str(), password.as_str()))
+        .connect()
+        .await?;
+
+    client.send(message).await.map_err(|e| e.into())
 }
 
 // Rest of the helper functions remain unchanged
@@ -1312,31 +1332,6 @@ async fn get_text_or_empty(driver: &WebDriver, by: By) -> Result<String> {
 }
 
 
-async fn get_attribute_or_empty(driver: &WebDriver, by: By, attribute: &str) -> Result<String> {
-    match driver.find(by).await {
-        Ok(element) => {
-            match element.attr(attribute).await {
-                Ok(Some(value)) => Ok(value),
-                _ => Ok(String::new()),
-            }
-        }
-        Err(_) => Ok(String::new()),
-    }
-}
-
-
-async fn get_price(driver: &WebDriver, by: By) -> Result<String> {
-    let elements = driver.find_all(by).await?;
-    for element in elements {
-        if let Ok(text) = element.text().await {
-            if text.contains('$') {
-                return Ok(text.trim().to_string());
-            }
-        }
-    }
-    Ok(String::new())
-}
-
 // Extract data from page source using regex patterns
 fn extract_title_from_source(html: &str) -> Option<String> {
     // Try JSON-LD first
@@ -1552,7 +1547,7 @@ fn extract_price_from_source(html: &str) -> Option<String> {
 /// Extract price from Airbnb's data-deferred-state-0 JSON structure
 /// This is the primary source for pricing on individual listing pages
 fn extract_price_from_airbnb_json(html: &str) -> Option<String> {
-    use tracing::{debug, info, warn};
+    use tracing::{debug, info};
 
     let json_data = extract_airbnb_json_data(html)?;
 
@@ -3679,7 +3674,7 @@ fn normalize_amenity(amenity: &str) -> String {
 
 /// Extract amenities from page source
 fn extract_amenities_from_source(html: &str) -> Vec<String> {
-    use tracing::{debug, info};
+    use tracing::info;
     let mut amenities = Vec::new();
 
     info!("[AMENITIES] Starting amenity extraction from page source ({} bytes)", html.len());

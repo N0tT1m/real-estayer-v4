@@ -3,9 +3,10 @@ package provider
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 
-	"github.com/realestayer/v3/internal/models"
+	"github.com/realestayer/v4/internal/models"
 )
 
 // Registry manages multiple booking providers
@@ -106,96 +107,123 @@ func (r *Registry) GetCarProvider(name string) (CarProvider, error) {
 	return provider, nil
 }
 
-// SearchFlightsAll searches across all flight providers
+// SearchFlightsAll searches across all flight providers. Individual provider
+// failures are logged and returned alongside any collected offers so the caller
+// can decide whether to surface a partial-result warning. An error is only
+// returned when every registered provider failed.
 func (r *Registry) SearchFlightsAll(ctx context.Context, req models.FlightSearchRequest) ([]models.FlightOffer, error) {
 	r.mu.RLock()
-	providers := make([]FlightProvider, 0, len(r.flightProviders))
-	for _, p := range r.flightProviders {
-		providers = append(providers, p)
+	providers := make(map[string]FlightProvider, len(r.flightProviders))
+	for name, p := range r.flightProviders {
+		providers[name] = p
 	}
 	r.mu.RUnlock()
 
 	var allOffers []models.FlightOffer
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	var failures int
 
-	for _, provider := range providers {
+	for name, provider := range providers {
 		wg.Add(1)
-		go func(p FlightProvider) {
+		go func(name string, p FlightProvider) {
 			defer wg.Done()
 			offers, err := p.SearchFlights(ctx, req)
 			if err != nil {
-				return // skip failed providers
+				slog.Warn("flight provider failed", "provider", name, "error", err)
+				mu.Lock()
+				failures++
+				mu.Unlock()
+				return
 			}
 			mu.Lock()
 			allOffers = append(allOffers, offers...)
 			mu.Unlock()
-		}(provider)
+		}(name, provider)
 	}
 
 	wg.Wait()
+	if len(providers) > 0 && failures == len(providers) {
+		return allOffers, fmt.Errorf("all %d flight providers failed", failures)
+	}
 	return allOffers, nil
 }
 
-// SearchHotelsAll searches across all hotel providers
+// SearchHotelsAll searches across all hotel providers (see SearchFlightsAll).
 func (r *Registry) SearchHotelsAll(ctx context.Context, req models.HotelSearchRequest) ([]models.HotelOffer, error) {
 	r.mu.RLock()
-	providers := make([]HotelProvider, 0, len(r.hotelProviders))
-	for _, p := range r.hotelProviders {
-		providers = append(providers, p)
+	providers := make(map[string]HotelProvider, len(r.hotelProviders))
+	for name, p := range r.hotelProviders {
+		providers[name] = p
 	}
 	r.mu.RUnlock()
 
 	var allOffers []models.HotelOffer
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	var failures int
 
-	for _, provider := range providers {
+	for name, provider := range providers {
 		wg.Add(1)
-		go func(p HotelProvider) {
+		go func(name string, p HotelProvider) {
 			defer wg.Done()
 			offers, err := p.SearchHotels(ctx, req)
 			if err != nil {
+				slog.Warn("hotel provider failed", "provider", name, "error", err)
+				mu.Lock()
+				failures++
+				mu.Unlock()
 				return
 			}
 			mu.Lock()
 			allOffers = append(allOffers, offers...)
 			mu.Unlock()
-		}(provider)
+		}(name, provider)
 	}
 
 	wg.Wait()
+	if len(providers) > 0 && failures == len(providers) {
+		return allOffers, fmt.Errorf("all %d hotel providers failed", failures)
+	}
 	return allOffers, nil
 }
 
-// SearchCarsAll searches across all car providers
+// SearchCarsAll searches across all car providers (see SearchFlightsAll).
 func (r *Registry) SearchCarsAll(ctx context.Context, req models.CarSearchRequest) ([]models.CarOffer, error) {
 	r.mu.RLock()
-	providers := make([]CarProvider, 0, len(r.carProviders))
-	for _, p := range r.carProviders {
-		providers = append(providers, p)
+	providers := make(map[string]CarProvider, len(r.carProviders))
+	for name, p := range r.carProviders {
+		providers[name] = p
 	}
 	r.mu.RUnlock()
 
 	var allOffers []models.CarOffer
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	var failures int
 
-	for _, provider := range providers {
+	for name, provider := range providers {
 		wg.Add(1)
-		go func(p CarProvider) {
+		go func(name string, p CarProvider) {
 			defer wg.Done()
 			offers, err := p.SearchCars(ctx, req)
 			if err != nil {
+				slog.Warn("car provider failed", "provider", name, "error", err)
+				mu.Lock()
+				failures++
+				mu.Unlock()
 				return
 			}
 			mu.Lock()
 			allOffers = append(allOffers, offers...)
 			mu.Unlock()
-		}(provider)
+		}(name, provider)
 	}
 
 	wg.Wait()
+	if len(providers) > 0 && failures == len(providers) {
+		return allOffers, fmt.Errorf("all %d car providers failed", failures)
+	}
 	return allOffers, nil
 }
 
