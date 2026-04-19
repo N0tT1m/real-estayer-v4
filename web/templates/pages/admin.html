@@ -646,7 +646,8 @@ function adminDashboard() {
                 });
 
                 const res = await fetch(`/api/v1/admin/scraping/trigger?${params}`, {
-                    method: 'POST'
+                    method: 'POST',
+                    headers: window.csrfHeaders()
                 });
 
                 if (!res.ok) {
@@ -705,7 +706,8 @@ function adminDashboard() {
 
             try {
                 const res = await fetch('/api/v1/admin/scraping/trigger', {
-                    method: 'POST'
+                    method: 'POST',
+                    headers: window.csrfHeaders()
                 });
 
                 if (!res.ok) {
@@ -779,7 +781,8 @@ function adminDashboard() {
             try {
                 const id = listing.id || listing._id;
                 const res = await fetch(`/api/v1/admin/listings/${id}`, {
-                    method: 'DELETE'
+                    method: 'DELETE',
+                    headers: window.csrfHeaders()
                 });
 
                 if (res.ok) {
@@ -810,7 +813,7 @@ function adminDashboard() {
 
                 const res = await fetch(`/api/v1/admin/users/${id}/role`, {
                     method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: window.csrfHeaders({ 'Content-Type': 'application/json' }),
                     body: JSON.stringify({ role: newRole })
                 });
 
@@ -834,7 +837,8 @@ function adminDashboard() {
 
             try {
                 const res = await fetch('/api/v1/admin/destinations/reseed', {
-                    method: 'POST'
+                    method: 'POST',
+                    headers: window.csrfHeaders()
                 });
 
                 if (!res.ok) {
@@ -861,7 +865,7 @@ function adminDashboard() {
             try {
                 const res = await fetch('/api/v1/admin/destinations', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: window.csrfHeaders({ 'Content-Type': 'application/json' }),
                     body: JSON.stringify(this.addDestForm)
                 });
 

@@ -2,11 +2,13 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 
-	"github.com/realestayer/v3/internal/models"
-	"github.com/realestayer/v3/internal/service"
+	"github.com/realestayer/v4/internal/models"
+	"github.com/realestayer/v4/internal/service"
 )
 
 type contextKey string
@@ -22,26 +24,16 @@ func RequireAuth(authService *service.AuthService) func(http.Handler) http.Handl
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token := extractToken(r)
 			if token == "" {
-				// Check if this is an API request or page request
-				if strings.HasPrefix(r.URL.Path, "/api/") {
-					http.Error(w, `{"error": "unauthorized"}`, http.StatusUnauthorized)
-				} else {
-					http.Redirect(w, r, "/auth/login?redirect="+r.URL.Path, http.StatusFound)
-				}
+				writeAuthFailure(w, r, "unauthorized", http.StatusUnauthorized)
 				return
 			}
 
 			user, session, err := authService.ValidateSession(r.Context(), token)
 			if err != nil {
-				if strings.HasPrefix(r.URL.Path, "/api/") {
-					http.Error(w, `{"error": "invalid or expired session"}`, http.StatusUnauthorized)
-				} else {
-					http.Redirect(w, r, "/auth/login?redirect="+r.URL.Path, http.StatusFound)
-				}
+				writeAuthFailure(w, r, "invalid or expired session", http.StatusUnauthorized)
 				return
 			}
 
-			// Add user and session to context
 			ctx := context.WithValue(r.Context(), UserContextKey, user)
 			ctx = context.WithValue(ctx, SessionContextKey, session)
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -55,7 +47,7 @@ func RequireAdmin(next http.Handler) http.Handler {
 		user := GetUser(r.Context())
 		if user == nil || !user.IsAdmin {
 			if strings.HasPrefix(r.URL.Path, "/api/") {
-				http.Error(w, `{"error": "forbidden"}`, http.StatusForbidden)
+				writeJSONError(w, http.StatusForbidden, "forbidden")
 			} else {
 				http.Error(w, "Forbidden", http.StatusForbidden)
 			}
@@ -83,14 +75,27 @@ func OptionalAuth(authService *service.AuthService) func(http.Handler) http.Hand
 	}
 }
 
+func writeAuthFailure(w http.ResponseWriter, r *http.Request, msg string, status int) {
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		writeJSONError(w, status, msg)
+		return
+	}
+	redirect := "/auth/login?redirect=" + url.QueryEscape(r.URL.Path)
+	http.Redirect(w, r, redirect, http.StatusFound)
+}
+
+func writeJSONError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
 // extractToken gets the session token from cookie or Authorization header
 func extractToken(r *http.Request) string {
-	// Check cookie first
 	if cookie, err := r.Cookie("session_token"); err == nil {
 		return cookie.Value
 	}
 
-	// Check Authorization header
 	authHeader := r.Header.Get("Authorization")
 	if strings.HasPrefix(authHeader, "Bearer ") {
 		return strings.TrimPrefix(authHeader, "Bearer ")

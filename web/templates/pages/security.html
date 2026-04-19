@@ -1,0 +1,77 @@
+{{template "base.html" .}}
+
+{{define "content"}}
+<div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+    <div class="mb-8">
+        <a href="/profile" class="text-sm text-primary-600 hover:text-primary-500">&larr; Back to profile</a>
+        <h1 class="mt-2 text-3xl font-display font-semibold">Security activity</h1>
+        <p class="mt-2 text-sm text-muted">
+            The last 100 sensitive events on your account. See something you don't recognise?
+            <a href="/auth/forgot" class="font-medium text-primary-600 hover:text-primary-500">Reset your password</a>
+            and then review your
+            <a href="/profile" class="font-medium text-primary-600 hover:text-primary-500">traveler identity</a>.
+            Entries here are retained for 12 months and then deleted automatically.
+        </p>
+    </div>
+
+    {{if .Events}}
+    <ol class="surface divide-y divide-[color:var(--re-border)] overflow-hidden">
+        {{range .Events}}
+        <li class="p-4 sm:p-5 flex items-start gap-4">
+            <div class="shrink-0 mt-0.5 h-9 w-9 rounded-full bg-primary-50 dark:bg-primary-900/30 flex items-center justify-center">
+                {{if eq (printf "%s" .Action) "password_changed"}}<span aria-hidden="true">🔑</span>
+                {{else if eq (printf "%s" .Action) "password_reset"}}<span aria-hidden="true">♻️</span>
+                {{else if eq (printf "%s" .Action) "identity_updated"}}<span aria-hidden="true">🪪</span>
+                {{else if eq (printf "%s" .Action) "trip_share_enabled"}}<span aria-hidden="true">🔗</span>
+                {{else if eq (printf "%s" .Action) "trip_share_revoked"}}<span aria-hidden="true">🚫</span>
+                {{else if eq (printf "%s" .Action) "totp_enabled"}}<span aria-hidden="true">🛡️</span>
+                {{else if eq (printf "%s" .Action) "totp_disabled"}}<span aria-hidden="true">⚠️</span>
+                {{else}}<span aria-hidden="true">•</span>
+                {{end}}
+            </div>
+            <div class="flex-1 min-w-0">
+                <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <p class="text-sm font-medium">
+                        {{if eq (printf "%s" .Action) "password_changed"}}Password changed
+                        {{else if eq (printf "%s" .Action) "password_reset"}}Password reset via email link
+                        {{else if eq (printf "%s" .Action) "identity_updated"}}Traveler identity updated
+                        {{else if eq (printf "%s" .Action) "trip_share_enabled"}}Trip sharing link enabled
+                        {{else if eq (printf "%s" .Action) "trip_share_revoked"}}Trip sharing link revoked
+                        {{else if eq (printf "%s" .Action) "totp_enabled"}}Two-factor authentication turned on
+                        {{else if eq (printf "%s" .Action) "totp_disabled"}}Two-factor authentication turned off
+                        {{else}}{{.Action}}
+                        {{end}}
+                    </p>
+                    <time class="text-xs text-muted" datetime="{{.CreatedAt.Format "2006-01-02T15:04:05Z07:00"}}">
+                        {{.CreatedAt.Format "Jan 2, 2006 · 3:04 PM"}}
+                    </time>
+                </div>
+                {{if or .IPAddress .UserAgent}}
+                <p class="mt-1 text-xs text-muted font-mono truncate">
+                    {{if .IPAddress}}{{.IPAddress}}{{end}}
+                    {{if and .IPAddress .UserAgent}} &middot; {{end}}
+                    {{if .UserAgent}}{{.UserAgent}}{{end}}
+                </p>
+                {{end}}
+                {{if .Metadata}}
+                <details class="mt-2 text-xs">
+                    <summary class="cursor-pointer text-muted hover:text-[color:var(--re-text)]">Details</summary>
+                    <pre class="mt-1 p-2 rounded bg-[color:var(--re-surface-muted)] overflow-x-auto">{{json .Metadata}}</pre>
+                </details>
+                {{end}}
+            </div>
+        </li>
+        {{end}}
+    </ol>
+    {{else}}
+    <div class="empty-state surface">
+        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3l8 4v5c0 4.418-3.582 8-8 9-4.418-1-8-4.582-8-9V7l8-4z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/>
+        </svg>
+        <p class="font-medium text-[color:var(--re-text)]">Nothing to report</p>
+        <p class="mt-1 text-sm">Your account is quiet. Sensitive changes will show up here when you make them.</p>
+    </div>
+    {{end}}
+</div>
+{{end}}

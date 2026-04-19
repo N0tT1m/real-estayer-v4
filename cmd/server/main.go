@@ -6,127 +6,277 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
-	"github.com/realestayer/v3/internal/config"
-	"github.com/realestayer/v3/internal/database"
-	"github.com/realestayer/v3/internal/handler"
-	authMiddleware "github.com/realestayer/v3/internal/middleware"
-	"github.com/realestayer/v3/internal/provider"
-	"github.com/realestayer/v3/internal/provider/amadeus"
-	"github.com/realestayer/v3/internal/repository"
-	"github.com/realestayer/v3/internal/service"
-	"github.com/realestayer/v3/internal/service/booking"
+	"github.com/realestayer/v4/internal/config"
+	"github.com/realestayer/v4/internal/crypto"
+	"github.com/realestayer/v4/internal/database"
+	"github.com/realestayer/v4/internal/handler"
+	"github.com/realestayer/v4/internal/mailer"
+	"github.com/realestayer/v4/internal/migrations"
+	authMiddleware "github.com/realestayer/v4/internal/middleware"
+	"github.com/realestayer/v4/internal/provider"
+	"github.com/realestayer/v4/internal/provider/amadeus"
+	"github.com/realestayer/v4/internal/repository"
+	"github.com/realestayer/v4/internal/service"
+	"github.com/realestayer/v4/internal/service/booking"
 )
 
 func main() {
-	// Initialize structured logger
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
 	slog.SetDefault(logger)
 
-	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("failed to load configuration", "error", err)
 		os.Exit(1)
 	}
+	cfg.LogFeatureSummary()
 
-	// Connect to MongoDB
 	db, err := database.Connect(cfg.MongoURI)
 	if err != nil {
 		slog.Error("failed to connect to database", "error", err)
 		os.Exit(1)
 	}
-	defer db.Disconnect(context.Background())
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := db.Disconnect(ctx); err != nil {
+			slog.Warn("mongo disconnect failed", "error", err)
+		}
+	}()
 
-	// Initialize repositories
+	// Run pending schema migrations before anything else touches the DB so
+	// handlers never observe a half-migrated state. Small deployments run
+	// the server directly (no separate `migrate` step); a dedicated binary
+	// still exists for teams that prefer to split migration from release.
+	migrateCtx, cancelMigrate := context.WithTimeout(context.Background(), 30*time.Minute)
+	if err := migrations.Run(migrateCtx, db); err != nil {
+		cancelMigrate()
+		slog.Error("migrations failed", "error", err)
+		os.Exit(1)
+	}
+	cancelMigrate()
+
 	repos := repository.NewRepositories(db)
 
-	// Initialize providers
 	providerRegistry := provider.NewRegistry()
 
-	// Register Amadeus provider
 	amadeusClient := amadeus.NewClient(cfg.Amadeus.ClientID, cfg.Amadeus.ClientSecret, cfg.Amadeus.BaseURL)
 	providerRegistry.RegisterFlight("amadeus", amadeusClient)
 	providerRegistry.RegisterHotel("amadeus", amadeusClient)
 	providerRegistry.RegisterCar("amadeus", amadeusClient)
 
-	// Initialize destination repository
 	destRepo := repository.NewDestinationRepository(db.Database)
 
-	// Initialize services
-	authService := service.NewAuthService(repos.User, repos.Session, cfg.SessionSecret)
-	userService := service.NewUserService(repos.User)
+	mailerClient := mailer.New(mailer.Config{
+		Host:        cfg.Email.SMTPHost,
+		Port:        cfg.Email.SMTPPort,
+		Username:    cfg.Email.SMTPUser,
+		Password:    cfg.Email.SMTPPassword,
+		FromAddress: cfg.Email.FromAddress,
+		FromName:    cfg.Email.FromName,
+		ImplicitTLS: cfg.Email.ImplicitTLS,
+	})
+
+	authService := service.NewAuthService(repos.User, repos.Session, cfg.SessionSecret, cfg)
+	resetService := service.NewPasswordResetService(repos.User, repos.Session, repos.PasswordReset, mailerClient, cfg.SessionSecret)
+	fieldCipher, err := crypto.NewFieldCipher(cfg.FieldEncryptionKey)
+	if err != nil {
+		slog.Error("field encryption key invalid", "error", err)
+		os.Exit(1)
+	}
+	userService := service.NewUserService(repos.User, fieldCipher)
 	listingService := service.NewListingService(repos.Listing)
-	scraperService := service.NewScraperService(cfg.ScraperURL)
+	scraperService := service.NewScraperService(cfg.ScraperURL, cfg.ScraperAPIKey)
 	tripService := service.NewTripService(repos.Trip)
 	watchlistService := service.NewWatchlistService(repos.Watchlist)
 	destService := service.NewDestinationService(destRepo, amadeusClient)
+	priceHistoryService := service.NewPriceHistoryService(repos.PriceHistory)
+	savedSearchService := service.NewSavedSearchService(repos.SavedSearch, listingService, repos.User, cfg.DiscordWebhookURL)
+	commentService := service.NewTripCommentService(tripService, repos.TripComment, repos.User)
+	expenseService := service.NewTripExpenseService(tripService, repos.TripExpense, repos.User)
+	journalService := service.NewTripJournalService(tripService, repos.TripJournal, repos.User)
+	reviewService := service.NewTripReviewService(tripService, repos.TripReview)
+	weatherService := service.NewWeatherService()
+	currencyService := service.NewCurrencyService()
+	placesService := service.NewOverpassService()
+	eventsService := service.NewEventsService(cfg.TicketmasterAPIKey)
+	aiItineraryService := service.NewAIItineraryService(cfg.AnthropicAPIKey, cfg.AIModel)
+	countryService := service.NewCountryService()
+	sunService := service.NewSunService()
+	airService := service.NewAirQualityService(cfg.OpenAQAPIKey)
+	routingService := service.NewRoutingService()
+	geocodingService := service.NewGeocodingService()
+	advisoryService := service.NewAdvisoryService()
+	carbonService := service.NewCarbonService()
+	statsService := service.NewTravelStatsService(repos.Trip, repos.TripExpense)
+	affiliateService := service.NewAffiliateService(cfg.AffiliateTag)
+	unsplashService := service.NewUnsplashService(cfg.UnsplashKey)
+	airportService := service.NewAirportService()
+	flightStatusService := service.NewFlightStatusService(cfg.AviationStackAPIKey)
+	wikidataService := service.NewWikidataService()
+	natureService := service.NewNatureService(cfg.EBirdAPIKey)
+	bookingPartner := service.NewBookingPartnerService(cfg.BookingAffiliateID, cfg.BookingDemandKey)
+	expediaPartner := service.NewExpediaPartnerService(cfg.ExpediaAPIKey, cfg.ExpediaSharedSecret)
+	emailParser := service.NewEmailParserService(aiItineraryService)
+	conflictChecker := service.NewConflictChecker()
+	visaService := service.NewVisaService()
+	photoStorage := service.NewPhotoStorage()
+	transitService := service.NewTransitService(cfg.GoogleDirectionsKey, routingService)
+	pollService := service.NewPollService(repos.Poll, repos.User)
+	receiptOCR := service.NewReceiptOCRService(aiItineraryService)
+	auditService := service.NewAuditService(repos.Audit)
 
-	// Initialize booking services
+	// Public URL used in notification emails — strip trailing slash once.
+	appBase := cfg.AppBaseURL
+	if appBase == "" {
+		appBase = "http://localhost:" + cfg.Port
+	}
+	notifyWorker := service.NewNotificationWorker(
+		repos.User, repos.Trip, repos.Watchlist, repos.PriceHistory,
+		flightStatusService, mailerClient, appBase,
+	)
+
 	flightService := booking.NewFlightService(providerRegistry, repos.Booking)
 	hotelService := booking.NewHotelService(providerRegistry, repos.Booking)
 	carService := booking.NewCarService(providerRegistry, repos.Booking)
 
-	// Initialize handlers
-	h := handler.NewHandler(
-		cfg,
-		authService,
-		userService,
-		listingService,
-		scraperService,
-		tripService,
-		watchlistService,
-		flightService,
-		hotelService,
-		carService,
-	)
+	h := handler.NewHandler(handler.HandlerDeps{
+		Config:         cfg,
+		AuthService:    authService,
+		ResetService:   resetService,
+		UserService:    userService,
+		ListingService: listingService,
+		ScraperService: scraperService,
+		TripService:    tripService,
+		Watchlist:      watchlistService,
+		SavedSearch:    savedSearchService,
+		PriceHistory:   priceHistoryService,
+		TripComment:    commentService,
+		TripExpense:    expenseService,
+		TripJournal:    journalService,
+		TripReview:     reviewService,
+		Weather:        weatherService,
+		Currency:       currencyService,
+		Places:         placesService,
+		Events:         eventsService,
+		AIItinerary:    aiItineraryService,
+		Country:        countryService,
+		Sun:            sunService,
+		Air:            airService,
+		Routing:        routingService,
+		Geocoding:      geocodingService,
+		Advisory:       advisoryService,
+		Carbon:         carbonService,
+		Stats:          statsService,
+		Affiliate:      affiliateService,
+		Unsplash:       unsplashService,
+		Airport:        airportService,
+		FlightStatus:   flightStatusService,
+		Wikidata:       wikidataService,
+		Nature:         natureService,
+		BookingPartner: bookingPartner,
+		ExpediaPartner: expediaPartner,
+		EmailParser:    emailParser,
+		Conflict:       conflictChecker,
+		Visa:           visaService,
+		Notify:         notifyWorker,
+		Photos:         photoStorage,
+		Transit:        transitService,
+		Poll:           pollService,
+		ReceiptOCR:     receiptOCR,
+		Audit:          auditService,
+		Users:          repos.User,
+		Collections:    repos.Collection,
+		Flight:         flightService,
+		Hotel:          hotelService,
+		Car:            carService,
+	})
 
-	// Initialize destination handler
 	destHandler := handler.NewDestinationHandler(h.Templates(), destService)
 
-	// Set up router
 	r := chi.NewRouter()
 
-	// Middleware
+	metrics := authMiddleware.NewMetrics()
+	errorHook := authMiddleware.WebhookErrorHook(cfg.ErrorWebhookURL, nil)
+
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer)
+	r.Use(authMiddleware.RequestLogger())
+	r.Use(metrics.Middleware())
+	r.Use(authMiddleware.Recoverer(h.ServerError, errorHook))
 	r.Use(middleware.Timeout(60 * time.Second))
+
+	allowedOrigins := cfg.AllowedOrigins
+	if len(allowedOrigins) == 0 {
+		allowedOrigins = []string{"http://localhost:8080"}
+	}
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"*"},
+		AllowedOrigins:   allowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		ExposedHeaders:   []string{"Link"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
 
-	// Serve static files
-	fileServer := http.FileServer(http.Dir("web/static"))
+	// Issue/verify CSRF tokens globally; safe methods just get a cookie.
+	r.Use(authMiddleware.CSRF(cfg.SessionSecret, cfg.IsProduction()))
+
+	// Static files: resolve once to a clean root to prevent directory traversal.
+	staticRoot, err := filepath.Abs("web/static")
+	if err != nil {
+		slog.Error("failed to resolve static root", "error", err)
+		os.Exit(1)
+	}
+	fileServer := http.FileServer(http.Dir(staticRoot))
 	r.Handle("/static/*", http.StripPrefix("/static/", fileServer))
 
-	// Public routes
+	// User-uploaded photos live outside the bundled static dir so volume
+	// mounts work. Only served when the local backend is in use; S3 backend
+	// returns absolute URLs and never hits this handler.
+	uploadsDir := os.Getenv("UPLOADS_DIR")
+	if uploadsDir == "" {
+		uploadsDir = "data/uploads"
+	}
+	if absUploads, err := filepath.Abs(uploadsDir); err == nil {
+		uploadsFS := http.FileServer(http.Dir(absUploads))
+		r.Handle("/uploads/*", http.StripPrefix("/uploads/", uploadsFS))
+	}
+
 	r.Get("/health", h.Health)
+	if cfg.MetricsEnabled {
+		r.Get("/metrics", metrics.MetricsHandler())
+	}
+	r.NotFound(h.NotFound)
 	r.With(authMiddleware.OptionalAuth(authService)).Get("/", h.Home)
 
-	// Auth routes
+	// Rate-limited auth endpoints (10/min per IP, burst 5) to blunt brute force.
+	authLimiter := authMiddleware.NewRateLimiter(cfg.RedisURL, "auth", 10, 5).Middleware()
+	// Password reset is much stricter: 3/min per IP, burst 2 (effective 5 / 60s).
+	// Generating tokens and sending emails is expensive, and a loose limit here
+	// lets an attacker spam reset emails to known addresses.
+	resetLimiter := authMiddleware.NewRateLimiter(cfg.RedisURL, "pwreset", 3, 2).Middleware()
 	r.Route("/auth", func(r chi.Router) {
 		r.Get("/login", h.LoginPage)
 		r.Get("/register", h.RegisterPage)
-		r.Post("/login", h.Login)
-		r.Post("/register", h.Register)
+		r.With(authLimiter).Post("/login", h.Login)
+		r.With(authLimiter).Post("/register", h.Register)
 		r.Post("/logout", h.Logout)
+		r.Get("/forgot", h.ForgotPasswordPage)
+		r.With(resetLimiter).Post("/forgot", h.RequestPasswordReset)
+		r.Get("/reset", h.ResetPasswordPage)
+		r.With(resetLimiter).Post("/reset", h.ResetPassword)
 	})
 
-	// Public browsing (with optional auth so logged-in users stay logged in)
 	r.Group(func(r chi.Router) {
 		r.Use(authMiddleware.OptionalAuth(authService))
 
@@ -137,65 +287,98 @@ func main() {
 		r.Get("/cars", h.CarsPage)
 		r.Get("/scrape", h.ScrapePage)
 
-		// Explore destinations
 		r.Get("/explore", destHandler.ExplorePage)
 		r.Get("/explore/{id}", destHandler.DestinationPage)
+
+		r.Get("/trips/shared/{slug}", h.SharedTripPage)
+		r.Get("/around-me", h.AroundMePage)
+		r.Get("/collections/{slug}", h.CollectionPage)
+
+		// Public polls — anyone with the slug can view + vote.
+		r.Get("/polls/{slug}", h.PublicPollPage)
+		r.With(authLimiter).Post("/api/public/polls/{slug}/vote", h.PublicPollVote)
 	})
 
-	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
-		// Public API
 		r.Get("/health", h.HealthAPI)
 		r.Get("/listings", h.GetListings)
 		r.Get("/listings/{id}", h.GetListing)
 		r.Get("/listings/search", h.SearchListings)
 
-		// Location search
 		r.Get("/locations/airports", h.SearchAirports)
 		r.Get("/locations/cities", h.SearchCities)
 
-		// Destinations API
 		r.Get("/destinations", destHandler.SearchAPI)
 		r.Get("/destinations/featured", destHandler.FeaturedAPI)
 
-		// Public Scraper API
 		r.Get("/scraper/status", h.PublicScraperStatus)
-		r.Post("/scraper/scrape", h.PublicTriggerScrape)
+		r.With(authLimiter).Post("/scraper/scrape", h.PublicTriggerScrape)
 
-		// Discord integration
+		// Public discovery endpoints
+		r.Get("/places/nearby", h.PlacesNearby)
+		r.Get("/events/nearby", h.EventsNearby)
+		r.Get("/collections", h.CollectionsForDestination)
+		r.Get("/collections/featured", h.CollectionsFeatured)
+
+		// Enrichment — all keyless/free unless otherwise noted
+		r.Get("/countries/{code}", h.CountryBasics)
+		r.Get("/countries/{code}/holidays", h.CountryHolidays)
+		r.Get("/countries/{code}/advisory", h.CountryAdvisory)
+		r.Get("/sun", h.SunTimes)
+		r.Get("/air", h.AirQuality)
+		r.Get("/directions", h.Directions)
+		r.Get("/geocode", h.Geocode)
+		r.Get("/climate", h.ClimateNormals)
+		r.Get("/affiliate", h.AffiliateLinks)
+		r.Get("/unsplash", h.UnsplashHero)
+
+		// Airports + flight status + city facts + nature
+		r.Get("/airports/search", h.AirportSearch)
+		r.Get("/airports/distance", h.AirportDistance)
+		r.Get("/airports/{iata}", h.AirportLookup)
+		r.Get("/flights/status", h.FlightStatus)
+		r.Get("/cities/facts", h.CityFacts)
+		r.Get("/nature/nearby", h.NearbyNature)
+		r.Get("/birds/nearby", h.NearbyBirds)
+
+		// Visa (public reference)
+		r.Get("/visa/{destination}", h.VisaCheck)
+		// Transit routing (public; Google key, if any, is held server-side)
+		r.Get("/transit", h.Transit)
+
 		r.Post("/send-to-discord", h.SendToDiscord)
 		r.Post("/test-discord", h.TestDiscord)
 
-		// Flight API
 		r.Get("/flights/search", h.SearchFlights)
 		r.Get("/flights/offers/{id}", h.GetFlightOffer)
 
-		// Hotel API
 		r.Get("/hotels/search", h.SearchHotels)
 		r.Get("/hotels/{id}", h.GetHotelDetails)
 		r.Get("/hotels/{id}/rooms", h.GetRoomAvailability)
 
-		// Car API
 		r.Get("/cars/search", h.SearchCars)
 		r.Get("/cars/offers/{id}", h.GetCarOffer)
 
-		// Auth required routes
 		r.Group(func(r chi.Router) {
 			r.Use(authMiddleware.RequireAuth(authService))
 
-			// User
 			r.Get("/users/me", h.GetCurrentUser)
 			r.Put("/users/me", h.UpdateUser)
 			r.Put("/users/me/password", h.ChangePassword)
+			r.Put("/users/me/notifications", h.UpdateNotifications)
+			r.Post("/users/me/notifications/test-discord", h.TestDiscordWebhook)
 
-			// Bookings
+			// Two-factor auth
+			r.Post("/users/me/totp/start", h.StartTOTP)
+			r.Post("/users/me/totp/confirm", h.ConfirmTOTP)
+			r.Post("/users/me/totp/disable", h.DisableTOTP)
+
 			r.Post("/flights/book", h.BookFlight)
 			r.Post("/hotels/book", h.BookHotel)
 			r.Post("/cars/book", h.BookCar)
 			r.Get("/bookings", h.GetUserBookings)
 			r.Get("/bookings/{id}", h.GetBooking)
 
-			// Trips
 			r.Get("/trips", h.GetTrips)
 			r.Post("/trips", h.CreateTrip)
 			r.Get("/trips/{id}", h.GetTrip)
@@ -204,13 +387,72 @@ func main() {
 			r.Post("/trips/{id}/items", h.AddTripItem)
 			r.Delete("/trips/{id}/items/{itemId}", h.RemoveTripItem)
 
-			// Watchlist
 			r.Get("/watchlist", h.GetWatchlist)
 			r.Post("/watchlist", h.AddToWatchlist)
 			r.Delete("/watchlist/{id}", h.RemoveFromWatchlist)
+			r.Get("/watchlist/{id}/history.svg", h.WatchlistPriceHistorySVG)
+
+			r.Get("/saved-searches", h.ListSavedSearches)
+			r.Post("/saved-searches", h.CreateSavedSearch)
+			r.Delete("/saved-searches/{id}", h.DeleteSavedSearch)
+
+			r.Post("/trips/{id}/share", h.CreateTripShare)
+			r.Delete("/trips/{id}/share", h.RevokeTripShare)
+
+			// Enhanced trip features
+			r.Put("/trips/{id}/reorder", h.TripReorderItems)
+			r.Post("/trips/{id}/clone", h.TripClone)
+			r.Post("/trips/{id}/collaborators", h.TripAddCollaborator)
+			r.Delete("/trips/{id}/collaborators/{userId}", h.TripRemoveCollaborator)
+			r.Put("/trips/{id}/packing", h.TripSetPackingList)
+			r.Get("/trips/{id}/packing/suggest", h.TripSuggestPacking)
+			r.Put("/trips/{id}/checklist", h.TripSetChecklist)
+			r.Get("/trips/{id}/checklist/suggest", h.TripSuggestChecklist)
+			r.Get("/trips/{id}/comments", h.TripListComments)
+			r.Post("/trips/{id}/comments", h.TripAddComment)
+			r.Delete("/trips/{id}/comments/{commentId}", h.TripDeleteComment)
+			r.Get("/trips/{id}/expenses", h.TripListExpenses)
+			r.Post("/trips/{id}/expenses", h.TripAddExpense)
+			r.Delete("/trips/{id}/expenses/{expenseId}", h.TripDeleteExpense)
+			r.Get("/trips/{id}/budget", h.TripBudgetSummary)
+			r.Get("/trips/{id}/settle", h.TripSettleUp)
+			r.Get("/trips/{id}/journal", h.TripListJournal)
+			r.Post("/trips/{id}/journal", h.TripAddJournal)
+			r.Delete("/trips/{id}/journal/{entryId}", h.TripDeleteJournal)
+			r.Get("/trips/{id}/reviews", h.TripListReviews)
+			r.Put("/trips/{id}/reviews", h.TripUpsertReview)
+			r.Get("/trips/{id}/weather", h.TripWeather)
+			r.Post("/ai/itinerary", h.AIItinerary)
+			r.Post("/currency/convert", h.ConvertCurrency)
+			r.Get("/trips/{id}/carbon", h.TripCarbon)
+			r.Get("/me/travel-stats", h.UserTravelStats)
+			r.Get("/me/travel-profile", h.UserTravelProfile)
+
+			// Partner stay search (gated — most users have no partner creds).
+			r.Post("/partners/stays", h.PartnerStays)
+
+			// Email confirmation parser
+			r.Post("/trips/{id}/import-email", h.ImportEmail)
+
+			// Itinerary conflict checker
+			r.Get("/trips/{id}/conflicts", h.TripConflicts)
+
+			// Traveler identity (KTN/loyalty/emergency contact)
+			r.Put("/users/me/identity", h.UpdateTravelerIdentity)
+
+			// Photo uploads + receipt OCR
+			r.Post("/uploads/photo", h.UploadPhoto)
+			r.Post("/receipts/ocr", h.ReceiptOCRUpload)
+
+			// Availability polls
+			r.Post("/polls", h.CreatePoll)
+			r.Get("/polls", h.ListUserPolls)
+			r.Delete("/polls/{id}", h.DeletePoll)
+
+			// AI itinerary refinement
+			r.Post("/ai/itinerary/refine", h.AIItineraryRefine)
 		})
 
-		// Admin routes
 		r.Route("/admin", func(r chi.Router) {
 			r.Use(authMiddleware.RequireAuth(authService))
 			r.Use(authMiddleware.RequireAdmin)
@@ -226,19 +468,22 @@ func main() {
 		})
 	})
 
-	// Protected pages
 	r.Group(func(r chi.Router) {
 		r.Use(authMiddleware.RequireAuth(authService))
 
 		r.Get("/dashboard", h.DashboardPage)
+		r.Get("/travel-stats", h.TravelStatsPage)
 		r.Get("/trips", h.TripsPage)
+		r.Get("/trips/calendar", h.TripCalendarPage)
 		r.Get("/trips/{id}", h.TripDetailPage)
+		r.Get("/trips/{id}/print", h.PrintableTripPage)
+		r.Get("/trips/{id}.ics", h.TripICS)
 		r.Get("/watchlist", h.WatchlistPage)
 		r.Get("/profile", h.ProfilePage)
+		r.Get("/profile/security", h.SecurityPage)
 		r.Get("/bookings", h.BookingsPage)
 	})
 
-	// Admin pages
 	r.Group(func(r chi.Router) {
 		r.Use(authMiddleware.RequireAuth(authService))
 		r.Use(authMiddleware.RequireAdmin)
@@ -246,7 +491,6 @@ func main() {
 		r.Get("/admin", h.AdminPage)
 	})
 
-	// Start server
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      r,
@@ -255,17 +499,69 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Seed/refresh destinations from Amadeus in the background on every startup.
+	// Background workers tied to server lifecycle so shutdown cancels them.
+	bgCtx, cancelBG := context.WithCancel(context.Background())
+	defer cancelBG()
+
 	go func() {
-		seedCtx := context.Background()
+		// The seed pulls a catalog of destinations from Amadeus once at boot.
+		// Cap it so a stuck upstream can't keep this goroutine alive through
+		// shutdown — bgCtx cancel covers the happy exit path, but a hung
+		// TLS handshake without a deadline would ignore it.
+		seedCtx, cancel := context.WithTimeout(bgCtx, 10*time.Minute)
+		defer cancel()
 		if err := destService.SeedFromAmadeus(seedCtx); err != nil {
 			slog.Warn("destination seed failed", "error", err)
 		}
 	}()
 
-	// Graceful shutdown
+	// Saved-search worker: check every 15 minutes whether any searches are
+	// due (hourly cadence). Runs inline via the service.
 	go func() {
-		slog.Info("server starting", "port", cfg.Port)
+		ticker := time.NewTicker(15 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-bgCtx.Done():
+				return
+			case <-ticker.C:
+				// Per-tick deadline so a stuck HTTP call to an affiliate
+				// can't pile tick goroutines on top of each other.
+				tickCtx, cancel := context.WithTimeout(bgCtx, 10*time.Minute)
+				savedSearchService.RunDue(tickCtx)
+				cancel()
+			}
+		}
+	}()
+
+	// Notification worker: every hour, send trip reminders, price-drop
+	// alerts, flight delays, and the Monday-morning digest. Each pass
+	// deduplicates via the `sent` map on User so cadence doesn't matter
+	// beyond "at least daily."
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-bgCtx.Done():
+				return
+			case <-ticker.C:
+				runCtx, cancel := context.WithTimeout(bgCtx, 30*time.Minute)
+				summary := notifyWorker.Run(runCtx)
+				cancel()
+				if summary.TripReminders+summary.PriceDrops+summary.FlightAlerts+summary.WeeklyDigests > 0 {
+					slog.Info("notifications sent",
+						"reminders", summary.TripReminders,
+						"price_drops", summary.PriceDrops,
+						"flight_alerts", summary.FlightAlerts,
+						"weekly_digests", summary.WeeklyDigests)
+				}
+			}
+		}
+	}()
+
+	go func() {
+		slog.Info("server starting", "port", cfg.Port, "env", cfg.Env)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("server failed", "error", err)
 			os.Exit(1)
@@ -277,6 +573,7 @@ func main() {
 	<-quit
 
 	slog.Info("shutting down server...")
+	cancelBG()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

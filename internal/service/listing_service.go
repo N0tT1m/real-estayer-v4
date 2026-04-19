@@ -3,8 +3,8 @@ package service
 import (
 	"context"
 
-	"github.com/realestayer/v3/internal/models"
-	"github.com/realestayer/v3/internal/repository"
+	"github.com/realestayer/v4/internal/models"
+	"github.com/realestayer/v4/internal/repository"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -81,4 +81,28 @@ func (s *ListingService) Delete(ctx context.Context, id string) error {
 		return repository.ErrListingNotFound
 	}
 	return s.listingRepo.Delete(ctx, objID)
+}
+
+// FilterForSavedSearch builds search params from a saved-search query.
+func (s *ListingService) FilterForSavedSearch(q models.SavedSearchQuery) models.ListingSearchParams {
+	return models.ListingSearchParams{
+		Location: q.Location,
+		Region:   q.Region,
+		Country:  q.Country,
+		Features: q.Features,
+		MaxPrice: q.MaxPrice,
+		Limit:    50,
+	}
+}
+
+// FindMatching returns the first `limit` listings matching the params.
+func (s *ListingService) FindMatching(ctx context.Context, params models.ListingSearchParams, limit int) ([]models.Listing, error) {
+	if limit > 0 {
+		params.Limit = limit
+	}
+	res, err := s.listingRepo.Search(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	return res.Listings, nil
 }

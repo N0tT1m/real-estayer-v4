@@ -1,10 +1,12 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/realestayer/v3/internal/models"
+	"github.com/realestayer/v4/internal/models"
+	"github.com/realestayer/v4/internal/service"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -275,9 +277,17 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.authService.ChangePassword(r.Context(), h.getUserID(r), req.CurrentPassword, req.NewPassword); err != nil {
-		h.jsonError(w, http.StatusBadRequest, err.Error())
+		switch {
+		case errors.Is(err, service.ErrInvalidCredentials):
+			h.jsonError(w, http.StatusUnauthorized, "Current password is incorrect")
+		case errors.Is(err, service.ErrWeakPassword):
+			h.jsonError(w, http.StatusBadRequest, "Password must be at least 10 characters and include upper, lower, and a digit")
+		default:
+			h.jsonError(w, http.StatusInternalServerError, "Failed to change password")
+		}
 		return
 	}
 
+	h.auditService.Record(r.Context(), h.getUserOID(r), r, models.AuditActionPasswordChanged, nil)
 	h.jsonResponse(w, http.StatusOK, map[string]string{"message": "Password changed"})
 }

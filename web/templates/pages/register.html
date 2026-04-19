@@ -1,54 +1,132 @@
 {{template "base.html" .}}
 
 {{define "content"}}
-<div class="min-h-[80vh] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+<div class="min-h-[80vh] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8" x-data="registerForm()">
     <div class="max-w-md w-full space-y-8">
         <div class="text-center">
-            <h2 class="text-3xl font-bold text-gray-900">Create your account</h2>
-            <p class="mt-2 text-sm text-gray-600">Start your journey with Real-Estayer</p>
+            <h2 class="text-3xl font-bold">Create your account</h2>
+            <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">Start your journey with Real-Estayer</p>
         </div>
 
         {{if .Error}}
-        <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+        <div class="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 px-4 py-3 rounded-lg" role="alert">
             {{.Error}}
         </div>
         {{end}}
 
-        <form class="mt-8 space-y-6" action="/auth/register" method="POST">
+        <form class="mt-8 space-y-6" action="/auth/register" method="POST" @submit="onSubmit($event)" novalidate>
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
             <div class="space-y-4">
                 <div>
-                    <label for="name" class="block text-sm font-medium text-gray-700">Full name</label>
-                    <input id="name" name="name" type="text" required value="{{.Name}}" class="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="John Doe">
+                    <label for="name" class="block text-sm font-medium">Full name</label>
+                    <input id="name" name="name" type="text" required autocomplete="name"
+                           value="{{.Name}}" x-model="name" @blur="validateName()"
+                           :class="errors.name ? 'border-red-400 focus:ring-red-400 focus:border-red-400' : ''"
+                           class="mt-1 block w-full px-4 py-3 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 rounded-lg shadow-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                           placeholder="Jane Doe">
+                    <p x-show="errors.name" x-cloak class="mt-1 text-xs text-red-600" x-text="errors.name"></p>
                 </div>
 
                 <div>
-                    <label for="email" class="block text-sm font-medium text-gray-700">Email address</label>
-                    <input id="email" name="email" type="email" required value="{{.Email}}" class="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="you@example.com">
+                    <label for="email" class="block text-sm font-medium">Email address</label>
+                    <input id="email" name="email" type="email" required autocomplete="email"
+                           value="{{.Email}}" x-model="email" @blur="validateEmail()"
+                           :class="errors.email ? 'border-red-400 focus:ring-red-400 focus:border-red-400' : ''"
+                           class="mt-1 block w-full px-4 py-3 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 rounded-lg shadow-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                           placeholder="you@example.com">
+                    <p x-show="errors.email" x-cloak class="mt-1 text-xs text-red-600" x-text="errors.email"></p>
                 </div>
 
                 <div>
-                    <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
-                    <input id="password" name="password" type="password" required minlength="8" class="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="At least 8 characters">
-                    <p class="mt-1 text-xs text-gray-500">Must be at least 8 characters</p>
+                    <label for="password" class="block text-sm font-medium">Password</label>
+                    <input id="password" name="password" type="password" required minlength="8" autocomplete="new-password"
+                           x-model="password" @input="updateStrength()" @blur="validatePassword()"
+                           :class="errors.password ? 'border-red-400 focus:ring-red-400 focus:border-red-400' : ''"
+                           class="mt-1 block w-full px-4 py-3 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 rounded-lg shadow-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                           placeholder="At least 8 characters">
+
+                    <!-- Strength meter -->
+                    <div class="mt-2" x-show="password" x-cloak>
+                        <div class="h-1.5 rounded bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                            <div class="h-full transition-all" :class="strengthColor()" :style="`width: ${strength * 25}%`"></div>
+                        </div>
+                        <p class="mt-1 text-xs" :class="strengthTextColor()" x-text="strengthLabel()"></p>
+                    </div>
+                    <p x-show="errors.password" x-cloak class="mt-1 text-xs text-red-600" x-text="errors.password"></p>
                 </div>
             </div>
 
-            <div class="flex items-center">
-                <input id="terms" name="terms" type="checkbox" required class="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded">
-                <label for="terms" class="ml-2 block text-sm text-gray-900">
+            <label class="flex items-start text-sm">
+                <input type="checkbox" x-model="acceptedTerms" required class="h-4 w-4 mt-0.5 text-primary-600 focus:ring-primary-500 border-gray-300 rounded">
+                <span class="ml-2">
                     I agree to the <a href="#" class="text-primary-600 hover:text-primary-500">Terms of Service</a> and <a href="#" class="text-primary-600 hover:text-primary-500">Privacy Policy</a>
-                </label>
-            </div>
+                </span>
+            </label>
 
-            <button type="submit" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition">
-                Create account
+            <button type="submit" :disabled="submitting"
+                    class="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition disabled:opacity-60 disabled:cursor-not-allowed">
+                <span x-show="!submitting">Create account</span>
+                <span x-show="submitting" x-cloak>Creating…</span>
             </button>
         </form>
 
-        <p class="text-center text-sm text-gray-600">
+        <p class="text-center text-sm text-gray-600 dark:text-gray-400">
             Already have an account?
             <a href="/auth/login" class="font-medium text-primary-600 hover:text-primary-500">Sign in</a>
         </p>
     </div>
 </div>
+<script>
+function registerForm() {
+    return {
+        name: '{{.Name}}',
+        email: '{{.Email}}',
+        password: '',
+        strength: 0,
+        errors: {},
+        acceptedTerms: false,
+        submitting: false,
+        validateName() {
+            if (!this.name || this.name.trim().length < 2) { this.errors.name = 'Please enter your name.'; return false; }
+            delete this.errors.name; return true;
+        },
+        validateEmail() {
+            if (!this.email) { this.errors.email = 'Email is required.'; return false; }
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.email)) { this.errors.email = 'Enter a valid email.'; return false; }
+            delete this.errors.email; return true;
+        },
+        validatePassword() {
+            if (this.password.length < 8) { this.errors.password = 'Minimum 8 characters.'; return false; }
+            if (!/[A-Za-z]/.test(this.password) || !/\d/.test(this.password)) {
+                this.errors.password = 'Include at least one letter and one number.'; return false;
+            }
+            delete this.errors.password; return true;
+        },
+        updateStrength() {
+            let s = 0;
+            if (this.password.length >= 8) s++;
+            if (/[A-Z]/.test(this.password)) s++;
+            if (/\d/.test(this.password)) s++;
+            if (/[^A-Za-z0-9]/.test(this.password)) s++;
+            this.strength = s;
+        },
+        strengthLabel() {
+            return ['Too short', 'Weak', 'Fair', 'Good', 'Strong'][this.strength] || 'Too short';
+        },
+        strengthColor() {
+            return ['bg-red-500','bg-red-500','bg-amber-500','bg-yellow-500','bg-green-500'][this.strength] || 'bg-red-500';
+        },
+        strengthTextColor() {
+            return this.strength >= 3 ? 'text-green-600' : this.strength >= 2 ? 'text-amber-600' : 'text-red-600';
+        },
+        onSubmit(e) {
+            const ok = this.validateName() && this.validateEmail() && this.validatePassword();
+            if (!this.acceptedTerms) { window.toast.warning('Please accept the Terms of Service.'); e.preventDefault(); return; }
+            if (!ok) { e.preventDefault(); return; }
+            this.submitting = true;
+        },
+    };
+}
+</script>
 {{end}}

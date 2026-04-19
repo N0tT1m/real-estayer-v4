@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 
-	"github.com/realestayer/v3/internal/models"
+	"github.com/realestayer/v4/internal/models"
 )
 
 // FlightProvider defines the interface for flight booking providers

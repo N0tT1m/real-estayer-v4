@@ -1,200 +1,226 @@
 {{template "base.html" .}}
 
 {{define "content"}}
-<!-- Hero Section -->
-<div class="relative bg-gradient-to-br from-primary-600 to-primary-800 overflow-hidden">
-    <div class="absolute inset-0 bg-black/20"></div>
-    <div class="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 md:py-32">
-        <div class="text-center">
-            <h1 class="text-4xl md:text-6xl font-bold text-white mb-6">Find Your Perfect Stay</h1>
-            <p class="text-xl text-white/90 mb-8 max-w-2xl mx-auto">Discover unique places to stay, book flights, hotels, and rental cars all in one place.</p>
 
-            <!-- Search Tabs -->
-            <div x-data="{ tab: 'stays' }" class="bg-white rounded-2xl shadow-xl p-6 max-w-4xl mx-auto">
-                <div class="flex space-x-4 mb-6 border-b">
-                    <button @click="tab = 'stays'" :class="{ 'border-primary-600 text-primary-600': tab === 'stays', 'border-transparent text-gray-500': tab !== 'stays' }" class="pb-3 px-4 border-b-2 font-medium transition">Stays</button>
-                    <button @click="tab = 'flights'" :class="{ 'border-primary-600 text-primary-600': tab === 'flights', 'border-transparent text-gray-500': tab !== 'flights' }" class="pb-3 px-4 border-b-2 font-medium transition">Flights</button>
-                    <button @click="tab = 'hotels'" :class="{ 'border-primary-600 text-primary-600': tab === 'hotels', 'border-transparent text-gray-500': tab !== 'hotels' }" class="pb-3 px-4 border-b-2 font-medium transition">Hotels</button>
-                    <button @click="tab = 'cars'" :class="{ 'border-primary-600 text-primary-600': tab === 'cars', 'border-transparent text-gray-500': tab !== 'cars' }" class="pb-3 px-4 border-b-2 font-medium transition">Cars</button>
+<!-- ============================ HERO ============================ -->
+<section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 md:pt-10">
+    <div class="hero">
+        <img class="hero__image"
+             src="https://images.unsplash.com/photo-1530521954074-e64f6810b32d?auto=format&fit=crop&w=2400&q=80"
+             alt="Hot air balloons over a golden-hour landscape">
+        <div class="hero__scrim" aria-hidden="true"></div>
+        <div class="hero__content max-w-5xl mx-auto w-full">
+            <span class="hero__eyebrow">
+                <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/>
+                </svg>
+                Plan · Book · Remember
+            </span>
+            <h1 class="hero__title">Where are we going next?</h1>
+            <p class="hero__sub">
+                Real-Estayer is a single place for stays, flights, itineraries, budgets and
+                the people you're bringing along. Start with a search — we'll handle the
+                twelve tabs for you.
+            </p>
+
+            <!-- Search module — lives inside the hero so it's the first thing you do. -->
+            <div x-data="{ tab: 'stays' }"
+                 class="w-full rounded-2xl bg-white/95 dark:bg-[color:var(--re-surface)]/95 backdrop-blur shadow-lift p-5 md:p-6 text-[color:var(--re-text)]">
+                <div role="tablist" class="flex flex-wrap gap-1 mb-5 border-b border-[color:var(--re-border)]">
+                    <template x-for="[id,label] in [['stays','Stays'],['flights','Flights'],['hotels','Hotels'],['cars','Cars']]" :key="id">
+                        <button role="tab" :aria-selected="tab===id"
+                                @click="tab = id"
+                                :class="tab===id ? 'text-primary-700 border-primary-600' : 'text-[color:var(--re-text-muted)] border-transparent'"
+                                class="pb-3 px-4 border-b-2 font-medium transition"
+                                x-text="label"></button>
+                    </template>
                 </div>
 
-                <!-- Stays Search -->
-                <div x-show="tab === 'stays'" class="grid md:grid-cols-4 gap-4">
+                <!-- Stays -->
+                <div x-show="tab === 'stays'" class="grid md:grid-cols-4 gap-3">
                     <div class="md:col-span-2">
-                        <label class="block text-sm font-medium text-gray-700 text-left mb-1">Where</label>
-                        <input type="text" placeholder="Search destinations" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                        <label class="block text-xs font-medium text-soft mb-1 tracking-wide uppercase">Where</label>
+                        <input type="text" placeholder="Lisbon, Kyoto, Mexico City…"
+                               class="w-full px-4 py-3 border border-[color:var(--re-border)] rounded-lg bg-white dark:bg-[color:var(--re-surface)] focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 text-left mb-1">Check in</label>
-                        <input type="date" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                        <label class="block text-xs font-medium text-soft mb-1 tracking-wide uppercase">Check in</label>
+                        <input type="date" class="w-full px-4 py-3 border border-[color:var(--re-border)] rounded-lg bg-white dark:bg-[color:var(--re-surface)] focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 text-left mb-1">Check out</label>
-                        <input type="date" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                        <label class="block text-xs font-medium text-soft mb-1 tracking-wide uppercase">Check out</label>
+                        <input type="date" class="w-full px-4 py-3 border border-[color:var(--re-border)] rounded-lg bg-white dark:bg-[color:var(--re-surface)] focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                     </div>
                 </div>
 
-                <!-- Flights Search -->
-                <div x-show="tab === 'flights'" x-cloak class="grid md:grid-cols-5 gap-4">
+                <!-- Flights -->
+                <div x-show="tab === 'flights'" x-cloak class="grid md:grid-cols-5 gap-3">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 text-left mb-1">From</label>
-                        <input type="text" placeholder="Origin" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                        <label class="block text-xs font-medium text-soft mb-1 tracking-wide uppercase">From</label>
+                        <input type="text" placeholder="Origin" class="w-full px-4 py-3 border border-[color:var(--re-border)] rounded-lg bg-white dark:bg-[color:var(--re-surface)] focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 text-left mb-1">To</label>
-                        <input type="text" placeholder="Destination" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                        <label class="block text-xs font-medium text-soft mb-1 tracking-wide uppercase">To</label>
+                        <input type="text" placeholder="Destination" class="w-full px-4 py-3 border border-[color:var(--re-border)] rounded-lg bg-white dark:bg-[color:var(--re-surface)] focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 text-left mb-1">Depart</label>
-                        <input type="date" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                        <label class="block text-xs font-medium text-soft mb-1 tracking-wide uppercase">Depart</label>
+                        <input type="date" class="w-full px-4 py-3 border border-[color:var(--re-border)] rounded-lg bg-white dark:bg-[color:var(--re-surface)] focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 text-left mb-1">Return</label>
-                        <input type="date" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                        <label class="block text-xs font-medium text-soft mb-1 tracking-wide uppercase">Return</label>
+                        <input type="date" class="w-full px-4 py-3 border border-[color:var(--re-border)] rounded-lg bg-white dark:bg-[color:var(--re-surface)] focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 text-left mb-1">Travelers</label>
-                        <select class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                            <option>1 Adult</option>
-                            <option>2 Adults</option>
-                            <option>3 Adults</option>
-                            <option>4 Adults</option>
+                        <label class="block text-xs font-medium text-soft mb-1 tracking-wide uppercase">Travelers</label>
+                        <select class="w-full px-4 py-3 border border-[color:var(--re-border)] rounded-lg bg-white dark:bg-[color:var(--re-surface)] focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                            <option>1 Adult</option><option>2 Adults</option><option>3 Adults</option><option>4 Adults</option>
                         </select>
                     </div>
                 </div>
 
-                <!-- Hotels Search -->
-                <div x-show="tab === 'hotels'" x-cloak class="grid md:grid-cols-4 gap-4">
+                <!-- Hotels -->
+                <div x-show="tab === 'hotels'" x-cloak class="grid md:grid-cols-4 gap-3">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 text-left mb-1">City</label>
-                        <input type="text" placeholder="City or airport" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                        <label class="block text-xs font-medium text-soft mb-1 tracking-wide uppercase">City</label>
+                        <input type="text" placeholder="City or airport" class="w-full px-4 py-3 border border-[color:var(--re-border)] rounded-lg bg-white dark:bg-[color:var(--re-surface)] focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 text-left mb-1">Check in</label>
-                        <input type="date" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                        <label class="block text-xs font-medium text-soft mb-1 tracking-wide uppercase">Check in</label>
+                        <input type="date" class="w-full px-4 py-3 border border-[color:var(--re-border)] rounded-lg bg-white dark:bg-[color:var(--re-surface)] focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 text-left mb-1">Check out</label>
-                        <input type="date" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                        <label class="block text-xs font-medium text-soft mb-1 tracking-wide uppercase">Check out</label>
+                        <input type="date" class="w-full px-4 py-3 border border-[color:var(--re-border)] rounded-lg bg-white dark:bg-[color:var(--re-surface)] focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 text-left mb-1">Guests</label>
-                        <select class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                            <option>1 Guest</option>
-                            <option>2 Guests</option>
-                            <option>3 Guests</option>
-                            <option>4 Guests</option>
+                        <label class="block text-xs font-medium text-soft mb-1 tracking-wide uppercase">Guests</label>
+                        <select class="w-full px-4 py-3 border border-[color:var(--re-border)] rounded-lg bg-white dark:bg-[color:var(--re-surface)] focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                            <option>1 Guest</option><option>2 Guests</option><option>3 Guests</option><option>4 Guests</option>
                         </select>
                     </div>
                 </div>
 
-                <!-- Cars Search -->
-                <div x-show="tab === 'cars'" x-cloak class="grid md:grid-cols-4 gap-4">
+                <!-- Cars -->
+                <div x-show="tab === 'cars'" x-cloak class="grid md:grid-cols-4 gap-3">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 text-left mb-1">Pickup Location</label>
-                        <input type="text" placeholder="Airport or city" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                        <label class="block text-xs font-medium text-soft mb-1 tracking-wide uppercase">Pickup</label>
+                        <input type="text" placeholder="Airport or city" class="w-full px-4 py-3 border border-[color:var(--re-border)] rounded-lg bg-white dark:bg-[color:var(--re-surface)] focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 text-left mb-1">Pickup Date</label>
-                        <input type="datetime-local" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                        <label class="block text-xs font-medium text-soft mb-1 tracking-wide uppercase">Pickup date</label>
+                        <input type="datetime-local" class="w-full px-4 py-3 border border-[color:var(--re-border)] rounded-lg bg-white dark:bg-[color:var(--re-surface)] focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 text-left mb-1">Dropoff Date</label>
-                        <input type="datetime-local" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                        <label class="block text-xs font-medium text-soft mb-1 tracking-wide uppercase">Dropoff date</label>
+                        <input type="datetime-local" class="w-full px-4 py-3 border border-[color:var(--re-border)] rounded-lg bg-white dark:bg-[color:var(--re-surface)] focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 text-left mb-1">Car Type</label>
-                        <select class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                            <option value="">Any</option>
-                            <option value="ECONOMY">Economy</option>
-                            <option value="COMPACT">Compact</option>
-                            <option value="SUV">SUV</option>
-                            <option value="LUXURY">Luxury</option>
+                        <label class="block text-xs font-medium text-soft mb-1 tracking-wide uppercase">Type</label>
+                        <select class="w-full px-4 py-3 border border-[color:var(--re-border)] rounded-lg bg-white dark:bg-[color:var(--re-surface)] focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                            <option value="">Any</option><option>Economy</option><option>Compact</option><option>SUV</option><option>Luxury</option>
                         </select>
                     </div>
                 </div>
 
-                <button class="mt-6 w-full bg-primary-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-primary-700 transition">Search</button>
+                <button class="btn btn-primary btn-lg mt-5 w-full">
+                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>
+                    </svg>
+                    Search
+                </button>
             </div>
         </div>
     </div>
-</div>
+</section>
 
-<!-- Featured Listings -->
+<!-- ======================= FEATURED LISTINGS ======================= -->
 {{if .FeaturedListings}}
 <section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-    <h2 class="text-2xl font-bold text-gray-900 mb-8">Featured Stays</h2>
+    <div class="flex items-end justify-between mb-8">
+        <div>
+            <p class="text-soft text-xs uppercase tracking-wide">Stays we keep coming back to</p>
+            <h2 class="font-display text-3xl md:text-4xl font-medium display-balance mt-1">Hand-picked places</h2>
+        </div>
+        <a href="/listings" class="hidden sm:inline-flex items-center text-primary-600 dark:text-primary-300 font-medium hover:text-primary-700 gap-2">
+            View all
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        </a>
+    </div>
     <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
         {{range .FeaturedListings}}
-        <a href="/listings/{{.ID.Hex}}" class="group bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-lg transition">
-            <div class="aspect-[4/3] overflow-hidden">
-                <img src="{{.PictureURL}}" alt="{{.Title}}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" onerror="this.src='https://via.placeholder.com/400x300?text=No+Image'">
+        <a href="/listings/{{.ID.Hex}}" class="group surface overflow-hidden transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:shadow-lift hover:-translate-y-0.5">
+            <div class="aspect-[4/3] overflow-hidden bg-[color:var(--re-surface-muted)]">
+                <img src="{{.PictureURL}}" alt="{{.Title}}"
+                     class="w-full h-full object-cover group-hover:scale-[1.04] transition duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                     loading="lazy"
+                     onerror="this.src='https://via.placeholder.com/400x300?text=No+Image'">
             </div>
-            <div class="p-4">
-                <div class="flex justify-between items-start mb-2">
-                    <h3 class="font-semibold text-gray-900 line-clamp-1">{{.Title}}</h3>
+            <div class="p-5">
+                <div class="flex justify-between items-start mb-1.5 gap-3">
+                    <h3 class="font-medium text-[color:var(--re-text)] line-clamp-1">{{.Title}}</h3>
                     {{if .Rating}}
-                    <span class="flex items-center text-sm">
-                        <svg class="h-4 w-4 text-yellow-400 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                        </svg>
+                    <span class="flex items-center gap-1 text-sm text-soft">
+                        <svg class="h-4 w-4 text-accent-500" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
                         {{.Rating}}
                     </span>
                     {{end}}
                 </div>
-                <p class="text-sm text-gray-500 mb-2">{{.Location}}</p>
-                <p class="text-primary-600 font-semibold">{{.Price}} <span class="text-gray-500 font-normal">/ night</span></p>
+                <p class="text-sm text-muted mb-3">{{.Location}}</p>
+                <p class="text-primary-700 dark:text-primary-300 font-medium">{{.Price}} <span class="text-soft font-normal text-sm">/ night</span></p>
             </div>
         </a>
         {{end}}
     </div>
-    <div class="text-center mt-8">
-        <a href="/listings" class="inline-flex items-center text-primary-600 font-medium hover:text-primary-700">
-            View all listings
-            <svg class="ml-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-            </svg>
-        </a>
+    <div class="text-center mt-10 sm:hidden">
+        <a href="/listings" class="btn btn-ghost">View all listings →</a>
     </div>
 </section>
 {{end}}
 
-<!-- Explore Destinations -->
+<!-- ======================= DESTINATIONS ======================= -->
 <section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-    <div class="flex justify-between items-center mb-8">
+    <div class="flex items-end justify-between mb-8">
         <div>
-            <h2 class="text-2xl font-bold text-gray-900">Explore Destinations</h2>
-            <p class="text-gray-600 mt-1">Find inspiration for your next trip</p>
+            <p class="text-soft text-xs uppercase tracking-wide">Where other people are going</p>
+            <h2 class="font-display text-3xl md:text-4xl font-medium display-balance mt-1">Explore destinations</h2>
         </div>
-        <a href="/explore" class="text-primary-600 font-medium hover:text-primary-700 flex items-center">
+        <a href="/explore" class="hidden sm:inline-flex items-center text-primary-600 dark:text-primary-300 font-medium hover:text-primary-700 gap-2">
             View all
-            <svg class="ml-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-            </svg>
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
         </a>
     </div>
+
     <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6" x-data="featuredDestinations()" x-init="loadDestinations()">
         <template x-for="dest in destinations" :key="dest.name">
-            <a :href="'/explore/' + dest.name" class="group relative h-80 rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition">
-                <img :src="dest.image_url" :alt="dest.name" class="w-full h-full object-cover group-hover:scale-105 transition duration-500" onerror="this.src='https://via.placeholder.com/400x300?text=Destination'">
-                <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
-                <div class="absolute bottom-0 left-0 right-0 p-6">
-                    <div class="flex items-center gap-2 mb-2">
-                        <template x-for="cat in dest.categories.slice(0, 2)" :key="cat">
-                            <span class="bg-white/20 backdrop-blur text-white text-xs px-2 py-1 rounded-full" x-text="cat"></span>
+            <a :href="'/explore/' + dest.name"
+               class="group relative h-80 rounded-xl2 overflow-hidden shadow-soft hover:shadow-lift transition">
+                <img :src="dest.image_url" :alt="dest.name"
+                     class="w-full h-full object-cover group-hover:scale-[1.04] transition duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                     loading="lazy"
+                     onerror="this.src='https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800'">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent"></div>
+                <div class="absolute bottom-0 left-0 right-0 p-6 text-white">
+                    <div class="flex items-center gap-1.5 mb-2">
+                        <template x-for="cat in (dest.categories || []).slice(0, 2)" :key="cat">
+                            <span class="text-[11px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-white/15 backdrop-blur border border-white/20" x-text="cat"></span>
                         </template>
                     </div>
-                    <h3 class="text-2xl font-bold text-white" x-text="dest.name"></h3>
+                    <h3 class="font-display text-2xl font-medium" x-text="dest.name"></h3>
                     <p class="text-white/80 text-sm" x-text="dest.country"></p>
-                    <div class="flex items-center mt-2 text-white/80 text-sm">
-                        <span x-text="'From $' + dest.avg_daily_budget + '/day'"></span>
+                    <div class="flex items-center mt-2 text-white/85 text-sm">
+                        <span x-text="'From $' + (dest.avg_daily_budget || '—') + '/day'"></span>
                     </div>
                 </div>
             </a>
         </template>
         <template x-if="destinations.length === 0">
-            <div class="col-span-3 text-center py-12">
-                <p class="text-gray-500">Loading destinations...</p>
+            <div class="col-span-3">
+                <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div class="skeleton h-80 rounded-xl2"></div>
+                    <div class="skeleton h-80 rounded-xl2"></div>
+                    <div class="skeleton h-80 rounded-xl2"></div>
+                </div>
             </div>
         </template>
     </div>
@@ -209,16 +235,14 @@ function featuredDestinations() {
                 const response = await fetch('/api/v1/destinations/featured?limit=6');
                 const data = await response.json();
                 this.destinations = data.destinations || [];
-            } catch (error) {
-                console.error('Failed to load destinations:', error);
-                // Fallback to hardcoded destinations
+            } catch (_) {
                 this.destinations = [
                     { name: 'Paris', country: 'France', image_url: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=800', categories: ['city', 'romantic'], avg_daily_budget: 180 },
                     { name: 'Tokyo', country: 'Japan', image_url: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=800', categories: ['city', 'cultural'], avg_daily_budget: 150 },
                     { name: 'Bali', country: 'Indonesia', image_url: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=800', categories: ['beach', 'spiritual'], avg_daily_budget: 80 },
                     { name: 'New York City', country: 'United States', image_url: 'https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?w=800', categories: ['city', 'cultural'], avg_daily_budget: 250 },
                     { name: 'Santorini', country: 'Greece', image_url: 'https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?w=800', categories: ['beach', 'romantic'], avg_daily_budget: 200 },
-                    { name: 'Dubai', country: 'United Arab Emirates', image_url: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=800', categories: ['city', 'luxury'], avg_daily_budget: 300 }
+                    { name: 'Dubai', country: 'UAE', image_url: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=800', categories: ['city', 'luxury'], avg_daily_budget: 300 }
                 ];
             }
         }
@@ -226,39 +250,44 @@ function featuredDestinations() {
 }
 </script>
 
-<!-- Features Section -->
-<section class="bg-white py-16">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <h2 class="text-2xl font-bold text-gray-900 text-center mb-12">Why Choose Real-Estayer?</h2>
-        <div class="grid md:grid-cols-3 gap-8">
+<!-- ======================= THE PITCH ======================= -->
+<section class="bg-[color:var(--re-surface)] border-y border-[color:var(--re-border)] py-20">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+        <p class="text-center text-soft text-xs uppercase tracking-wide">Why Real-Estayer</p>
+        <h2 class="text-center font-display text-3xl md:text-4xl font-medium display-balance mt-1 mb-14">
+            Every tab you'd keep open for a trip, in one place.
+        </h2>
+
+        <div class="grid md:grid-cols-3 gap-8 md:gap-12">
             <div class="text-center">
-                <div class="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <svg class="h-8 w-8 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                <div class="w-14 h-14 mx-auto mb-5 rounded-2xl bg-primary-50 dark:bg-[color:var(--re-primary-soft)] flex items-center justify-center text-primary-700 dark:text-primary-300">
+                    <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                        <circle cx="11" cy="11" r="7"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35"/>
                     </svg>
                 </div>
-                <h3 class="text-lg font-semibold text-gray-900 mb-2">Smart Search</h3>
-                <p class="text-gray-600">Find the perfect stay with our intelligent search and filtering options.</p>
+                <h3 class="font-medium mb-1.5">One search</h3>
+                <p class="text-muted text-sm">Stays, flights, hotels, and rental cars in the same query. Your preferences stick.</p>
             </div>
             <div class="text-center">
-                <div class="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <svg class="h-8 w-8 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <div class="w-14 h-14 mx-auto mb-5 rounded-2xl bg-primary-50 dark:bg-[color:var(--re-primary-soft)] flex items-center justify-center text-primary-700 dark:text-primary-300">
+                    <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 7h18M3 12h18M3 17h12"/>
                     </svg>
                 </div>
-                <h3 class="text-lg font-semibold text-gray-900 mb-2">Best Prices</h3>
-                <p class="text-gray-600">Compare prices across multiple providers to get the best deals.</p>
+                <h3 class="font-medium mb-1.5">Real itineraries</h3>
+                <p class="text-muted text-sm">Drag-and-drop the day. Pull in weather, transit, and what's open on Sunday.</p>
             </div>
             <div class="text-center">
-                <div class="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <svg class="h-8 w-8 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                <div class="w-14 h-14 mx-auto mb-5 rounded-2xl bg-primary-50 dark:bg-[color:var(--re-primary-soft)] flex items-center justify-center text-primary-700 dark:text-primary-300">
+                    <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-6a4 4 0 11-8 0 4 4 0 018 0zm6 0a4 4 0 11-8 0 4 4 0 018 0z"/>
                     </svg>
                 </div>
-                <h3 class="text-lg font-semibold text-gray-900 mb-2">Secure Booking</h3>
-                <p class="text-gray-600">Book with confidence with our secure payment processing.</p>
+                <h3 class="font-medium mb-1.5">Collaborators welcome</h3>
+                <p class="text-muted text-sm">Share a trip, run a poll on the Tuesday dinner spot, split the receipts after.</p>
             </div>
         </div>
     </div>
 </section>
+
 {{end}}

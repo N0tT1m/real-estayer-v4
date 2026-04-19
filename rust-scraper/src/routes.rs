@@ -15,7 +15,8 @@ use std::time::Duration;
 use std::sync::atomic::{AtomicBool, Ordering};
 use thirtyfour::{ChromiumLikeCapabilities, DesiredCapabilities, WebDriver};
 use anyhow::Result;
-use log::{info, warn, error, debug};
+#[allow(unused_imports)]
+use log::info;
 use once_cell::sync::Lazy;
 use std::sync::Mutex as StdMutex;
 
@@ -56,9 +57,6 @@ impl Default for ScrapeStatus {
 
 static SCRAPE_STATUS: Lazy<StdMutex<ScrapeStatus>> = Lazy::new(|| StdMutex::new(ScrapeStatus::default()));
 
-// Base URL constant
-const BASE_URL: &str = "https://www.airbnb.com/";
-
 // List of Canadian provinces and territories
 const CANADIAN_PROVINCES: [&str; 13] = [
     "Alberta", "British Columbia", "Manitoba", "New Brunswick", "Newfoundland and Labrador",
@@ -75,16 +73,6 @@ const US_STATES: [&str; 50] = [
     "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas",
     "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming"
 ];
-
-// Helper function to construct full URL
-fn construct_url(path: &str) -> String {
-    if path.starts_with("http") {
-        path.to_string()
-    } else {
-        info!("{}{}", BASE_URL, path);
-        format!("{}{}", BASE_URL, path.trim_start_matches('/'))
-    }
-}
 
 /// Helper function to detect Chrome version
 fn get_chrome_version() -> Result<String> {
@@ -327,14 +315,9 @@ pub async fn scrape_city_data(
     let pets = params.get("pets")
         .and_then(|p| p.parse::<i32>().ok())
         .unwrap_or(0);
-    // For backwards compatibility, also check 'guests' param
-    let guests = params.get("guests")
-        .and_then(|g| g.parse::<i32>().ok())
-        .unwrap_or(adults + children); // Total guests = adults + children
     let trip_duration = params.get("trip_duration")
         .and_then(|d| d.parse::<i32>().ok());
     let date_mode = params.get("date_mode").cloned().unwrap_or_default();
-    let multiple_dates = params.get("multiple_dates").cloned().unwrap_or_default();
     let limit = params.get("limit")
         .and_then(|l| l.parse::<usize>().ok()); // None means no limit (scrape all)
 

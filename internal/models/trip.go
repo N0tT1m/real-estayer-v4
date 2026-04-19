@@ -28,9 +28,14 @@ type Trip struct {
 	Destinations []TripDestination    `bson:"destinations" json:"destinations"`
 	Items        []TripItem           `bson:"items" json:"items"`
 	TotalBudget  TripBudget           `bson:"total_budget" json:"total_budget"`
-	SharedWith   []primitive.ObjectID `bson:"shared_with,omitempty" json:"shared_with,omitempty"`
-	CreatedAt    time.Time            `bson:"created_at" json:"created_at"`
-	UpdatedAt    time.Time            `bson:"updated_at" json:"updated_at"`
+	SharedWith    []primitive.ObjectID `bson:"shared_with,omitempty"  json:"shared_with,omitempty"` // legacy, still honored
+	Collaborators []TripCollaborator   `bson:"collaborators,omitempty" json:"collaborators,omitempty"`
+	ShareSlug     string               `bson:"share_slug,omitempty"   json:"share_slug,omitempty"` // set when public sharing enabled
+	CoverImage    string               `bson:"cover_image,omitempty"  json:"cover_image,omitempty"`
+	PackingList   []PackingItem        `bson:"packing_list,omitempty" json:"packing_list,omitempty"`
+	Checklist     []ChecklistItem      `bson:"checklist,omitempty"    json:"checklist,omitempty"`
+	CreatedAt     time.Time            `bson:"created_at" json:"created_at"`
+	UpdatedAt     time.Time            `bson:"updated_at" json:"updated_at"`
 }
 
 // TripDestination represents a stop in the trip

@@ -1,0 +1,55 @@
+{{/* Global command palette. Opened by Cmd/Ctrl-K (app.js dispatches the
+     re:open-palette event). Static commands live alongside a destination
+     search powered by /api/v1/destinations so users can jump anywhere in the
+     app without clicking through nav. */}}
+{{define "command_palette"}}
+<div x-data="commandPalette()"
+     x-show="open"
+     x-cloak
+     @keydown.escape.window="close()"
+     class="fixed inset-0 z-[120] flex items-start justify-center pt-24 px-4">
+    <div class="absolute inset-0 bg-black/50" @click="close()"></div>
+    <div class="relative bg-white dark:bg-gray-900 w-full max-w-xl rounded-xl shadow-2xl ring-1 ring-black/5 dark:ring-white/10 overflow-hidden">
+        <div class="flex items-center gap-3 px-4 py-3 border-b dark:border-gray-800">
+            <svg class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"/>
+            </svg>
+            <input x-ref="input" type="text" x-model="query"
+                   @input="cursor = 0; _debounceSearch()"
+                   @keydown.arrow-down.prevent="move(1)"
+                   @keydown.arrow-up.prevent="move(-1)"
+                   @keydown.enter.prevent="run()"
+                   placeholder="Type to search commands and destinations…"
+                   aria-label="Command palette input"
+                   class="flex-1 bg-transparent border-0 focus:outline-none text-base placeholder-gray-400">
+            <kbd class="px-1.5 py-0.5 text-xs border rounded text-gray-500 hidden sm:inline">esc</kbd>
+        </div>
+
+        <ul role="listbox" class="max-h-80 overflow-y-auto py-2" tabindex="-1">
+            <template x-if="results.length === 0">
+                <li class="px-4 py-6 text-sm text-center text-gray-500">No matches</li>
+            </template>
+            <template x-for="(item, i) in results" :key="item.kind + ':' + item.id">
+                <li role="option"
+                    :aria-selected="i === cursor"
+                    @mouseenter="cursor = i"
+                    @click="run()"
+                    :class="i === cursor ? 'bg-primary-50 dark:bg-primary-900/30' : ''"
+                    class="px-4 py-2 flex items-center gap-3 cursor-pointer">
+                    <span class="shrink-0 w-8 h-8 flex items-center justify-center rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300" x-html="item.icon"></span>
+                    <div class="flex-1 min-w-0">
+                        <div class="font-medium truncate" x-text="item.title"></div>
+                        <div class="text-xs text-gray-500 truncate" x-text="item.subtitle"></div>
+                    </div>
+                    <span class="text-xs text-gray-400 uppercase tracking-wide" x-text="item.kind"></span>
+                </li>
+            </template>
+        </ul>
+
+        <div class="px-4 py-2 border-t dark:border-gray-800 flex items-center justify-between text-xs text-gray-500">
+            <span><kbd class="px-1.5 py-0.5 border rounded">↑↓</kbd> navigate · <kbd class="px-1.5 py-0.5 border rounded">↵</kbd> open</span>
+            <span><kbd class="px-1.5 py-0.5 border rounded">Cmd/Ctrl + K</kbd></span>
+        </div>
+    </div>
+</div>
+{{end}}

@@ -290,7 +290,8 @@ function scrapePage() {
                 });
 
                 const res = await fetch(`/api/v1/scraper/scrape?${params}`, {
-                    method: 'POST'
+                    method: 'POST',
+                    headers: window.csrfHeaders()
                 });
 
                 if (!res.ok) {

@@ -8,10 +8,10 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
-	"github.com/realestayer/v3/internal/models"
-	"github.com/realestayer/v3/internal/provider/amadeus"
-	"github.com/realestayer/v3/internal/provider/wikipedia"
-	"github.com/realestayer/v3/internal/repository"
+	"github.com/realestayer/v4/internal/models"
+	"github.com/realestayer/v4/internal/provider/amadeus"
+	"github.com/realestayer/v4/internal/provider/wikipedia"
+	"github.com/realestayer/v4/internal/repository"
 )
 
 // seedCities is a minimal config: just the city name, country code, region, and categories.
@@ -503,7 +503,9 @@ func (s *DestinationService) fetchAndCache(ctx context.Context, name, countryCod
 		PopularityScore: 70,
 	}
 
-	_ = s.repo.Upsert(ctx, dest)
+	if err := s.repo.Upsert(ctx, dest); err != nil {
+		slog.Warn("destination: upsert fallback failed", "name", dest.Name, "error", err)
+	}
 	return dest, nil
 }
 

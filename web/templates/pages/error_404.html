@@ -1,0 +1,19 @@
+{{template "base.html" .}}
+
+{{define "content"}}
+<div class="max-w-lg mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center">
+    <p class="text-8xl font-bold text-primary-600 dark:text-primary-400">404</p>
+    <h1 class="mt-4 text-2xl font-bold">We can't find that page</h1>
+    <p class="mt-2 text-gray-600 dark:text-gray-400">
+        The link may be broken, or the page may have moved.
+    </p>
+    <div class="mt-8 flex flex-col sm:flex-row gap-2 justify-center">
+        <a href="/" class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">Go home</a>
+        <a href="/explore" class="px-4 py-2 border dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">Explore destinations</a>
+        <button type="button" onclick="history.back()" class="px-4 py-2 border dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">Go back</button>
+    </div>
+    <p class="mt-8 text-sm text-gray-500">
+        Looking for something specific? <kbd class="px-1.5 py-0.5 border rounded">Cmd/Ctrl + K</kbd> opens the command palette.
+    </p>
+</div>
+{{end}}

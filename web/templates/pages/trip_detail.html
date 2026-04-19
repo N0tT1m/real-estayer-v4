@@ -1,0 +1,690 @@
+{{template "base.html" .}}
+
+{{define "content"}}
+<script defer src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+
+<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8"
+     x-data="tripDetail({
+         tripId: {{.Trip.ID.Hex | printf "%q"}},
+         slug: {{if .Trip.ShareSlug}}{{.Trip.ShareSlug | printf "%q"}}{{else}}''{{end}},
+         owner: {{.Trip.UserID.Hex | printf "%q"}},
+         me: {{.User.ID.Hex | printf "%q"}},
+         items: {{json .Trip.Items}},
+         destinations: {{json .Trip.Destinations}},
+         packing: {{json .Trip.PackingList}},
+         checklist: {{json .Trip.Checklist}},
+         collaborators: {{json .Trip.Collaborators}},
+         currency: {{.Trip.TotalBudget.Currency | printf "%q"}},
+         mapStyle: {{.MapStyleURL | printf "%q"}}
+     })">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+        <div>
+            <a href="/trips" class="text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 inline-flex items-center gap-1 mb-2">← All trips</a>
+            <h1 class="text-3xl font-bold">{{.Trip.Name}}</h1>
+            <p class="text-gray-600 dark:text-gray-400 mt-1">
+                {{.Trip.StartDate.Format "Mon Jan 2"}} – {{.Trip.EndDate.Format "Mon Jan 2, 2006"}}
+                <span class="ml-2 px-2 py-0.5 text-xs rounded-full bg-gray-100 dark:bg-gray-800">{{.Trip.Status}}</span>
+            </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+            <a href="/trips/{{.Trip.ID.Hex}}.ics" class="px-3 py-2 text-sm bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700">Add to calendar</a>
+            <a href="/trips/{{.Trip.ID.Hex}}/print" target="_blank" class="px-3 py-2 text-sm bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700">Print</a>
+            <button type="button" @click="cloneOpen = true" class="px-3 py-2 text-sm bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700">Duplicate</button>
+            <template x-if="!slug">
+                <button type="button" @click="enableSharing()" :disabled="busy"
+                        class="px-3 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700">Share</button>
+            </template>
+            <template x-if="slug">
+                <div class="flex items-center gap-1">
+                    <input type="text" readonly :value="shareURL()" class="px-2 py-2 text-sm border rounded-lg bg-gray-50 dark:bg-gray-900 dark:border-gray-700 w-52" @focus="$event.target.select()">
+                    <button type="button" @click="copyLink()" class="px-2 py-2 text-sm bg-gray-100 dark:bg-gray-800 rounded-lg">Copy</button>
+                    <button type="button" @click="revokeSharing()" class="px-2 py-2 text-sm text-red-600">Unshare</button>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    {{if .Trip.Description}}
+    <div class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-lg p-4 mb-6">
+        <p class="text-gray-700 dark:text-gray-300">{{.Trip.Description}}</p>
+    </div>
+    {{end}}
+
+    <!-- Tabs -->
+    <div class="border-b dark:border-gray-800 mb-6 overflow-x-auto">
+        <nav class="flex gap-6 -mb-px">
+            <template x-for="t in tabs" :key="t.id">
+                <button type="button" @click="activeTab = t.id"
+                        :class="activeTab === t.id ? 'border-primary-500 text-primary-600 dark:text-primary-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+                        class="whitespace-nowrap py-3 px-1 border-b-2 text-sm font-medium">
+                    <span x-text="t.label"></span>
+                </button>
+            </template>
+        </nav>
+    </div>
+
+    <!-- ITINERARY TAB -->
+    <div x-show="activeTab === 'itinerary'" x-cloak>
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xl font-semibold">Itinerary</h2>
+            <div class="flex gap-2">
+                <button type="button" @click="aiOpen = true" class="px-3 py-1.5 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700">✨ AI suggestions</button>
+            </div>
+        </div>
+
+        <template x-if="itemsByDay.length === 0">
+            <p class="text-sm text-gray-500 italic">No items yet. Add flights, stays, or activities to see them grouped by day here.</p>
+        </template>
+
+        <div class="space-y-6">
+            <template x-for="day in itemsByDay" :key="day.key">
+                <section>
+                    <div class="flex items-baseline justify-between mb-2">
+                        <h3 class="font-semibold" x-text="day.label"></h3>
+                        <span class="text-xs text-gray-500" x-text="`${day.items.length} item${day.items.length === 1 ? '' : 's'}`"></span>
+                    </div>
+                    <ol class="space-y-2 day-bucket" :data-day="day.key" x-init="bindSortable($el)">
+                        <template x-for="item in day.items" :key="item.id">
+                            <li :data-id="item.id" class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-lg p-3 flex items-start gap-3 cursor-grab active:cursor-grabbing">
+                                <span class="shrink-0 w-10 h-10 rounded bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs font-semibold uppercase text-gray-500" x-text="item.type.slice(0,3)"></span>
+                                <div class="flex-1 min-w-0">
+                                    <div class="font-medium" x-text="item.title"></div>
+                                    <div class="text-xs text-gray-500" x-text="formatWhen(item)"></div>
+                                </div>
+                                <template x-if="item.price">
+                                    <div class="text-sm text-gray-500 whitespace-nowrap" x-text="`${item.price.amount.toFixed(0)} ${item.price.currency}`"></div>
+                                </template>
+                            </li>
+                        </template>
+                    </ol>
+                </section>
+            </template>
+        </div>
+
+        <!-- Route map -->
+        <div class="mt-8" x-show="destinations.length > 0">
+            <h3 class="font-semibold mb-2">Route</h3>
+            <div id="trip-route-map" class="w-full h-80 rounded-xl border dark:border-gray-800 overflow-hidden"></div>
+        </div>
+    </div>
+
+    <!-- BUDGET TAB -->
+    <div x-show="activeTab === 'budget'" x-cloak x-init="loadBudget()">
+        <div class="grid md:grid-cols-3 gap-4 mb-6">
+            <div class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-lg p-4">
+                <p class="text-xs text-gray-500 uppercase">Estimated</p>
+                <p class="text-2xl font-semibold" x-text="fmtMoney(budget.summary?.estimated, currency)"></p>
+            </div>
+            <div class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-lg p-4">
+                <p class="text-xs text-gray-500 uppercase">Planned</p>
+                <p class="text-2xl font-semibold" x-text="fmtMoney(budget.summary?.planned_total, currency)"></p>
+            </div>
+            <div class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-lg p-4">
+                <p class="text-xs text-gray-500 uppercase">Spent</p>
+                <p class="text-2xl font-semibold" :class="(budget.summary?.spent_total || 0) > (budget.summary?.estimated || 0) ? 'text-red-600' : ''"
+                   x-text="fmtMoney(budget.summary?.spent_total, currency)"></p>
+            </div>
+        </div>
+
+        <h3 class="font-semibold mb-2">By category</h3>
+        <div class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-lg overflow-hidden mb-6">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50 dark:bg-gray-800 text-gray-500">
+                    <tr><th class="text-left px-4 py-2">Category</th><th class="text-right px-4 py-2">Planned</th><th class="text-right px-4 py-2">Actual</th></tr>
+                </thead>
+                <tbody>
+                    <template x-for="row in budgetRows" :key="row.cat">
+                        <tr class="border-t dark:border-gray-800">
+                            <td class="px-4 py-2 capitalize" x-text="row.cat"></td>
+                            <td class="px-4 py-2 text-right" x-text="fmtMoney(row.planned, currency)"></td>
+                            <td class="px-4 py-2 text-right" x-text="fmtMoney(row.actual, currency)"></td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+
+        <h3 class="font-semibold mb-2">Log an expense</h3>
+        <form @submit.prevent="addExpense()" class="grid md:grid-cols-6 gap-2 mb-6">
+            <input x-model="expenseForm.description" placeholder="What for?" required class="md:col-span-2 px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+            <select x-model="expenseForm.category" class="px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+                <option value="">Category…</option>
+                <option value="flight">Flight</option><option value="hotel">Hotel</option>
+                <option value="car">Car</option><option value="listing">Stay</option>
+                <option value="activity">Activity</option>
+            </select>
+            <input type="number" step="0.01" x-model.number="expenseForm.amount" placeholder="Amount" required class="px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+            <input x-model="expenseForm.currency" :placeholder="currency" class="px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+            <button type="submit" class="px-3 py-2 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700">Add</button>
+        </form>
+
+        <ul class="divide-y dark:divide-gray-800 bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-lg">
+            <template x-for="e in budget.expenses || []" :key="e.id">
+                <li class="flex items-center justify-between px-4 py-2 text-sm">
+                    <div>
+                        <div class="font-medium" x-text="e.description"></div>
+                        <div class="text-xs text-gray-500" x-text="`${e.category || 'other'} · paid by ${e.paid_by_name || 'you'} · ${new Date(e.spent_at).toLocaleDateString()}`"></div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span x-text="`${e.amount.toFixed(2)} ${e.currency}`"></span>
+                        <button type="button" @click="deleteExpense(e.id)" class="text-red-600 text-xs">Delete</button>
+                    </div>
+                </li>
+            </template>
+            <template x-if="(budget.expenses || []).length === 0">
+                <li class="px-4 py-6 text-center text-sm text-gray-500">No expenses logged yet.</li>
+            </template>
+        </ul>
+
+        <!-- Settle-up -->
+        <template x-if="balances.length > 0">
+            <div class="mt-6">
+                <h3 class="font-semibold mb-2">Settle up</h3>
+                <ul class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-lg divide-y dark:divide-gray-800">
+                    <template x-for="b in balances" :key="b.user_id">
+                        <li class="flex items-center justify-between px-4 py-2 text-sm">
+                            <span x-text="b.name || 'User ' + b.user_id.slice(-4)"></span>
+                            <span :class="b.net > 0 ? 'text-green-600' : b.net < 0 ? 'text-red-600' : 'text-gray-500'"
+                                  x-text="(b.net > 0 ? '+' : '') + b.net.toFixed(2) + ' ' + balanceCurrency"></span>
+                        </li>
+                    </template>
+                </ul>
+            </div>
+        </template>
+    </div>
+
+    <!-- PACKING TAB -->
+    <div x-show="activeTab === 'packing'" x-cloak>
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-xl font-semibold">Packing</h2>
+            <button type="button" @click="suggestPacking()" class="text-sm px-3 py-1.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700">Auto-suggest</button>
+        </div>
+        <div class="space-y-2 mb-4">
+            <template x-for="(it, i) in packing" :key="it.id || i">
+                <label class="flex items-center gap-3 bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-lg px-3 py-2">
+                    <input type="checkbox" x-model="it.packed" @change="savePacking()" class="h-4 w-4">
+                    <span class="text-xs uppercase text-gray-500 min-w-[80px]" x-text="it.category"></span>
+                    <span class="flex-1" :class="it.packed ? 'line-through text-gray-400' : ''" x-text="it.name"></span>
+                    <span class="text-xs text-gray-500" x-text="it.quantity > 1 ? '× ' + it.quantity : ''"></span>
+                    <button type="button" @click="packing.splice(i,1); savePacking()" class="text-xs text-red-600">✕</button>
+                </label>
+            </template>
+        </div>
+        <form @submit.prevent="addPacking()" class="flex gap-2">
+            <input x-model="newPack.category" placeholder="Category" class="w-32 px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+            <input x-model="newPack.name" placeholder="Item" required class="flex-1 px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+            <input type="number" min="1" x-model.number="newPack.quantity" class="w-20 px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+            <button class="px-3 py-2 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700">Add</button>
+        </form>
+    </div>
+
+    <!-- CHECKLIST TAB -->
+    <div x-show="activeTab === 'checklist'" x-cloak>
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-xl font-semibold">Pre-trip checklist</h2>
+            <button type="button" @click="suggestChecklist()" class="text-sm px-3 py-1.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700">Auto-suggest</button>
+        </div>
+        <div class="space-y-2 mb-4">
+            <template x-for="(it, i) in checklist" :key="it.id || i">
+                <label class="flex items-center gap-3 bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-lg px-3 py-2">
+                    <input type="checkbox" x-model="it.done" @change="saveChecklist()" class="h-4 w-4">
+                    <span class="flex-1" :class="it.done ? 'line-through text-gray-400' : ''" x-text="it.title"></span>
+                    <button type="button" @click="checklist.splice(i,1); saveChecklist()" class="text-xs text-red-600">✕</button>
+                </label>
+            </template>
+        </div>
+        <form @submit.prevent="addCheck()" class="flex gap-2">
+            <input x-model="newCheck" placeholder="Add a to-do" required class="flex-1 px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+            <button class="px-3 py-2 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700">Add</button>
+        </form>
+    </div>
+
+    <!-- COLLAB TAB -->
+    <div x-show="activeTab === 'collab'" x-cloak x-init="loadComments()">
+        <h2 class="text-xl font-semibold mb-3">Collaborators</h2>
+        <template x-if="isOwner">
+            <form @submit.prevent="addCollaborator()" class="flex gap-2 mb-4">
+                <input type="email" x-model="collabForm.email" required placeholder="teammate@example.com"
+                       class="flex-1 px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+                <select x-model="collabForm.role" class="px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+                    <option value="viewer">Viewer</option>
+                    <option value="editor">Editor</option>
+                </select>
+                <button class="px-3 py-2 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700">Invite</button>
+            </form>
+        </template>
+        <ul class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-lg divide-y dark:divide-gray-800 mb-8">
+            <template x-for="c in collaborators" :key="c.user_id">
+                <li class="flex items-center justify-between px-4 py-2 text-sm">
+                    <div>
+                        <div class="font-medium" x-text="c.name || c.email"></div>
+                        <div class="text-xs text-gray-500 capitalize" x-text="c.role"></div>
+                    </div>
+                    <button x-show="isOwner" type="button" @click="removeCollaborator(c.user_id)" class="text-red-600 text-xs">Remove</button>
+                </li>
+            </template>
+            <template x-if="collaborators.length === 0">
+                <li class="px-4 py-4 text-center text-sm text-gray-500">No one else yet.</li>
+            </template>
+        </ul>
+
+        <h2 class="text-xl font-semibold mb-3">Comments</h2>
+        <form @submit.prevent="addComment()" class="flex gap-2 mb-4">
+            <input x-model="commentForm.body" required placeholder="Write a comment…"
+                   class="flex-1 px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+            <button class="px-3 py-2 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700">Post</button>
+        </form>
+        <ul class="space-y-2">
+            <template x-for="c in comments" :key="c.id">
+                <li class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-lg px-3 py-2">
+                    <div class="text-xs text-gray-500" x-text="`${c.author_name || 'User'} · ${new Date(c.created_at).toLocaleString()}`"></div>
+                    <div class="text-sm mt-1" x-text="c.body"></div>
+                </li>
+            </template>
+            <template x-if="comments.length === 0">
+                <li class="px-4 py-4 text-center text-sm text-gray-500">Nothing yet — kick it off.</li>
+            </template>
+        </ul>
+    </div>
+
+    <!-- WEATHER TAB -->
+    <div x-show="activeTab === 'weather'" x-cloak x-init="loadWeather()">
+        <h2 class="text-xl font-semibold mb-3">Weather</h2>
+        <template x-if="Object.keys(weather).length === 0">
+            <p class="text-sm text-gray-500 italic">Add a destination with coordinates to see the forecast here.</p>
+        </template>
+        <template x-for="(f, place) in weather" :key="place">
+            <div class="mb-6">
+                <h3 class="font-medium mb-2" x-text="place"></h3>
+                <div class="flex gap-2 overflow-x-auto pb-2">
+                    <template x-for="d in f.daily" :key="d.date">
+                        <div class="shrink-0 w-28 bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-lg p-3 text-center">
+                            <div class="text-xs text-gray-500" x-text="new Date(d.date).toLocaleDateString(undefined,{weekday:'short'})"></div>
+                            <div class="text-2xl" x-text="d.weather_emoji"></div>
+                            <div class="text-xs text-gray-500" x-text="d.weather_label"></div>
+                            <div class="mt-1 text-sm"><strong x-text="Math.round(d.temp_max_c)"></strong>° <span class="text-gray-500" x-text="Math.round(d.temp_min_c) + '°'"></span></div>
+                            <div class="text-xs text-blue-500" x-text="d.precip_prob_pct + '%'"></div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <!-- JOURNAL TAB -->
+    <div x-show="activeTab === 'journal'" x-cloak x-init="loadJournal()">
+        <h2 class="text-xl font-semibold mb-3">Journal</h2>
+        <form @submit.prevent="addJournal()" class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-lg p-3 mb-4 space-y-2">
+            <input x-model="journalForm.title" placeholder="Title (optional)" class="w-full px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+            <textarea x-model="journalForm.body" required placeholder="What happened?" rows="3" class="w-full px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700"></textarea>
+            <input x-model="journalForm.mediaString" placeholder="Image URLs, comma separated" class="w-full px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+            <button class="px-3 py-2 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700">Add entry</button>
+        </form>
+        <ul class="space-y-4">
+            <template x-for="j in journal" :key="j.id">
+                <li class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-lg p-4">
+                    <div class="text-xs text-gray-500" x-text="new Date(j.entry_date).toLocaleDateString()"></div>
+                    <h3 x-show="j.title" class="font-medium" x-text="j.title"></h3>
+                    <p class="text-sm mt-1 whitespace-pre-wrap" x-text="j.body"></p>
+                    <div class="mt-2 flex flex-wrap gap-2">
+                        <template x-for="u in (j.media_urls||[])" :key="u">
+                            <a :href="u" target="_blank" rel="noopener"><img :src="u" alt="" class="h-20 w-20 object-cover rounded"></a>
+                        </template>
+                    </div>
+                </li>
+            </template>
+        </ul>
+    </div>
+
+    <!-- DUPLICATE modal -->
+    <div x-show="cloneOpen" x-cloak class="fixed inset-0 z-[110] flex items-center justify-center" @keydown.escape.window="cloneOpen=false">
+        <div class="absolute inset-0 bg-black/50" @click="cloneOpen=false"></div>
+        <div class="relative bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-sm w-full p-6 mx-4">
+            <h3 class="font-semibold mb-3">Duplicate this trip</h3>
+            <form @submit.prevent="doClone()" class="space-y-3">
+                <label class="block text-sm">New start date
+                    <input type="date" x-model="cloneForm.start" required class="mt-1 w-full px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+                </label>
+                <label class="block text-sm">Name (optional)
+                    <input x-model="cloneForm.name" class="mt-1 w-full px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+                </label>
+                <div class="flex justify-end gap-2">
+                    <button type="button" @click="cloneOpen=false" class="px-3 py-2 text-sm">Cancel</button>
+                    <button class="px-3 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700">Duplicate</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- AI ITINERARY modal -->
+    <div x-show="aiOpen" x-cloak class="fixed inset-0 z-[110] flex items-center justify-center" @keydown.escape.window="aiOpen=false">
+        <div class="absolute inset-0 bg-black/50" @click="aiOpen=false"></div>
+        <div class="relative bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-2xl w-full p-6 mx-4 max-h-[85vh] overflow-auto">
+            <h3 class="font-semibold mb-3">AI itinerary</h3>
+            <form @submit.prevent="runAI()" class="grid md:grid-cols-2 gap-3 mb-4">
+                <input x-model="aiForm.destination" required placeholder="Destination" class="md:col-span-2 px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+                <input type="date" x-model="aiForm.start" required class="px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+                <input type="date" x-model="aiForm.end" required class="px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+                <input x-model="aiForm.interests" placeholder="Interests (food, art, hiking…)" class="md:col-span-2 px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+                <select x-model="aiForm.pace" class="px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+                    <option value="relaxed">Relaxed</option><option value="balanced" selected>Balanced</option><option value="packed">Packed</option>
+                </select>
+                <button class="px-3 py-2 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700 md:col-span-2" :disabled="aiBusy">
+                    <span x-text="aiBusy ? 'Thinking…' : 'Generate'"></span>
+                </button>
+            </form>
+            <template x-if="aiResult">
+                <div>
+                    <p class="text-sm text-gray-600 dark:text-gray-400 italic" x-text="aiResult.summary"></p>
+                    <template x-for="d in aiResult.days" :key="d.date">
+                        <div class="mt-4">
+                            <h4 class="font-semibold" x-text="`${d.date} — ${d.theme || ''}`"></h4>
+                            <ul class="mt-2 space-y-1 text-sm">
+                                <template x-for="b in d.blocks" :key="b.time + b.title">
+                                    <li class="flex gap-3">
+                                        <span class="text-gray-500 w-14 shrink-0" x-text="b.time"></span>
+                                        <span>
+                                            <strong x-text="b.title"></strong>
+                                            <span x-show="b.neighborhood" class="text-gray-500" x-text="' · ' + b.neighborhood"></span>
+                                            <span x-show="b.cost_hint" class="text-xs text-gray-500" x-text="' · ' + b.cost_hint"></span>
+                                            <div class="text-gray-500 text-xs" x-text="b.notes"></div>
+                                        </span>
+                                    </li>
+                                </template>
+                            </ul>
+                        </div>
+                    </template>
+                </div>
+            </template>
+        </div>
+    </div>
+</div>
+
+<script>
+function tripDetail(init) {
+    return {
+        tripId: init.tripId,
+        slug: init.slug,
+        isOwner: init.owner === init.me,
+        me: init.me,
+        currency: init.currency || 'USD',
+        items: init.items || [],
+        destinations: init.destinations || [],
+        packing: init.packing || [],
+        checklist: init.checklist || [],
+        collaborators: init.collaborators || [],
+        mapStyle: init.mapStyle,
+        activeTab: 'itinerary',
+        tabs: [
+            { id: 'itinerary', label: 'Itinerary' },
+            { id: 'budget',    label: 'Budget' },
+            { id: 'packing',   label: 'Packing' },
+            { id: 'checklist', label: 'Checklist' },
+            { id: 'collab',    label: 'Collaborate' },
+            { id: 'weather',   label: 'Weather' },
+            { id: 'journal',   label: 'Journal' },
+        ],
+        cloneOpen: false, aiOpen: false, busy: false,
+        cloneForm: { start: '', name: '' },
+        aiForm: { destination: (init.destinations[0] || {}).name || '', start: '', end: '', interests: '', pace: 'balanced' },
+        aiResult: null, aiBusy: false,
+
+        newPack: { category: 'Clothing', name: '', quantity: 1 },
+        newCheck: '',
+        expenseForm: { description: '', category: '', amount: 0, currency: '' },
+        commentForm: { body: '' },
+        collabForm: { email: '', role: 'viewer' },
+        journalForm: { title: '', body: '', mediaString: '' },
+
+        budget: { summary: {}, expenses: [] },
+        comments: [],
+        journal: [],
+        balances: [], balanceCurrency: init.currency || 'USD',
+        weather: {},
+
+        get itemsByDay() {
+            const groups = new Map();
+            for (const it of this.items) {
+                const ts = it.start_time ? new Date(it.start_time) : null;
+                const key = ts ? ts.toISOString().slice(0,10) : 'unscheduled';
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push(it);
+            }
+            const keys = [...groups.keys()].sort();
+            return keys.map((k) => ({
+                key: k,
+                label: k === 'unscheduled' ? 'Unscheduled' : new Date(k).toLocaleDateString(undefined, {weekday:'long', month:'short', day:'numeric'}),
+                items: groups.get(k),
+            }));
+        },
+        get budgetRows() {
+            const cats = this.budget.summary?.by_category || {};
+            return Object.entries(cats).map(([cat, line]) => ({ cat, planned: line.planned, actual: line.actual }));
+        },
+
+        shareURL() { return `${window.location.origin}/trips/shared/${this.slug}`; },
+        async enableSharing() {
+            this.busy = true;
+            try { const d = await api(`/api/v1/trips/${this.tripId}/share`, {method:'POST'}); this.slug = d.slug; toast.success('Share link created'); }
+            catch (e) { toast.error(e.message); } finally { this.busy = false; }
+        },
+        async revokeSharing() {
+            if (!confirm('Disable sharing?')) return;
+            try { await api(`/api/v1/trips/${this.tripId}/share`, {method:'DELETE'}); this.slug = ''; toast.success('Sharing disabled'); }
+            catch (e) { toast.error(e.message); }
+        },
+        async copyLink() {
+            await navigator.clipboard.writeText(this.shareURL());
+            toast.success('Link copied');
+        },
+        async doClone() {
+            try {
+                const trip = await api(`/api/v1/trips/${this.tripId}/clone`, {method:'POST', json: {
+                    start_date: new Date(this.cloneForm.start).toISOString(),
+                    name: this.cloneForm.name,
+                }});
+                window.location.href = `/trips/${trip.id}`;
+            } catch (e) { toast.error(e.message); }
+        },
+
+        // ----- Itinerary drag/reorder -----
+        bindSortable(el) {
+            if (typeof Sortable === 'undefined') { setTimeout(() => this.bindSortable(el), 200); return; }
+            Sortable.create(el, {
+                group: 'trip-items',
+                animation: 150,
+                onEnd: () => this.persistOrder(),
+            });
+        },
+        async persistOrder() {
+            const ordered = [];
+            document.querySelectorAll('.day-bucket').forEach((ol) => {
+                ol.querySelectorAll('[data-id]').forEach((li) => ordered.push(li.dataset.id));
+            });
+            try {
+                await api(`/api/v1/trips/${this.tripId}/reorder`, {method:'PUT', json: {item_ids: ordered}});
+                toast.success('Itinerary updated');
+            } catch (e) { toast.error(e.message); }
+        },
+        formatWhen(item) {
+            if (!item.start_time) return 'Unscheduled';
+            const d = new Date(item.start_time);
+            return d.toLocaleString(undefined, {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
+        },
+        initRouteMap() {
+            if (this.routeMap) return;
+            if (typeof maplibregl === 'undefined') { setTimeout(() => this.initRouteMap(), 200); return; }
+            const coords = this.destinations.filter(d => d.coordinates).map(d => [d.coordinates.lng, d.coordinates.lat]);
+            if (coords.length === 0) return;
+            const [lng, lat] = coords[0];
+            this.routeMap = new maplibregl.Map({container:'trip-route-map', style:this.mapStyle, center:[lng,lat], zoom:3});
+            this.routeMap.on('load', () => {
+                coords.forEach(([lng,lat], i) => {
+                    new maplibregl.Marker({color: i === 0 ? '#2563eb' : '#60a5fa'})
+                        .setLngLat([lng,lat]).addTo(this.routeMap);
+                });
+                if (coords.length > 1) {
+                    this.routeMap.addSource('route', { type:'geojson', data:{type:'Feature', geometry:{type:'LineString', coordinates: coords}}});
+                    this.routeMap.addLayer({ id:'route', type:'line', source:'route', paint:{'line-color':'#2563eb', 'line-width':3, 'line-dasharray':[2,1]}});
+                    const b = coords.reduce((a,c)=>a.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
+                    this.routeMap.fitBounds(b, { padding: 40, maxZoom: 6 });
+                }
+            });
+        },
+
+        // ----- Budget / expenses -----
+        async loadBudget() {
+            try {
+                const data = await api(`/api/v1/trips/${this.tripId}/budget`);
+                this.budget = data;
+            } catch (e) { toast.error(e.message); }
+            try {
+                const s = await api(`/api/v1/trips/${this.tripId}/settle`);
+                this.balances = (s.balances || []).filter(b => Math.abs(b.net) > 0.01);
+                this.balanceCurrency = s.currency;
+            } catch (e) {}
+        },
+        async addExpense() {
+            try {
+                await api(`/api/v1/trips/${this.tripId}/expenses`, {method:'POST', json: this.expenseForm});
+                this.expenseForm = { description:'', category:'', amount:0, currency:'' };
+                toast.success('Expense added');
+                this.loadBudget();
+            } catch (e) { toast.error(e.message); }
+        },
+        async deleteExpense(id) {
+            try { await api(`/api/v1/trips/${this.tripId}/expenses/${id}`, {method:'DELETE'}); this.loadBudget(); }
+            catch (e) { toast.error(e.message); }
+        },
+
+        // ----- Packing -----
+        async suggestPacking() {
+            try {
+                const suggestions = await api(`/api/v1/trips/${this.tripId}/packing/suggest`);
+                // Merge: keep existing, add new by name.
+                const seen = new Set(this.packing.map(p => p.name.toLowerCase()));
+                for (const s of suggestions) if (!seen.has(s.name.toLowerCase())) this.packing.push(s);
+                await this.savePacking();
+                toast.success('Added suggestions');
+            } catch (e) { toast.error(e.message); }
+        },
+        async addPacking() {
+            this.packing.push({ category: this.newPack.category, name: this.newPack.name, quantity: this.newPack.quantity, packed: false });
+            this.newPack.name = '';
+            await this.savePacking();
+        },
+        async savePacking() {
+            try { await api(`/api/v1/trips/${this.tripId}/packing`, {method:'PUT', json: this.packing}); }
+            catch (e) { toast.error(e.message); }
+        },
+
+        // ----- Checklist -----
+        async suggestChecklist() {
+            try {
+                const suggestions = await api(`/api/v1/trips/${this.tripId}/checklist/suggest`);
+                const seen = new Set(this.checklist.map(c => c.title.toLowerCase()));
+                for (const s of suggestions) if (!seen.has(s.title.toLowerCase())) this.checklist.push(s);
+                await this.saveChecklist();
+                toast.success('Added suggestions');
+            } catch (e) { toast.error(e.message); }
+        },
+        async addCheck() {
+            this.checklist.push({ title: this.newCheck, done: false });
+            this.newCheck = '';
+            await this.saveChecklist();
+        },
+        async saveChecklist() {
+            try { await api(`/api/v1/trips/${this.tripId}/checklist`, {method:'PUT', json: this.checklist}); }
+            catch (e) { toast.error(e.message); }
+        },
+
+        // ----- Collab / comments -----
+        async loadComments() {
+            try { this.comments = await api(`/api/v1/trips/${this.tripId}/comments`) || []; }
+            catch (e) {}
+        },
+        async addComment() {
+            try {
+                const c = await api(`/api/v1/trips/${this.tripId}/comments`, {method:'POST', json: this.commentForm});
+                this.comments.push(c);
+                this.commentForm.body = '';
+            } catch (e) { toast.error(e.message); }
+        },
+        async addCollaborator() {
+            try {
+                const c = await api(`/api/v1/trips/${this.tripId}/collaborators`, {method:'POST', json: this.collabForm});
+                this.collaborators.push(c);
+                this.collabForm.email = '';
+                toast.success('Collaborator added');
+            } catch (e) { toast.error(e.message); }
+        },
+        async removeCollaborator(userId) {
+            if (!confirm('Remove this collaborator?')) return;
+            try {
+                await api(`/api/v1/trips/${this.tripId}/collaborators/${userId}`, {method:'DELETE'});
+                this.collaborators = this.collaborators.filter(c => c.user_id !== userId);
+            } catch (e) { toast.error(e.message); }
+        },
+
+        // ----- Weather -----
+        async loadWeather() {
+            try { this.weather = await api(`/api/v1/trips/${this.tripId}/weather`) || {}; }
+            catch (e) {}
+        },
+
+        // ----- Journal -----
+        async loadJournal() {
+            try { this.journal = await api(`/api/v1/trips/${this.tripId}/journal`) || []; }
+            catch (e) {}
+        },
+        async addJournal() {
+            const media = (this.journalForm.mediaString || '').split(',').map(s => s.trim()).filter(Boolean);
+            try {
+                const j = await api(`/api/v1/trips/${this.tripId}/journal`, {method:'POST', json: {
+                    title: this.journalForm.title, body: this.journalForm.body, media_urls: media,
+                }});
+                this.journal.unshift(j);
+                this.journalForm = { title:'', body:'', mediaString:'' };
+            } catch (e) { toast.error(e.message); }
+        },
+
+        // ----- AI -----
+        async runAI() {
+            this.aiBusy = true;
+            try {
+                this.aiResult = await api(`/api/v1/ai/itinerary`, {method:'POST', json: {
+                    destination: this.aiForm.destination,
+                    start_date: new Date(this.aiForm.start).toISOString(),
+                    end_date: new Date(this.aiForm.end).toISOString(),
+                    interests: this.aiForm.interests.split(',').map(s => s.trim()).filter(Boolean),
+                    pace: this.aiForm.pace,
+                }});
+            } catch (e) { toast.error(e.message); }
+            finally { this.aiBusy = false; }
+        },
+
+        fmtMoney(v, c) {
+            if (v === undefined || v === null) return '—';
+            return `${(+v).toFixed(2)} ${c}`;
+        },
+    };
+}
+
+// Init route map whenever we land on the itinerary tab with destinations.
+document.addEventListener('alpine:initialized', () => {
+    document.querySelectorAll('[x-data*="tripDetail("]').forEach(() => {
+        // Delegate to the component on next tick.
+        setTimeout(() => {
+            const el = document.querySelector('[x-data*="tripDetail("]');
+            if (!el || !el._x_dataStack) return;
+            const data = el._x_dataStack[0];
+            if (data && data.destinations.length > 0) data.initRouteMap();
+        }, 200);
+    });
+});
+</script>
+{{end}}

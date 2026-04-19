@@ -1,0 +1,149 @@
+{{template "base.html" .}}
+
+{{define "content"}}
+<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-data="travelStats()" x-init="load()">
+    <h1 class="text-3xl font-bold">Your travel stats</h1>
+    <p class="text-gray-600 dark:text-gray-400 mt-1">A rollup across every trip you've saved.</p>
+
+    <div x-show="loading" class="mt-8 grid md:grid-cols-4 gap-4">
+        <template x-for="i in 4" :key="i"><div class="skeleton h-28"></div></template>
+    </div>
+
+    <div x-show="!loading && stats" x-cloak>
+        <!-- Headline numbers -->
+        <div class="mt-8 grid md:grid-cols-4 gap-4">
+            <div class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-xl p-4">
+                <p class="text-xs uppercase text-gray-500">Trips</p>
+                <p class="text-3xl font-semibold" x-text="stats.total_trips"></p>
+                <p class="text-xs text-gray-500 mt-1"><span x-text="stats.upcoming_trips"></span> upcoming</p>
+            </div>
+            <div class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-xl p-4">
+                <p class="text-xs uppercase text-gray-500">Days on the road</p>
+                <p class="text-3xl font-semibold" x-text="stats.days_on_the_road"></p>
+                <p class="text-xs text-gray-500 mt-1"><span x-text="stats.future_days"></span> planned</p>
+            </div>
+            <div class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-xl p-4">
+                <p class="text-xs uppercase text-gray-500">Cities</p>
+                <p class="text-3xl font-semibold" x-text="stats.cities.length"></p>
+                <p class="text-xs text-gray-500 mt-1 truncate" x-text="stats.cities.slice(0,3).join(', ')"></p>
+            </div>
+            <div class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-xl p-4">
+                <p class="text-xs uppercase text-gray-500">Carbon</p>
+                <p class="text-3xl font-semibold" x-text="stats.carbon_kg.toFixed(0) + ' kg'"></p>
+                <p class="text-xs text-gray-500 mt-1">CO₂e across all trips</p>
+            </div>
+        </div>
+
+        <!-- Profile + top months -->
+        <div class="mt-6 grid md:grid-cols-2 gap-4">
+            <div class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-xl p-4">
+                <p class="text-xs uppercase text-gray-500">Traveler profile</p>
+                <template x-if="profile">
+                    <div>
+                        <p class="text-xl font-semibold" x-text="profile.label"></p>
+                        <p class="text-sm text-gray-500 mt-1" x-text="profile.description"></p>
+                        <div class="mt-2 flex flex-wrap gap-1">
+                            <template x-for="t in profile.tags" :key="t">
+                                <span class="text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800" x-text="t"></span>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            <div class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-xl p-4">
+                <p class="text-xs uppercase text-gray-500">Top months</p>
+                <ul class="mt-2 space-y-1 text-sm">
+                    <template x-for="m in stats.top_months" :key="m.month">
+                        <li class="flex items-center justify-between">
+                            <span x-text="monthName(m.month)"></span>
+                            <span class="text-gray-500" x-text="m.days + ' day' + (m.days === 1 ? '' : 's')"></span>
+                        </li>
+                    </template>
+                    <template x-if="(stats.top_months || []).length === 0">
+                        <li class="text-gray-500 italic">No data yet.</li>
+                    </template>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Spend by currency -->
+        <div x-show="Object.keys(stats.total_spent_by_currency || {}).length > 0" class="mt-6 bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-xl p-4">
+            <p class="text-xs uppercase text-gray-500">Total recorded spend</p>
+            <ul class="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                <template x-for="(v, k) in stats.total_spent_by_currency" :key="k">
+                    <li class="bg-gray-50 dark:bg-gray-800 rounded px-3 py-2 flex justify-between">
+                        <span x-text="k"></span>
+                        <strong x-text="v.toFixed(2)"></strong>
+                    </li>
+                </template>
+            </ul>
+        </div>
+
+        <!-- Annual heatmap: one row per year -->
+        <div class="mt-6 bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-xl p-4">
+            <p class="text-xs uppercase text-gray-500 mb-3">Year at a glance</p>
+            <template x-for="year in years" :key="year">
+                <div class="flex items-center gap-3 mb-2">
+                    <span class="w-12 text-sm text-gray-500" x-text="year"></span>
+                    <div class="flex gap-1 flex-1">
+                        <template x-for="m in 12" :key="m">
+                            <div class="flex-1 h-6 rounded" :style="`background:${heatColor(year, m)}`" :title="monthName(m) + ': ' + (daysFor(year, m)) + ' days'"></div>
+                        </template>
+                    </div>
+                </div>
+            </template>
+        </div>
+
+        <!-- City list -->
+        <div class="mt-6 bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-xl p-4">
+            <p class="text-xs uppercase text-gray-500 mb-3">Cities visited</p>
+            <div class="flex flex-wrap gap-2">
+                <template x-for="c in stats.cities" :key="c">
+                    <span class="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 rounded" x-text="c"></span>
+                </template>
+                <template x-if="stats.cities.length === 0">
+                    <span class="text-sm text-gray-500 italic">None yet.</span>
+                </template>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function travelStats() {
+    return {
+        loading: true,
+        stats: null,
+        profile: null,
+        async load() {
+            this.loading = true;
+            try {
+                const [s, p] = await Promise.all([
+                    api('/api/v1/me/travel-stats'),
+                    api('/api/v1/me/travel-profile').catch(() => null),
+                ]);
+                this.stats = s;
+                this.profile = p;
+            } catch (e) { toast.error(e.message); }
+            finally { this.loading = false; }
+        },
+        monthName(m) { return new Date(2020, m-1, 1).toLocaleString(undefined, { month: 'long' }); },
+        get years() {
+            if (!this.stats || !this.stats.annual_heatmap) return [];
+            return Object.keys(this.stats.annual_heatmap).map(Number).sort((a,b) => b-a);
+        },
+        daysFor(year, month) {
+            const rows = (this.stats && this.stats.annual_heatmap || {})[year] || [];
+            const row = rows.find(r => r.month === month);
+            return row ? row.days : 0;
+        },
+        heatColor(year, month) {
+            const d = this.daysFor(year, month);
+            if (d === 0) return 'rgba(37, 99, 235, 0.08)';
+            const alpha = Math.min(0.2 + d / 20, 0.9);
+            return `rgba(37, 99, 235, ${alpha})`;
+        },
+    };
+}
+</script>
+{{end}}

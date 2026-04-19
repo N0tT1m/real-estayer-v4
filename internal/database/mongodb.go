@@ -147,6 +147,74 @@ func (db *DB) createIndexes(ctx context.Context) error {
 		slog.Warn("failed to create trips indexes", "error", err)
 	}
 
+	// Trip-scoped collections — every query is keyed on trip_id so those
+	// indexes are non-optional.
+	tripCommentIndexes := []mongo.IndexModel{
+		{Keys: map[string]int{"trip_id": 1, "created_at": 1}},
+	}
+	_, _ = db.Collection("trip_comments").Indexes().CreateMany(ctx, tripCommentIndexes)
+
+	tripExpenseIndexes := []mongo.IndexModel{
+		{Keys: map[string]int{"trip_id": 1, "spent_at": -1}},
+	}
+	_, _ = db.Collection("trip_expenses").Indexes().CreateMany(ctx, tripExpenseIndexes)
+
+	tripJournalIndexes := []mongo.IndexModel{
+		{Keys: map[string]int{"trip_id": 1, "entry_date": -1}},
+	}
+	_, _ = db.Collection("trip_journal").Indexes().CreateMany(ctx, tripJournalIndexes)
+
+	_, _ = db.Collection("trip_reviews").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    map[string]int{"user_id": 1, "trip_id": 1, "item_id": 1},
+		Options: options.Index().SetUnique(true),
+	})
+
+	priceHistoryIndexes := []mongo.IndexModel{
+		{Keys: map[string]int{"listing_id": 1, "captured_at": -1}},
+	}
+	_, _ = db.Collection("price_history").Indexes().CreateMany(ctx, priceHistoryIndexes)
+
+	savedSearchIndexes := []mongo.IndexModel{
+		{Keys: map[string]int{"user_id": 1, "created_at": -1}},
+		{Keys: map[string]int{"last_run_at": 1}},
+	}
+	_, _ = db.Collection("saved_searches").Indexes().CreateMany(ctx, savedSearchIndexes)
+
+	_, _ = db.Collection("password_resets").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    map[string]int{"expires_at": 1},
+		Options: options.Index().SetExpireAfterSeconds(0),
+	})
+	_, _ = db.Collection("password_resets").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: map[string]int{"token_hash": 1},
+	})
+
+	collectionIndexes := []mongo.IndexModel{
+		{Keys: map[string]int{"slug": 1}, Options: options.Index().SetUnique(true)},
+		{Keys: map[string]int{"destination": 1, "featured": -1}},
+	}
+	_, _ = db.Collection("collections").Indexes().CreateMany(ctx, collectionIndexes)
+
+	_, _ = db.Collection("polls").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    map[string]int{"slug": 1},
+		Options: options.Index().SetUnique(true),
+	})
+	_, _ = db.Collection("polls").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: map[string]int{"trip_id": 1},
+	})
+
+	// Trip queries hit FindByUserID (with shared_with OR) and share-slug
+	// lookups constantly.
+	_, _ = db.Collection("trips").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: map[string]int{"user_id": 1, "start_date": -1},
+	})
+	_, _ = db.Collection("trips").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: map[string]int{"shared_with": 1},
+	})
+	_, _ = db.Collection("trips").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    map[string]int{"share_slug": 1},
+		Options: options.Index().SetUnique(true).SetSparse(true),
+	})
+
 	// Bookings collection indexes
 	bookingsIndexes := []mongo.IndexModel{
 		{
@@ -162,6 +230,14 @@ func (db *DB) createIndexes(ctx context.Context) error {
 	}
 	if _, err := db.Collection("bookings").Indexes().CreateMany(ctx, bookingsIndexes); err != nil {
 		slog.Warn("failed to create bookings indexes", "error", err)
+	}
+
+	auditIndexes := []mongo.IndexModel{
+		{Keys: map[string]int{"user_id": 1, "created_at": -1}},
+		{Keys: map[string]int{"action": 1, "created_at": -1}},
+	}
+	if _, err := db.Collection("audit_logs").Indexes().CreateMany(ctx, auditIndexes); err != nil {
+		slog.Warn("failed to create audit indexes", "error", err)
 	}
 
 	slog.Info("database indexes created")

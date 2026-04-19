@@ -2,22 +2,49 @@ package service
 
 import (
 	"context"
+	"errors"
+	"log/slog"
+	"strings"
 
-	"github.com/realestayer/v3/internal/models"
-	"github.com/realestayer/v3/internal/repository"
+	"github.com/realestayer/v4/internal/crypto"
+	"github.com/realestayer/v4/internal/models"
+	"github.com/realestayer/v4/internal/repository"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
+
+var errInvalidDiscordWebhook = errors.New("discord webhook must be an https://discord.com/api/webhooks/... URL")
+
+// isDiscordWebhook validates that a string is plausibly a Discord webhook URL.
+// Enforcing the host prevents the app from becoming an SSRF conduit — we only
+// POST to discord.com. Also guards against accidentally storing non-URL junk.
+func isDiscordWebhook(u string) bool {
+	u = strings.TrimSpace(u)
+	return strings.HasPrefix(u, "https://discord.com/api/webhooks/") ||
+		strings.HasPrefix(u, "https://discordapp.com/api/webhooks/") ||
+		strings.HasPrefix(u, "https://canary.discord.com/api/webhooks/") ||
+		strings.HasPrefix(u, "https://ptb.discord.com/api/webhooks/")
+}
+
+// ErrInvalidDiscordWebhook lets callers recognize the validation failure.
+func ErrInvalidDiscordWebhook() error { return errInvalidDiscordWebhook }
 
 // UserService handles user-related business logic
 type UserService struct {
 	userRepo *repository.UserRepository
+	cipher   *crypto.FieldCipher
 }
 
-// NewUserService creates a new user service
-func NewUserService(userRepo *repository.UserRepository) *UserService {
-	return &UserService{
-		userRepo: userRepo,
+// NewUserService creates a new user service. Pass a nil cipher in tests or
+// if you don't want field encryption — the service will fall through to
+// plain-text storage and log a single warning.
+func NewUserService(userRepo *repository.UserRepository, cipher *crypto.FieldCipher) *UserService {
+	if cipher == nil {
+		cipher, _ = crypto.NewFieldCipher("")
 	}
+	if !cipher.Enabled() {
+		slog.Warn("user identity fields are stored plain-text — set FIELD_ENCRYPTION_KEY to enable AES-GCM at rest")
+	}
+	return &UserService{userRepo: userRepo, cipher: cipher}
 }
 
 // GetByID retrieves a user by ID
@@ -55,6 +82,105 @@ func (s *UserService) Update(ctx context.Context, id string, req models.UpdateUs
 		return nil, err
 	}
 
+	return user, nil
+}
+
+// UpdateIdentity stores the user's traveler-identity block. All fields are
+// optional and the caller is expected to have already done light sanity
+// checks (e.g. passport_number length) on the input. Sensitive fields are
+// encrypted before persisting.
+func (s *UserService) UpdateIdentity(ctx context.Context, id string, identity models.TravelerIdentity) (*models.User, error) {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, repository.ErrUserNotFound
+	}
+	user, err := s.userRepo.FindByID(ctx, objID)
+	if err != nil {
+		return nil, err
+	}
+	user.Identity = s.encryptIdentity(identity)
+	if err := s.userRepo.Update(ctx, user); err != nil {
+		return nil, err
+	}
+	// Return the plain-text form to the caller so the UI can round-trip.
+	user.Identity = identity
+	return user, nil
+}
+
+// DecryptIdentity should be called by anything reading user.Identity back
+// out of storage. Idempotent when fields aren't tagged as ciphertext.
+func (s *UserService) DecryptIdentity(u *models.User) {
+	if u == nil {
+		return
+	}
+	u.Identity.PassportNumber = s.decryptField(u.Identity.PassportNumber)
+	u.Identity.KnownTravelerNo = s.decryptField(u.Identity.KnownTravelerNo)
+	u.Identity.RedressNo = s.decryptField(u.Identity.RedressNo)
+	u.Identity.GlobalEntryID = s.decryptField(u.Identity.GlobalEntryID)
+	for i, la := range u.Identity.LoyaltyAccounts {
+		u.Identity.LoyaltyAccounts[i].Number = s.decryptField(la.Number)
+	}
+}
+
+func (s *UserService) encryptIdentity(in models.TravelerIdentity) models.TravelerIdentity {
+	out := in
+	out.PassportNumber = s.encryptField(out.PassportNumber)
+	out.KnownTravelerNo = s.encryptField(out.KnownTravelerNo)
+	out.RedressNo = s.encryptField(out.RedressNo)
+	out.GlobalEntryID = s.encryptField(out.GlobalEntryID)
+	out.LoyaltyAccounts = make([]models.LoyaltyAccount, len(in.LoyaltyAccounts))
+	for i, la := range in.LoyaltyAccounts {
+		la.Number = s.encryptField(la.Number)
+		out.LoyaltyAccounts[i] = la
+	}
+	return out
+}
+
+func (s *UserService) encryptField(v string) string {
+	if v == "" {
+		return ""
+	}
+	ct, err := s.cipher.Encrypt(v)
+	if err != nil {
+		slog.Warn("encryptField failed; storing plain-text", "error", err)
+		return v
+	}
+	return ct
+}
+
+func (s *UserService) decryptField(v string) string {
+	if v == "" {
+		return ""
+	}
+	pt, err := s.cipher.Decrypt(v)
+	if err != nil {
+		slog.Warn("decryptField failed; returning raw", "error", err)
+		return v
+	}
+	return pt
+}
+
+// UpdateNotifications replaces the user's notification preferences. A webhook
+// URL must be https://discord.com/api/webhooks/... — anything else is
+// rejected so we don't become a proxy for arbitrary outbound POSTs.
+func (s *UserService) UpdateNotifications(ctx context.Context, id string, prefs models.NotificationSettings) (*models.User, error) {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, repository.ErrUserNotFound
+	}
+	if prefs.DiscordWebhook != "" {
+		if !isDiscordWebhook(prefs.DiscordWebhook) {
+			return nil, errInvalidDiscordWebhook
+		}
+	}
+	user, err := s.userRepo.FindByID(ctx, objID)
+	if err != nil {
+		return nil, err
+	}
+	user.Preferences.Notifications = prefs
+	if err := s.userRepo.Update(ctx, user); err != nil {
+		return nil, err
+	}
 	return user, nil
 }
 

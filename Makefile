@@ -145,5 +145,15 @@ seed:
 	@echo "$(GREEN)Seeding database...$(NC)"
 	$(GO) run ./cmd/seed
 
+## migrate-features: Normalize features in existing listings (supports -dry-run)
+migrate-features:
+	@echo "$(GREEN)Normalizing listing features...$(NC)"
+	$(GO) run ./cmd/migrate
+
+## migrate-features-dry: Preview feature normalization without writing
+migrate-features-dry:
+	@echo "$(GREEN)Previewing feature normalization (dry-run)...$(NC)"
+	$(GO) run ./cmd/migrate -dry-run
+
 # Default target
 .DEFAULT_GOAL := help

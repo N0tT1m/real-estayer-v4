@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/realestayer/v3/internal/models"
+	"github.com/realestayer/v4/internal/models"
 )
 
 // Car rental API response types

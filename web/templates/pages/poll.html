@@ -1,0 +1,113 @@
+{{template "base.html" .}}
+
+{{define "content"}}
+<div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8"
+     x-data="pollVote({
+        slug: {{.Poll.Slug | printf "%q"}},
+        closed: {{if .Poll.ClosesAt}}new Date({{.Poll.ClosesAt.Format "2006-01-02T15:04:05Z" | printf "%q"}}) < new Date(){{else}}false{{end}},
+        options: {{json .Poll.Options}},
+        summary: {{json .Summary}},
+        prior: {{json .Poll.Responses}}
+     })">
+    <header class="mb-6">
+        <p class="text-xs uppercase tracking-wide text-gray-500 mb-1">Availability poll</p>
+        <h1 class="text-3xl font-bold">{{.Poll.Title}}</h1>
+        {{if .Poll.Description}}<p class="mt-2 text-gray-600 dark:text-gray-400">{{.Poll.Description}}</p>{{end}}
+        {{if .Poll.ClosesAt}}<p class="mt-2 text-xs text-gray-500">Closes {{.Poll.ClosesAt.Format "Mon Jan 2 · 15:04"}}</p>{{end}}
+    </header>
+
+    <!-- Summary -->
+    <section class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-xl p-4 mb-8">
+        <h2 class="text-sm font-semibold mb-3 text-gray-500 uppercase">Current consensus</h2>
+        <ol class="space-y-2">
+            <template x-for="(row, i) in summary" :key="row.option.id">
+                <li class="flex items-center gap-3">
+                    <span class="w-6 text-right text-sm font-semibold" x-text="i + 1"></span>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium" x-text="formatRange(row.option)"></div>
+                        <div class="flex gap-1 mt-0.5 h-2 rounded bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                            <div class="bg-green-500" :style="`width: ${percent(row.yes)}%`"></div>
+                            <div class="bg-yellow-400" :style="`width: ${percent(row.maybe)}%`"></div>
+                            <div class="bg-red-400" :style="`width: ${percent(row.no)}%`"></div>
+                        </div>
+                    </div>
+                    <span class="text-xs text-gray-500" x-text="`${row.yes} yes · ${row.maybe} maybe · ${row.no} no`"></span>
+                </li>
+            </template>
+        </ol>
+    </section>
+
+    <!-- Vote -->
+    <section class="bg-white dark:bg-gray-900 border dark:border-gray-800 rounded-xl p-4" x-show="!closed">
+        <h2 class="text-sm font-semibold mb-3 text-gray-500 uppercase">Your availability</h2>
+        <form @submit.prevent="submit()" class="space-y-3">
+            <div class="grid md:grid-cols-2 gap-2">
+                <input x-model="form.display_name" required placeholder="Your name"
+                       class="px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+                <input x-model="form.email" type="email" placeholder="Email (optional)"
+                       class="px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+            </div>
+            <ul class="divide-y dark:divide-gray-800 border dark:border-gray-800 rounded-lg">
+                <template x-for="o in options" :key="o.id">
+                    <li class="flex items-center justify-between px-3 py-2">
+                        <span class="text-sm" x-text="formatRange(o)"></span>
+                        <div class="flex gap-1">
+                            <template x-for="v in ['yes','maybe','no']" :key="v">
+                                <button type="button" @click="form.option_votes[o.id] = v"
+                                        :class="form.option_votes[o.id] === v ? buttonClass(v) : 'bg-gray-100 dark:bg-gray-800 text-gray-500'"
+                                        class="px-2 py-1 text-xs rounded uppercase" x-text="v"></button>
+                            </template>
+                        </div>
+                    </li>
+                </template>
+            </ul>
+            <input x-model="form.note" placeholder="Note (optional)"
+                   class="w-full px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-700">
+            <button class="px-3 py-2 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700 disabled:opacity-60" :disabled="submitting">
+                <span x-text="submitting ? 'Saving…' : 'Save vote'"></span>
+            </button>
+        </form>
+    </section>
+    <p x-show="closed" class="text-sm text-gray-500 italic">This poll has closed.</p>
+</div>
+
+<script>
+function pollVote(init) {
+    return {
+        slug: init.slug,
+        closed: init.closed,
+        options: init.options || [],
+        summary: init.summary || [],
+        submitting: false,
+        form: {
+            display_name: '',
+            email: '',
+            note: '',
+            option_votes: Object.fromEntries((init.options || []).map(o => [o.id, 'maybe'])),
+        },
+        percent(n) {
+            const total = this.summary.reduce((sum, r) => sum + r.yes + r.maybe + r.no, 0) || 1;
+            return Math.round((n / total) * 100);
+        },
+        buttonClass(v) {
+            return v === 'yes' ? 'bg-green-500 text-white' :
+                   v === 'maybe' ? 'bg-yellow-400 text-gray-900' :
+                                   'bg-red-400 text-white';
+        },
+        formatRange(o) {
+            const s = new Date(o.start), e = new Date(o.end);
+            return (o.label ? o.label + ' · ' : '') + s.toLocaleDateString(undefined, {month:'short', day:'numeric'}) + ' – ' + e.toLocaleDateString(undefined, {month:'short', day:'numeric'});
+        },
+        async submit() {
+            this.submitting = true;
+            try {
+                const data = await api('/api/public/polls/' + this.slug + '/vote', {method:'POST', json: this.form});
+                this.summary = data.summary;
+                toast.success('Vote saved');
+            } catch (e) { toast.error(e.message); }
+            finally { this.submitting = false; }
+        },
+    };
+}
+</script>
+{{end}}

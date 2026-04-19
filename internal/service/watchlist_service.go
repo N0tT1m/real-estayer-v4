@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/realestayer/v3/internal/models"
-	"github.com/realestayer/v3/internal/repository"
+	"github.com/realestayer/v4/internal/models"
+	"github.com/realestayer/v4/internal/repository"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -123,6 +123,19 @@ func (s *WatchlistService) Update(ctx context.Context, userID, itemID string, re
 		return nil, err
 	}
 
+	return item, nil
+}
+
+// GetForUser returns a watchlist item by ID scoped to a user. Returns an
+// access-denied error if the item belongs to someone else.
+func (s *WatchlistService) GetForUser(ctx context.Context, userID string, itemID primitive.ObjectID) (*models.WatchlistItem, error) {
+	item, err := s.watchlistRepo.FindByID(ctx, itemID)
+	if err != nil {
+		return nil, err
+	}
+	if item.UserID.Hex() != userID {
+		return nil, errors.New("access denied")
+	}
 	return item, nil
 }
 

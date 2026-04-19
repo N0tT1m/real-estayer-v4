@@ -232,6 +232,7 @@
                     </a>
 
                     <form action="/api/v1/watchlist" method="POST">
+                        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                         <input type="hidden" name="listing_id" value="{{.Listing.ID.Hex}}">
                         <button type="submit" class="w-full border border-primary-600 text-primary-600 py-3 px-4 rounded-lg font-medium hover:bg-primary-50 transition flex items-center justify-center">
                             <svg class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -345,9 +346,9 @@ function listingPage(listing) {
 
             fetch('/api/v1/send-to-discord', {
                 method: 'POST',
-                headers: {
+                headers: window.csrfHeaders({
                     'Content-Type': 'application/json',
-                },
+                }),
                 body: JSON.stringify({ url: this.listing.url })
             })
             .then(response => response.json())

@@ -13,20 +13,40 @@ use tokio::sync::OnceCell;
 
 static DB: OnceCell<Database> = OnceCell::const_new();
 
-pub async fn get_collection() -> Collection<Listing> {
-    let mongodb_uri = std::env::var("MONGODB_URI")
-        .unwrap_or_else(|_| "mongodb://localhost:27017/real_estayer".to_string());
+async fn init_db() -> Database {
+    let mongodb_uri = std::env::var("MONGODB_URI").unwrap_or_else(|_| {
+        tracing::warn!("MONGODB_URI not set; defaulting to mongodb://localhost:27017/real_estayer");
+        "mongodb://localhost:27017/real_estayer".to_string()
+    });
 
-    // Extract database name from URI or use default
     let db_name = mongodb_uri
-        .split('/')
-        .last()
-        .filter(|s| !s.is_empty() && !s.contains('?'))
-        .unwrap_or("real_estayer");
+        .rsplit('/')
+        .next()
+        .and_then(|tail| tail.split('?').next())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("real_estayer")
+        .to_string();
 
-    let client_options = ClientOptions::parse(&mongodb_uri).await.unwrap();
-    let client = Client::with_options(client_options).unwrap();
-    client.database(db_name).collection("listings")
+    let client_options = match ClientOptions::parse(&mongodb_uri).await {
+        Ok(o) => o,
+        Err(e) => {
+            tracing::error!("Failed to parse MONGODB_URI: {}", e);
+            panic!("invalid MONGODB_URI");
+        }
+    };
+    let client = match Client::with_options(client_options) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("Failed to create Mongo client: {}", e);
+            panic!("Mongo client init failed");
+        }
+    };
+    client.database(&db_name)
+}
+
+pub async fn get_collection() -> Collection<Listing> {
+    let db = DB.get_or_init(init_db).await;
+    db.collection("listings")
 }
 
 // Validate a listing before insertion

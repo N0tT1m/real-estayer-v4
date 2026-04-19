@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/realestayer/v3/internal/models"
+	"github.com/realestayer/v4/internal/models"
 )
 
 // Flight API response types
@@ -111,17 +111,63 @@ func (c *Client) SearchFlights(ctx context.Context, req models.FlightSearchReque
 	return c.convertFlightOffers(result.Data), nil
 }
 
-// GetFlightOffer retrieves a specific flight offer
+// GetFlightOffer retrieves a specific flight offer from the in-memory search
+// cache. Amadeus does not expose a get-by-id endpoint — the offer must have
+// been seen by a recent SearchFlights call. Returns an error if the entry is
+// missing or has expired.
 func (c *Client) GetFlightOffer(ctx context.Context, offerID string) (*models.FlightOffer, error) {
-	// Amadeus doesn't have a direct get-by-id endpoint; offers are cached temporarily
-	// In production, you'd cache offers from search results
-	return nil, fmt.Errorf("flight offer not found: %s", offerID)
+	raw, ok := c.lookupOffer(offerID)
+	if !ok {
+		return nil, fmt.Errorf("flight offer not found or expired: %s", offerID)
+	}
+	offers := c.convertFlightOffers([]flightOfferData{raw})
+	if len(offers) == 0 {
+		return nil, fmt.Errorf("flight offer decode failed: %s", offerID)
+	}
+	return &offers[0], nil
 }
 
-// PriceFlightOffer confirms current pricing for an offer
+// PriceFlightOffer confirms current pricing for an offer by calling Amadeus's
+// pricing endpoint with the cached raw offer payload. If the cache entry is
+// missing we can't price it — the client has to redo the search.
 func (c *Client) PriceFlightOffer(ctx context.Context, offerID string) (*models.FlightOffer, error) {
-	// Would need the original offer data to price it
-	return nil, fmt.Errorf("not implemented: requires original offer data")
+	raw, ok := c.lookupOffer(offerID)
+	if !ok {
+		return nil, fmt.Errorf("flight offer not found or expired: %s", offerID)
+	}
+
+	body := map[string]interface{}{
+		"data": map[string]interface{}{
+			"type":         "flight-offers-pricing",
+			"flightOffers": []flightOfferData{raw},
+		},
+	}
+	resp, err := c.post(ctx, "/v1/shopping/flight-offers/pricing", body)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, parseError(resp)
+	}
+
+	var priced struct {
+		Data struct {
+			FlightOffers []flightOfferData `json:"flightOffers"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&priced); err != nil {
+		return nil, fmt.Errorf("failed to decode pricing response: %w", err)
+	}
+	if len(priced.Data.FlightOffers) == 0 {
+		return nil, fmt.Errorf("pricing returned no offers for %s", offerID)
+	}
+	// Refresh the cache with the priced version so the booking step sees
+	// the same data Amadeus just confirmed.
+	c.rememberOffer(priced.Data.FlightOffers[0])
+	offers := c.convertFlightOffers(priced.Data.FlightOffers[:1])
+	return &offers[0], nil
 }
 
 // BookFlight creates a flight booking
@@ -230,11 +276,15 @@ func (c *Client) SearchAirports(ctx context.Context, keyword string) ([]models.A
 	return airports, nil
 }
 
-// convertFlightOffers converts Amadeus response to our model
+// convertFlightOffers converts Amadeus response to our model and remembers
+// each offer in the client cache so GetFlightOffer / PriceFlightOffer can
+// find it later.
 func (c *Client) convertFlightOffers(data []flightOfferData) []models.FlightOffer {
 	offers := make([]models.FlightOffer, len(data))
 
 	for i, d := range data {
+		c.rememberOffer(d)
+
 		offers[i] = models.FlightOffer{
 			ID:               d.ID,
 			Provider:         "amadeus",

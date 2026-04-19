@@ -6,7 +6,7 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/realestayer/v3/internal/service"
+	"github.com/realestayer/v4/internal/service"
 )
 
 // AdminPage renders the admin dashboard page

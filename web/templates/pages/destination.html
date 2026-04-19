@@ -4,7 +4,7 @@
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
     <!-- Hero Image -->
     <div class="relative h-[50vh] rounded-2xl overflow-hidden mb-8">
-        <img src="{{.Destination.ImageURL}}" alt="{{.Destination.Name}}" class="w-full h-full object-cover" onerror="this.src='https://via.placeholder.com/1200x600?text={{.Destination.Name}}'">
+        <img src="{{.Destination.ImageURL}}" alt="{{.Destination.Name}}" class="w-full h-full object-cover" data-fallback="https://via.placeholder.com/1200x600?text=Destination" onerror="if(!this.dataset.fallbackApplied){this.dataset.fallbackApplied='1';this.src=this.dataset.fallback;}">
         <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
         <div class="absolute bottom-0 left-0 right-0 p-8">
             <div class="flex items-center gap-2 mb-2">
@@ -17,13 +17,105 @@
         </div>
     </div>
 
-    <div class="grid lg:grid-cols-3 gap-8">
+    <div class="grid lg:grid-cols-3 gap-8"
+         x-data="destinationExtras({
+             name: {{.Destination.Name | printf "%q"}},
+             code: {{.Destination.CountryCode | printf "%q"}},
+             lat: {{.Destination.Latitude}},
+             lng: {{.Destination.Longitude}}
+         })"
+         x-init="loadAll()">
+
+        <!-- Advisory banner (full-width across grid) -->
+        <template x-if="advisory">
+            <div class="lg:col-span-3 rounded-lg px-4 py-3 text-sm"
+                 :class="{
+                    'bg-green-50 dark:bg-green-900/30 text-green-800 dark:text-green-200 border border-green-200 dark:border-green-800': advisory.level === 1,
+                    'bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800': advisory.level === 2,
+                    'bg-orange-50 dark:bg-orange-900/30 text-orange-800 dark:text-orange-200 border border-orange-200 dark:border-orange-800': advisory.level === 3,
+                    'bg-red-50 dark:bg-red-900/30 text-red-800 dark:text-red-200 border border-red-200 dark:border-red-800': advisory.level === 4
+                 }">
+                <strong x-text="'Level ' + advisory.level + ' · ' + advisory.level_label"></strong>
+                · <span x-text="advisory.summary"></span>
+            </div>
+        </template>
+
         <!-- Main Content -->
         <div class="lg:col-span-2 space-y-8">
             <!-- Description -->
-            <div class="bg-white rounded-xl shadow-sm p-6">
-                <h2 class="text-xl font-semibold text-gray-900 mb-4">About {{.Destination.Name}}</h2>
-                <p class="text-gray-600 leading-relaxed">{{.Destination.Description}}</p>
+            <div class="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6">
+                <h2 class="text-xl font-semibold mb-4">About {{.Destination.Name}}</h2>
+                <p class="text-gray-600 dark:text-gray-400 leading-relaxed">{{.Destination.Description}}</p>
+            </div>
+
+            <!-- Curated collections -->
+            <div x-show="collections.length > 0" x-cloak class="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6">
+                <h2 class="text-xl font-semibold mb-4">Curated guides</h2>
+                <div class="grid md:grid-cols-2 gap-4">
+                    <template x-for="c in collections" :key="c.id">
+                        <a :href="`/collections/${c.slug}`" class="group block rounded-lg overflow-hidden border dark:border-gray-800 hover:shadow-md transition">
+                            <div class="aspect-[16/9] bg-gray-100 dark:bg-gray-800 relative">
+                                <img :src="c.cover_image" alt="" class="w-full h-full object-cover" onerror="this.style.display='none'">
+                                <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-3">
+                                    <div class="text-white font-semibold" x-text="c.title"></div>
+                                </div>
+                            </div>
+                            <div class="p-3 text-sm text-gray-600 dark:text-gray-400">
+                                <span x-text="c.stops.length + ' stops'"></span>
+                                <span x-show="c.duration_hours" class="ml-2" x-text="c.duration_hours + 'h'"></span>
+                            </div>
+                        </a>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Things to do (Amadeus highlights already above, plus OSM sights) -->
+            <div x-show="sights.length > 0" x-cloak class="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6">
+                <h2 class="text-xl font-semibold mb-4">Things to do</h2>
+                <div class="grid md:grid-cols-2 gap-3">
+                    <template x-for="p in sights" :key="p.id">
+                        <div class="border dark:border-gray-800 rounded-lg p-3">
+                            <div class="font-medium" x-text="p.name"></div>
+                            <div class="text-xs text-gray-500" x-text="p.subtype"></div>
+                            <div x-show="p.website" class="text-xs mt-1">
+                                <a :href="p.website" target="_blank" rel="noopener" class="text-primary-600 hover:underline">Website</a>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Restaurants -->
+            <div x-show="food.length > 0" x-cloak class="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6">
+                <h2 class="text-xl font-semibold mb-4">Where to eat</h2>
+                <ul class="divide-y dark:divide-gray-800">
+                    <template x-for="p in food" :key="p.id">
+                        <li class="py-2 flex items-start gap-3">
+                            <span class="w-8 h-8 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center text-xs">🍽</span>
+                            <div>
+                                <div class="font-medium" x-text="p.name"></div>
+                                <div class="text-xs text-gray-500" x-text="[p.cuisine, p.address].filter(Boolean).join(' · ')"></div>
+                            </div>
+                        </li>
+                    </template>
+                </ul>
+            </div>
+
+            <!-- Events -->
+            <div x-show="events.length > 0" x-cloak class="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6">
+                <h2 class="text-xl font-semibold mb-4">Happening soon</h2>
+                <div class="flex gap-3 overflow-x-auto pb-2">
+                    <template x-for="e in events" :key="e.id">
+                        <a :href="e.url" target="_blank" rel="noopener" class="shrink-0 w-60 border dark:border-gray-800 rounded-lg overflow-hidden hover:shadow-md transition">
+                            <img :src="e.image_url" alt="" class="w-full h-32 object-cover" onerror="this.style.display='none'">
+                            <div class="p-2">
+                                <div class="text-xs text-gray-500" x-text="new Date(e.start).toLocaleString(undefined, {weekday:'short', month:'short', day:'numeric'})"></div>
+                                <div class="font-medium text-sm line-clamp-2" x-text="e.name"></div>
+                                <div class="text-xs text-gray-500" x-text="[e.venue, e.city].filter(Boolean).join(', ')"></div>
+                            </div>
+                        </a>
+                    </template>
+                </div>
             </div>
 
             <!-- Highlights -->
@@ -87,6 +179,182 @@
 
         <!-- Sidebar -->
         <div class="space-y-6">
+
+            <!-- Travel essentials (REST Countries + static extras) -->
+            <template x-if="country">
+                <div class="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6">
+                    <h3 class="font-semibold mb-4">
+                        <span x-text="country.flag_emoji"></span>
+                        Travel essentials
+                    </h3>
+                    <dl class="space-y-2 text-sm">
+                        <div x-show="country.capital" class="flex justify-between gap-2"><dt class="text-gray-500">Capital</dt><dd class="font-medium text-right" x-text="country.capital"></dd></div>
+                        <div x-show="country.languages" class="flex justify-between gap-2"><dt class="text-gray-500">Language</dt><dd class="font-medium text-right" x-text="(country.languages||[]).join(', ')"></dd></div>
+                        <div x-show="country.currencies" class="flex justify-between gap-2"><dt class="text-gray-500">Currency</dt><dd class="font-medium text-right" x-text="(country.currencies||[])[0]"></dd></div>
+                        <div x-show="country.calling_codes" class="flex justify-between gap-2"><dt class="text-gray-500">Dial code</dt><dd class="font-medium text-right" x-text="(country.calling_codes||[])[0]"></dd></div>
+                        <div x-show="country.timezones" class="flex justify-between gap-2"><dt class="text-gray-500">Time zone</dt><dd class="font-medium text-right" x-text="(country.timezones||[])[0]"></dd></div>
+                        <div x-show="country.plug_types" class="flex justify-between gap-2"><dt class="text-gray-500">Plug type</dt><dd class="font-medium text-right" x-text="'Type ' + (country.plug_types||[]).join('/') + ' · ' + (country.voltage||'')"></dd></div>
+                        <div x-show="country.drives_on" class="flex justify-between gap-2"><dt class="text-gray-500">Drives on</dt><dd class="font-medium text-right capitalize" x-text="country.drives_on"></dd></div>
+                        <div x-show="country.water_safe" class="flex justify-between gap-2"><dt class="text-gray-500">Tap water</dt><dd class="font-medium text-right" x-text="country.water_safe"></dd></div>
+                    </dl>
+                    <template x-if="country.tipping">
+                        <p class="mt-3 text-xs text-gray-500" x-text="'💳 ' + country.tipping"></p>
+                    </template>
+                    <template x-if="country.emergency">
+                        <div class="mt-3 text-xs">
+                            <p class="text-gray-500 mb-1">Emergency</p>
+                            <ul class="grid grid-cols-2 gap-1">
+                                <template x-for="(num, label) in country.emergency" :key="label">
+                                    <li class="bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 px-2 py-1 rounded"><span class="capitalize" x-text="label + ': '"></span><strong x-text="num"></strong></li>
+                                </template>
+                            </ul>
+                        </div>
+                    </template>
+                    <template x-if="country.key_phrases">
+                        <div class="mt-3 text-xs">
+                            <p class="text-gray-500 mb-1">Key phrases</p>
+                            <dl class="space-y-0.5">
+                                <template x-for="(val, key) in country.key_phrases" :key="key">
+                                    <div class="flex justify-between gap-2"><dt class="capitalize" x-text="key"></dt><dd class="font-medium text-right" x-text="val"></dd></div>
+                                </template>
+                            </dl>
+                        </div>
+                    </template>
+                </div>
+            </template>
+
+            <!-- Sunrise / sunset -->
+            <template x-if="sun">
+                <div class="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6">
+                    <h3 class="font-semibold mb-3">Today's daylight</h3>
+                    <div class="grid grid-cols-2 gap-2 text-sm text-center">
+                        <div><p class="text-xs text-gray-500">Sunrise</p><p class="font-semibold" x-text="fmtTime(sun.sunrise)"></p></div>
+                        <div><p class="text-xs text-gray-500">Sunset</p><p class="font-semibold" x-text="fmtTime(sun.sunset)"></p></div>
+                    </div>
+                    <p class="mt-2 text-xs text-gray-500 text-center">Day length: <span x-text="sun.day_length"></span></p>
+                </div>
+            </template>
+
+            <!-- Air quality -->
+            <template x-if="air && air.pm25 > 0">
+                <div class="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6">
+                    <h3 class="font-semibold mb-2">Air quality</h3>
+                    <p class="text-xs text-gray-500" x-text="air.location_name"></p>
+                    <p class="mt-2">
+                        <span class="inline-block px-2 py-1 text-xs rounded"
+                              :class="{
+                                 'bg-green-100 text-green-800': air.label === 'Good',
+                                 'bg-yellow-100 text-yellow-800': air.label === 'Moderate',
+                                 'bg-orange-100 text-orange-800': air.label.includes('sensitive'),
+                                 'bg-red-100 text-red-800': air.label === 'Unhealthy',
+                                 'bg-purple-100 text-purple-800': air.label === 'Very unhealthy',
+                                 'bg-rose-200 text-rose-900': air.label === 'Hazardous'
+                              }" x-text="air.label"></span>
+                        <span class="text-sm ml-2">PM2.5 <strong x-text="air.pm25.toFixed(1)"></strong> µg/m³</span>
+                    </p>
+                </div>
+            </template>
+
+            <!-- Affiliate quick-links -->
+            <template x-if="links">
+                <div class="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6">
+                    <h3 class="font-semibold mb-3">Plan this trip on…</h3>
+                    <div class="space-y-3 text-sm">
+                        <template x-for="group in [
+                            {name: 'Stays', items: links.stays},
+                            {name: 'Flights', items: links.flights},
+                            {name: 'Activities', items: links.activities},
+                            {name: 'Cars', items: links.cars},
+                            {name: 'Trains / bus', items: links.trains},
+                            {name: 'Info', items: links.info}
+                        ]" :key="group.name">
+                            <div>
+                                <p class="text-xs text-gray-500 uppercase mb-1" x-text="group.name"></p>
+                                <div class="flex flex-wrap gap-1">
+                                    <template x-for="l in (group.items || []).slice(0,4)" :key="l.url">
+                                        <a :href="l.url" target="_blank" rel="noopener" class="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded hover:bg-gray-200 dark:hover:bg-gray-700" x-text="l.provider"></a>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </template>
+
+            <!-- Historical climate mini-chart -->
+            <template x-if="climate && climate.length > 0">
+                <div class="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6">
+                    <h3 class="font-semibold mb-3">Climate normals</h3>
+                    <div class="flex items-end gap-0.5 h-24">
+                        <template x-for="c in climate" :key="c.month">
+                            <div class="flex-1 flex flex-col items-center gap-0.5" :title="`${monthShort(c.month)}: ${c.temp_max_c}° / ${c.temp_min_c}°, ${c.precip_mm}mm`">
+                                <div class="w-full bg-primary-500 rounded-t" :style="`height: ${((c.temp_max_c + 10) / 50 * 100)}%`"></div>
+                                <span class="text-[9px] text-gray-500" x-text="monthShort(c.month)[0]"></span>
+                            </div>
+                        </template>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-1">Bar = avg high temp by month (10-year).</p>
+                </div>
+            </template>
+
+            <!-- City facts (Wikidata) -->
+            <template x-if="facts">
+                <div class="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6">
+                    <h3 class="font-semibold mb-3">City facts</h3>
+                    <dl class="space-y-1 text-sm">
+                        <div x-show="facts.population" class="flex justify-between gap-2"><dt class="text-gray-500">Population</dt><dd class="font-medium" x-text="fmtNum(facts.population)"></dd></div>
+                        <div x-show="facts.founded" class="flex justify-between gap-2"><dt class="text-gray-500">Founded</dt><dd class="font-medium" x-text="facts.founded"></dd></div>
+                        <div x-show="facts.elevation_m" class="flex justify-between gap-2"><dt class="text-gray-500">Elevation</dt><dd class="font-medium" x-text="facts.elevation_m + ' m'"></dd></div>
+                        <div x-show="facts.area_km2" class="flex justify-between gap-2"><dt class="text-gray-500">Area</dt><dd class="font-medium" x-text="facts.area_km2.toFixed(0) + ' km²'"></dd></div>
+                    </dl>
+                    <template x-if="facts.notable_people && facts.notable_people.length > 0">
+                        <div class="mt-2 text-xs">
+                            <p class="text-gray-500 mb-1">Notable people</p>
+                            <p class="text-gray-700 dark:text-gray-300" x-text="facts.notable_people.slice(0,4).join(' · ')"></p>
+                        </div>
+                    </template>
+                    <template x-if="facts.sister_cities && facts.sister_cities.length > 0">
+                        <div class="mt-2 text-xs">
+                            <p class="text-gray-500 mb-1">Sister cities</p>
+                            <p class="text-gray-700 dark:text-gray-300" x-text="facts.sister_cities.slice(0,4).join(', ')"></p>
+                        </div>
+                    </template>
+                    <template x-if="facts.wikipedia_url">
+                        <a :href="facts.wikipedia_url" target="_blank" rel="noopener" class="text-xs text-primary-600 hover:underline mt-2 inline-block">Read on Wikipedia →</a>
+                    </template>
+                </div>
+            </template>
+
+            <!-- Wildlife nearby (iNaturalist) -->
+            <template x-if="wildlife.length > 0">
+                <div class="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6">
+                    <h3 class="font-semibold mb-3">Wildlife nearby</h3>
+                    <p class="text-xs text-gray-500 mb-2">Recent iNaturalist observations</p>
+                    <div class="grid grid-cols-3 gap-1">
+                        <template x-for="s in wildlife.slice(0, 9)" :key="s.url">
+                            <a :href="s.url" target="_blank" rel="noopener" class="relative block aspect-square overflow-hidden rounded" :title="s.common_name">
+                                <img :src="s.photo_url" :alt="s.common_name" class="w-full h-full object-cover" onerror="this.style.display='none'">
+                            </a>
+                        </template>
+                    </div>
+                </div>
+            </template>
+
+            <!-- Public holidays -->
+            <template x-if="holidays.length > 0">
+                <div class="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6">
+                    <h3 class="font-semibold mb-3">Upcoming public holidays</h3>
+                    <ul class="space-y-1 text-sm">
+                        <template x-for="h in holidays.slice(0, 6)" :key="h.date">
+                            <li class="flex justify-between gap-3">
+                                <span class="text-gray-500 w-24 shrink-0" x-text="new Date(h.date).toLocaleDateString(undefined, {month:'short', day:'numeric'})"></span>
+                                <span class="flex-1" x-text="h.local_name + (h.name !== h.local_name ? ' (' + h.name + ')' : '')"></span>
+                            </li>
+                        </template>
+                    </ul>
+                </div>
+            </template>
+
             <!-- Quick Info Card -->
             <div class="bg-white rounded-xl shadow-sm p-6">
                 <h3 class="font-semibold text-gray-900 mb-4">Quick Info</h3>
@@ -176,7 +444,7 @@
             {{range .Similar}}
             <a href="/explore/{{.Name}}" class="group bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-lg transition">
                 <div class="aspect-[4/3] overflow-hidden relative">
-                    <img src="{{.ImageURL}}" alt="{{.Name}}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" onerror="this.src='https://via.placeholder.com/400x300?text={{.Name}}'">
+                    <img src="{{.ImageURL}}" alt="{{.Name}}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" data-fallback="https://via.placeholder.com/400x300?text=Destination" onerror="if(!this.dataset.fallbackApplied){this.dataset.fallbackApplied='1';this.src=this.dataset.fallback;}">
                     <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-4">
                         <h3 class="text-lg font-bold text-white">{{.Name}}</h3>
                         <p class="text-white/90 text-sm">{{.Country}}</p>
@@ -188,4 +456,117 @@
     </div>
     {{end}}
 </div>
+
+<script>
+function destinationExtras(init) {
+    return {
+        name: init.name,
+        code: init.code,
+        lat: init.lat,
+        lng: init.lng,
+        collections: [],
+        sights: [],
+        food: [],
+        events: [],
+        country: null,
+        advisory: null,
+        sun: null,
+        air: null,
+        climate: [],
+        holidays: [],
+        links: null,
+        facts: null,
+        wildlife: [],
+        async loadAll() {
+            await Promise.all([
+                this.loadCollections(), this.loadSights(), this.loadFood(), this.loadEvents(),
+                this.loadCountry(), this.loadAdvisory(), this.loadSun(), this.loadAir(),
+                this.loadClimate(), this.loadHolidays(), this.loadLinks(),
+                this.loadFacts(), this.loadWildlife(),
+            ]);
+        },
+        async loadFacts() {
+            try { this.facts = await api(`/api/v1/cities/facts?name=${encodeURIComponent(this.name)}`); }
+            catch (e) {}
+        },
+        async loadWildlife() {
+            if (!this.lat && !this.lng) return;
+            try {
+                const d = await api(`/api/v1/nature/nearby?lat=${this.lat}&lng=${this.lng}&radius=30&limit=18`);
+                this.wildlife = (d.observations || []).filter(o => o.photo_url);
+            } catch (e) {}
+        },
+        fmtNum(n) { try { return Number(n).toLocaleString(); } catch(e) { return n; } },
+        async loadCountry() {
+            if (!this.code) return;
+            try { this.country = await api(`/api/v1/countries/${encodeURIComponent(this.code)}`); }
+            catch (e) {}
+        },
+        async loadAdvisory() {
+            if (!this.code) return;
+            try { this.advisory = await api(`/api/v1/countries/${encodeURIComponent(this.code)}/advisory`); }
+            catch (e) {}
+        },
+        async loadSun() {
+            if (!this.lat && !this.lng) return;
+            try { this.sun = await api(`/api/v1/sun?lat=${this.lat}&lng=${this.lng}`); }
+            catch (e) {}
+        },
+        async loadAir() {
+            if (!this.lat && !this.lng) return;
+            try { this.air = await api(`/api/v1/air?lat=${this.lat}&lng=${this.lng}`); }
+            catch (e) {}
+        },
+        async loadClimate() {
+            if (!this.lat && !this.lng) return;
+            try { this.climate = await api(`/api/v1/climate?lat=${this.lat}&lng=${this.lng}`) || []; }
+            catch (e) {}
+        },
+        async loadHolidays() {
+            if (!this.code) return;
+            try {
+                const now = new Date();
+                const year = now.getFullYear();
+                const all = await api(`/api/v1/countries/${encodeURIComponent(this.code)}/holidays?year=${year}`) || [];
+                this.holidays = all.filter(h => new Date(h.date) >= now);
+            } catch (e) {}
+        },
+        async loadLinks() {
+            try { this.links = await api(`/api/v1/affiliate?destination=${encodeURIComponent(this.name)}`); }
+            catch (e) {}
+        },
+        fmtTime(iso) { try { return new Date(iso).toLocaleTimeString(undefined, {hour:'numeric', minute:'2-digit'}); } catch (e) { return iso; } },
+        monthShort(m) { return new Date(2020, m-1, 1).toLocaleString(undefined, { month: 'short' }); },
+        async loadCollections() {
+            try {
+                const d = await api(`/api/v1/collections?destination=${encodeURIComponent(this.name)}`);
+                this.collections = (d.collections || []).slice(0, 6);
+            } catch (e) {}
+        },
+        async loadSights() {
+            if (!this.lat && !this.lng) return;
+            try {
+                const d = await api(`/api/v1/places/nearby?category=sight&lat=${this.lat}&lng=${this.lng}&radius=2500`);
+                this.sights = (d.places || []).slice(0, 8);
+            } catch (e) {}
+        },
+        async loadFood() {
+            if (!this.lat && !this.lng) return;
+            try {
+                const d = await api(`/api/v1/places/nearby?category=food&lat=${this.lat}&lng=${this.lng}&radius=1500`);
+                this.food = (d.places || []).slice(0, 10);
+            } catch (e) {}
+        },
+        async loadEvents() {
+            if (!this.lat && !this.lng) return;
+            try {
+                const now = new Date();
+                const end = new Date(); end.setMonth(end.getMonth() + 2);
+                const d = await api(`/api/v1/events/nearby?lat=${this.lat}&lng=${this.lng}&start=${now.toISOString()}&end=${end.toISOString()}&limit=12`);
+                this.events = d.events || [];
+            } catch (e) { /* events aren't configured → silent */ }
+        },
+    };
+}
+</script>
 {{end}}

@@ -1,0 +1,18 @@
+{{template "base.html" .}}
+
+{{define "content"}}
+<div class="max-w-lg mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center">
+    <p class="text-8xl font-bold text-red-500">500</p>
+    <h1 class="mt-4 text-2xl font-bold">Something broke on our side</h1>
+    <p class="mt-2 text-gray-600 dark:text-gray-400">
+        We logged the error and will look into it. Give it another try in a minute, or head back to the dashboard.
+    </p>
+    {{if .RequestID}}
+    <p class="mt-4 text-xs text-gray-500">Reference ID: <code class="bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">{{.RequestID}}</code></p>
+    {{end}}
+    <div class="mt-8 flex flex-col sm:flex-row gap-2 justify-center">
+        <a href="/" class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">Go home</a>
+        <button type="button" onclick="window.location.reload()" class="px-4 py-2 border dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">Retry</button>
+    </div>
+</div>
+{{end}}

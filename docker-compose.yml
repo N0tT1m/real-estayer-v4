@@ -8,26 +8,43 @@ services:
     env_file:
       - .env
     environment:
-      - APP_ENV=development
+      - APP_ENV=${APP_ENV:-development}
       - PORT=8080
-      - MONGODB_URI=mongodb://mongodb:27017
-      - MONGODB_DATABASE=real_estayer
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/real_estayer}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-real_estayer}
       - REDIS_URL=redis://redis:6379
-      - RUST_SCRAPER_URL=http://REMOTE_HOST_REMOVED:3001
+      # Default to the in-network scraper; override to an external host via .env.
+      - RUST_SCRAPER_URL=${RUST_SCRAPER_URL:-http://rust-scraper:3001}
+      - SCRAPER_API_KEY=${SCRAPER_API_KEY}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8080}
+      - ADMIN_BOOTSTRAP_EMAILS=${ADMIN_BOOTSTRAP_EMAILS:-}
     depends_on:
-      - mongodb
-      - redis
-    volumes:
-      - ./web/templates:/app/web/templates:ro
-      - ./web/static:/app/web/static:ro
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
     restart: unless-stopped
     networks:
       - realestayer
 
   mongodb:
-    image: mongo:7.0
-    ports:
-      - "27017:27017"
+    image: mongo:7.0.14
+    # Only exposed on the compose network; uncomment `ports` for local-dev DB
+    # access and know that you're punching a hole to 0.0.0.0.
+    # ports:
+    #   - "127.0.0.1:27017:27017"
     volumes:
       - mongodb_data:/data/db
     restart: unless-stopped
@@ -41,9 +58,9 @@ services:
       start_period: 40s
 
   redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    image: redis:7.4-alpine
+    # ports:
+    #   - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes
@@ -56,15 +73,16 @@ services:
       timeout: 5s
       retries: 5
 
-  # Optional: MongoDB admin UI
+  # Admin UI. Only starts with `--profile admin` so it isn't running by default.
+  # Credentials come from .env; there are no defaults.
   mongo-express:
-    image: mongo-express:latest
+    image: mongo-express:1.0.2
     ports:
-      - "8081:8081"
+      - "127.0.0.1:8081:8081"
     environment:
       - ME_CONFIG_MONGODB_SERVER=mongodb
-      - ME_CONFIG_BASICAUTH_USERNAME=admin
-      - ME_CONFIG_BASICAUTH_PASSWORD=admin
+      - ME_CONFIG_BASICAUTH_USERNAME=${MONGO_EXPRESS_USER}
+      - ME_CONFIG_BASICAUTH_PASSWORD=${MONGO_EXPRESS_PASSWORD}
     depends_on:
       - mongodb
     restart: unless-stopped

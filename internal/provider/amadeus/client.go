@@ -22,6 +22,24 @@ type Client struct {
 	mu          sync.RWMutex
 	accessToken string
 	tokenExpiry time.Time
+
+	// offerCache stores flight offers returned from SearchFlights so that
+	// GetFlightOffer and PriceFlightOffer can look them up by ID later in
+	// the booking flow. Amadeus does not expose a get-by-id endpoint, so we
+	// have to remember them ourselves. Entries expire with the offer's
+	// LastTicketingDate, or after offerCacheTTL if that field is missing.
+	offerMu    sync.Mutex
+	offerCache map[string]cachedFlightOffer
+}
+
+// offerCacheTTL bounds how long we hold a flight offer in memory when the
+// Amadeus payload doesn't carry a LastTicketingDate. 30 minutes matches
+// Amadeus's typical price-freeze window.
+const offerCacheTTL = 30 * time.Minute
+
+type cachedFlightOffer struct {
+	raw     flightOfferData
+	expires time.Time
 }
 
 // NewClient creates a new Amadeus API client
@@ -37,7 +55,53 @@ func NewClient(clientID, clientSecret, baseURL string) *Client {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		offerCache: make(map[string]cachedFlightOffer),
 	}
+}
+
+// rememberOffer stashes the raw Amadeus payload for a flight offer so the
+// booking flow can retrieve it later. Safe to call concurrently.
+func (c *Client) rememberOffer(offer flightOfferData) {
+	if offer.ID == "" {
+		return
+	}
+	expires := time.Now().Add(offerCacheTTL)
+	if offer.LastTicketingDate != "" {
+		if t, err := time.Parse("2006-01-02", offer.LastTicketingDate); err == nil {
+			// Give ourselves a small cushion before the ticketing deadline.
+			expires = t.Add(-5 * time.Minute)
+		}
+	}
+	c.offerMu.Lock()
+	defer c.offerMu.Unlock()
+	// Opportunistic sweep to keep the map from growing without bound. Cheap
+	// because a single user's search rarely returns more than a few hundred
+	// offers at a time.
+	if len(c.offerCache) > 1024 {
+		now := time.Now()
+		for k, v := range c.offerCache {
+			if now.After(v.expires) {
+				delete(c.offerCache, k)
+			}
+		}
+	}
+	c.offerCache[offer.ID] = cachedFlightOffer{raw: offer, expires: expires}
+}
+
+// lookupOffer returns the cached raw payload for an offer ID, or false if it
+// is missing or expired.
+func (c *Client) lookupOffer(offerID string) (flightOfferData, bool) {
+	c.offerMu.Lock()
+	defer c.offerMu.Unlock()
+	entry, ok := c.offerCache[offerID]
+	if !ok {
+		return flightOfferData{}, false
+	}
+	if time.Now().After(entry.expires) {
+		delete(c.offerCache, offerID)
+		return flightOfferData{}, false
+	}
+	return entry.raw, true
 }
 
 // Name returns the provider name
