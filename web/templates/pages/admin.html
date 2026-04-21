@@ -1069,7 +1069,13 @@ function adminDashboard() {
                 const res = await fetch('/api/v1/admin/destinations/discover/confirm', {
                     method: 'POST',
                     headers: window.csrfHeaders({ 'Content-Type': 'application/json' }),
-                    body: JSON.stringify({ candidates: picked })
+                    body: JSON.stringify({
+                        candidates: picked,
+                        // Send the typed region name back so listings get tagged
+                        // with the state/province they were discovered under,
+                        // which powers the /listings State & Province filters.
+                        region_context: this.discoverForm.region || '',
+                    })
                 });
 
                 if (!res.ok) {
