@@ -78,13 +78,31 @@ async fn main() {
     setup_logging();
     tracing::info!("Starting application...");
 
-    let api_key = std::env::var("SCRAPER_API_KEY").unwrap_or_default();
+    // Trim whitespace so a CRLF-saved .env (`KEY=value\r\n`) or an accidental
+    // trailing space doesn't drift us off by one byte and cause mystery 401s.
+    let api_key = std::env::var("SCRAPER_API_KEY")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
     if api_key.is_empty() {
         tracing::error!(
             "SCRAPER_API_KEY is not set. Refusing to start because unauthenticated scraper access would expose write/trigger endpoints."
         );
         std::process::exit(1);
     }
+    // Log a fingerprint (length + first/last 4 chars) so operators can
+    // verify the running key matches the one they intended without leaking
+    // the full value to logs.
+    let head = api_key.chars().take(4).collect::<String>();
+    let tail: String = api_key
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    tracing::info!("SCRAPER_API_KEY loaded: len={} head={} tail={}", api_key.len(), head, tail);
 
     let allowed_origins: Vec<HeaderValue> = std::env::var("ALLOWED_ORIGINS")
         .unwrap_or_default()

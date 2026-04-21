@@ -122,7 +122,7 @@ func Load() (*Config, error) {
 		Port:              getEnv("PORT", "8080"),
 		SessionSecret:     os.Getenv("SESSION_SECRET"),
 		AllowedOrigins:    splitCSV(getEnv("ALLOWED_ORIGINS", "http://localhost:8080")),
-		ScraperAPIKey:     os.Getenv("SCRAPER_API_KEY"),
+		ScraperAPIKey:     strings.TrimSpace(os.Getenv("SCRAPER_API_KEY")),
 		AdminBootstrap:    splitCSV(os.Getenv("ADMIN_BOOTSTRAP_EMAILS")),
 		MongoURI:          getEnv("MONGODB_URI", "mongodb://localhost:27017/real_estayer"),
 		MongoDatabase:     getEnv("MONGODB_DATABASE", "real_estayer"),
