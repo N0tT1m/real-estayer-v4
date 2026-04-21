@@ -350,6 +350,15 @@
 				const n = this.results.length;
 				if (n === 0) return;
 				this.cursor = (this.cursor + delta + n) % n;
+				// Keep the highlighted row inside the scrollable viewport.
+				// Without this, arrowing past the bottom leaves the cursor
+				// invisible while the list stays pinned.
+				this.$nextTick(() => {
+					const el = this.$root.querySelector('[role="option"][aria-selected="true"]');
+					if (el && el.scrollIntoView) {
+						el.scrollIntoView({ block: "nearest", behavior: "auto" });
+					}
+				});
 			},
 			run() {
 				const item = this.results[this.cursor];

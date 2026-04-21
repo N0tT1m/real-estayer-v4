@@ -149,6 +149,18 @@ func (s *AuthService) Login(ctx context.Context, req models.LoginRequest, ipAddr
 		}
 	}
 
+	// Bootstrap self-heal: if the email is listed in ADMIN_BOOTSTRAP_EMAILS but
+	// the user's flag is false (e.g. registered before the list existed, or
+	// demoted by mistake), promote on login. This is safe because the list is
+	// operator-controlled via env.
+	if !user.IsAdmin && s.adminBootstrap != nil && s.adminBootstrap.IsAdminBootstrapEmail(user.Email) {
+		if err := s.userRepo.UpdateRole(ctx, user.ID, "admin"); err != nil {
+			logctx.From(ctx).Warn("admin bootstrap promote failed", "user_id", user.ID.Hex(), "error", err)
+		} else {
+			user.IsAdmin = true
+		}
+	}
+
 	// Rotate: issue the new cookie first, then drop every other session for
 	// this user. Reversing the order would create a window where the account
 	// had no sessions at all, so a failure in Create would silently log the

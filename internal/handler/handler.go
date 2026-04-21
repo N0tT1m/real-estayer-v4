@@ -64,6 +64,7 @@ type Handler struct {
 	transitService     *service.TransitService
 	pollService        *service.PollService
 	receiptOCR         *service.ReceiptOCRService
+	carAffiliates      *service.CarAffiliateService
 	auditService       *service.AuditService
 	users              *repository.UserRepository
 	collections        *repository.CollectionRepository
@@ -119,6 +120,7 @@ type HandlerDeps struct {
 	Transit        *service.TransitService
 	Poll           *service.PollService
 	ReceiptOCR     *service.ReceiptOCRService
+	CarAffiliates  *service.CarAffiliateService
 	Audit          *service.AuditService
 	Users          *repository.UserRepository
 	Collections    *repository.CollectionRepository
@@ -173,6 +175,7 @@ func NewHandler(d HandlerDeps) *Handler {
 		transitService:     d.Transit,
 		pollService:        d.Poll,
 		receiptOCR:         d.ReceiptOCR,
+		carAffiliates:      d.CarAffiliates,
 		auditService:       d.Audit,
 		users:              d.Users,
 		collections:        d.Collections,
