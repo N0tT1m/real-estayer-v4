@@ -29,14 +29,15 @@ type Client struct {
 }
 
 // NewClient builds a Wikipedia/Wikimedia REST client with a shared token-bucket
-// limiter (~5 req/s, burst 10). All calls route through doWithRetry, which
-// waits on the limiter and retries once on 429 honoring Retry-After. A single
-// Client should be shared across callers so the limiter throttles the whole
-// process, not each goroutine.
+// limiter (20 req/s, burst 40) — well below the documented 200 req/s ceiling
+// but high enough that the destination-discovery fan-out doesn't serialise
+// into a multi-minute wait. All calls route through doWithRetry, which retries
+// once on 429 honoring Retry-After. One Client should be shared across callers
+// so the limiter throttles the whole process, not each goroutine.
 func NewClient() *Client {
 	return &Client{
 		http:    &http.Client{Timeout: 10 * time.Second},
-		limiter: rate.NewLimiter(rate.Limit(5), 10),
+		limiter: rate.NewLimiter(rate.Limit(20), 40),
 	}
 }
 
