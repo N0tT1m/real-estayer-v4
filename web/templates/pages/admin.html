@@ -511,7 +511,7 @@
                             <div class="text-sm text-gray-600">
                                 <span x-text="discoverCandidates.length"></span> candidates
                                 <span class="text-gray-400">· </span>
-                                <button @click="toggleSelectAll" class="text-primary-600 hover:underline" x-text="allNewSelected ? 'Clear selection' : 'Select all new'"></button>
+                                <button @click="toggleSelectAll" class="text-primary-600 hover:underline" x-text="allSelected ? 'Clear selection' : 'Select all'"></button>
                             </div>
                             <div class="text-sm text-gray-500">
                                 <span x-text="selectedCount"></span> selected
@@ -521,8 +521,8 @@
                         <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 max-h-[650px] overflow-y-auto pr-1">
                             <template x-for="(c, idx) in discoverCandidates" :key="c.wikidata_id">
                                 <label class="relative flex gap-3 p-3 border rounded-lg cursor-pointer transition"
-                                       :class="c.already_exists ? 'bg-gray-50 border-gray-200 opacity-75' : (c._selected ? 'border-primary-500 bg-primary-50 ring-2 ring-primary-200' : 'border-gray-200 hover:border-gray-300')">
-                                    <input type="checkbox" x-model="c._selected" :disabled="c.already_exists" class="absolute top-3 right-3 h-4 w-4 text-primary-600 rounded focus:ring-primary-500">
+                                       :class="c._selected ? 'border-primary-500 bg-primary-50 ring-2 ring-primary-200' : (c.already_exists ? 'bg-gray-50 border-gray-200' : 'border-gray-200 hover:border-gray-300')">
+                                    <input type="checkbox" x-model="c._selected" class="absolute top-3 right-3 h-4 w-4 text-primary-600 rounded focus:ring-primary-500">
                                     <div class="h-20 w-20 flex-shrink-0 rounded-md bg-gray-100 overflow-hidden">
                                         <template x-if="c.image_url">
                                             <img :src="c.image_url" :alt="c.name" class="h-full w-full object-cover" loading="lazy" @error="c.image_url = ''">
@@ -681,9 +681,8 @@ function adminDashboard() {
             return this.discoverCandidates.filter(c => c._selected).length;
         },
 
-        get allNewSelected() {
-            const newOnes = this.discoverCandidates.filter(c => !c.already_exists);
-            return newOnes.length > 0 && newOnes.every(c => c._selected);
+        get allSelected() {
+            return this.discoverCandidates.length > 0 && this.discoverCandidates.every(c => c._selected);
         },
         popularLocations: [
             { city: 'Miami', state: 'Florida', country: 'USA', flag: '🇺🇸' },
@@ -1030,12 +1029,12 @@ function adminDashboard() {
 
                 const data = await res.json();
                 this.discoverRegion = data.region;
-                // Each candidate gets a client-side _selected flag; pre-check the
-                // ones that don't already exist so the admin's default is "add
-                // everything you just showed me."
+                // Pre-check every candidate — the default is "scrape and
+                // (re-)add everything you just showed me." Upsert on the
+                // server makes re-adding already-existing rows a no-op.
                 this.discoverCandidates = (data.candidates || []).map(c => ({
                     ...c,
-                    _selected: !c.already_exists
+                    _selected: true
                 }));
             } catch (e) {
                 this.discoverError = e.message || 'Discovery failed';
@@ -1045,15 +1044,19 @@ function adminDashboard() {
         },
 
         toggleSelectAll() {
-            const shouldSelect = !this.allNewSelected;
-            this.discoverCandidates.forEach(c => {
-                if (!c.already_exists) c._selected = shouldSelect;
-            });
+            const shouldSelect = !this.allSelected;
+            // Rebuild the array so Alpine reactively re-renders every checkbox
+            // — in-place mutation occasionally desyncs x-model when the inputs
+            // live inside a <label> wrapper.
+            this.discoverCandidates = this.discoverCandidates.map(c => ({
+                ...c,
+                _selected: shouldSelect,
+            }));
         },
 
         async confirmDiscovered() {
             const picked = this.discoverCandidates
-                .filter(c => c._selected && !c.already_exists)
+                .filter(c => c._selected)
                 .map(({ _selected, ...rest }) => rest);
 
             if (picked.length === 0) return;
@@ -1080,14 +1083,11 @@ function adminDashboard() {
                     msg += ` Queued ${data.scraping} rust-scraper jobs — check the Scraping tab for progress.`;
                 }
                 this.confirmResult = msg;
-                // Flip the successfully-inserted rows to "already_exists" so the
-                // admin can't double-click and duplicate them.
-                this.discoverCandidates.forEach(c => {
-                    if (c._selected && !c.already_exists) {
-                        c.already_exists = true;
-                        c._selected = false;
-                    }
-                });
+                // Flag just-inserted rows as in-DB for the "in DB" badge, but
+                // leave them selectable — admin may want to re-run the scrape.
+                this.discoverCandidates = this.discoverCandidates.map(c => (
+                    c._selected ? { ...c, already_exists: true, _selected: false } : c
+                ));
             } catch (e) {
                 this.confirmError = e.message || 'Confirm failed';
             } finally {
