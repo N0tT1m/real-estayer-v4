@@ -474,7 +474,7 @@ pub async fn scrape_city_data(
                     }
 
                     match scrape_place_details_stealth(&driver, &full_url).await {
-                        Ok(details) => {
+                        Ok(mut details) => {
                             info!("[STEALTH] Successfully scraped details for listing {}/{}: '{}'{}",
                                   i + 1, urls_to_scrape.len(), details.title,
                                   if attempt > 1 { format!(" (after {} attempts)", attempt) } else { String::new() });
@@ -521,6 +521,17 @@ pub async fn scrape_city_data(
                             } else {
                                 if badges_only {
                                     info!("[STEALTH] KEEPING listing '{}' - has badge!", title);
+                                }
+                                // Stamp the state/country from the query params onto the
+                                // listing before storing. The scraper doesn't reliably
+                                // extract these from Airbnb pages, so the caller's
+                                // declaration wins — empty state falls through to
+                                // whatever was parsed from the page (may stay None).
+                                if !state.is_empty() {
+                                    details.region = Some(state.clone());
+                                }
+                                if !country.is_empty() {
+                                    details.country = Some(country.clone());
                                 }
                                 place_details.push(details);
                                 successful_scrapes += 1;

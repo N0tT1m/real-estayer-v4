@@ -247,6 +247,11 @@ func (h *DestinationHandler) AdminConfirmDiscovered(w http.ResponseWriter, r *ht
 
 	var body struct {
 		Candidates []service.DiscoveryCandidate `json:"candidates"`
+		// RegionContext is the state/province name the admin searched for
+		// ("Michigan", "Quebec"). We use it as the `state` query param on
+		// each scrape call so listings get tagged with a region — the
+		// /listings State+Province filters rely on this field.
+		RegionContext string `json:"region_context"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
@@ -265,7 +270,7 @@ func (h *DestinationHandler) AdminConfirmDiscovered(w http.ResponseWriter, r *ht
 
 	scrapingStarted := 0
 	if h.scraperService != nil {
-		scrapingStarted = h.scrapeDiscoveredAsync(body.Candidates)
+		scrapingStarted = h.scrapeDiscoveredAsync(body.Candidates, body.RegionContext)
 	}
 
 	respondJSON(w, http.StatusOK, map[string]int{
@@ -280,7 +285,7 @@ func (h *DestinationHandler) AdminConfirmDiscovered(w http.ResponseWriter, r *ht
 // batch can take hours — the rust scraper serializes via a single Chrome, so
 // we call sequentially with a generous per-job timeout. Returns the count of
 // jobs queued so the UI can surface it in the confirm toast.
-func (h *DestinationHandler) scrapeDiscoveredAsync(cands []service.DiscoveryCandidate) int {
+func (h *DestinationHandler) scrapeDiscoveredAsync(cands []service.DiscoveryCandidate, regionContext string) int {
 	// Sensible admin defaults: 14 days out, 5-night stay, 2 adults, 50 listings
 	// per city. If an operator wants finer control we'll promote these to
 	// fields on the confirm request, but baking defaults in keeps the flow
@@ -305,6 +310,7 @@ func (h *DestinationHandler) scrapeDiscoveredAsync(cands []service.DiscoveryCand
 		}
 		jobs = append(jobs, service.ScrapeParams{
 			City:     c.Name,
+			State:    regionContext,
 			Country:  country,
 			CheckIn:  checkIn.Format("2006-01-02"),
 			CheckOut: checkOut.Format("2006-01-02"),
