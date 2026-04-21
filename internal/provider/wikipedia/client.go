@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
 	"time"
 
@@ -21,12 +20,6 @@ const baseURL = "https://en.wikipedia.org/api/rest_v1"
 // setting a real contact URL / email in a build-time variable if needed.
 const userAgent = "real-estayer/1.0 (https://github.com/realestayer/v4; ops@realestayer.local)"
 
-// 640px is a middle ground: roomy enough for destination hero cards without
-// forcing the on-demand resize pipeline, which rate-limits (429s) for widths
-// that aren't already cached.
-var thumbWidthRe = regexp.MustCompile(`/\d+px-`)
-
-const preferredThumbWidth = "/640px-"
 
 type Client struct {
 	http    *http.Client
@@ -157,16 +150,12 @@ func (c *Client) GetCitySummary(ctx context.Context, cityName string) (*CityInfo
 		Description: s.Extract,
 	}
 	if s.Thumbnail != nil {
-		// Use thumbnail as-is when it's already 640px+ (Wikipedia chose it for
-		// a reason). Otherwise request a 640px render, which lands in the
-		// resize cache for most mainstream articles. Avoid anything larger —
-		// widths that aren't pre-cached trigger 429 from the thumbnail
-		// resize service, which is its own separate quota from the API.
-		if s.Thumbnail.Width >= 640 {
-			info.ImageURL = s.Thumbnail.Source
-		} else {
-			info.ImageURL = thumbWidthRe.ReplaceAllString(s.Thumbnail.Source, preferredThumbWidth)
-		}
+		// Use the thumbnail Wikipedia picked, verbatim. Rewriting the width
+		// (e.g. forcing 640px or 1200px) hammers the on-demand resize
+		// service, which 429s aggressively on any width the article page
+		// doesn't already render. The REST summary's chosen width is the
+		// one guaranteed to be hot-cached.
+		info.ImageURL = s.Thumbnail.Source
 	}
 	return info, nil
 }
