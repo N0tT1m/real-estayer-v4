@@ -10,7 +10,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-// BookFlight handles flight booking
+// BookFlight handles flight booking. Duffel is the default provider; Amadeus
+// stays reachable with ?provider=amadeus during the migration window.
 func (h *Handler) BookFlight(w http.ResponseWriter, r *http.Request) {
 	var req models.FlightBookingRequest
 	if err := h.parseJSON(r, &req); err != nil {
@@ -20,7 +21,7 @@ func (h *Handler) BookFlight(w http.ResponseWriter, r *http.Request) {
 
 	provider := r.URL.Query().Get("provider")
 	if provider == "" {
-		provider = "amadeus"
+		provider = "duffel"
 	}
 
 	booking, err := h.flightService.Book(r.Context(), h.getUserID(r), req, provider)

@@ -15,14 +15,23 @@ import (
 )
 
 type DestinationHandler struct {
-	tmpl        *TemplateRenderer
-	destService *service.DestinationService
+	tmpl             *TemplateRenderer
+	destService      *service.DestinationService
+	discoveryService *service.DestinationDiscoveryService
+	scraperService   *service.ScraperService
 }
 
-func NewDestinationHandler(tmpl *TemplateRenderer, destService *service.DestinationService) *DestinationHandler {
+func NewDestinationHandler(
+	tmpl *TemplateRenderer,
+	destService *service.DestinationService,
+	discoveryService *service.DestinationDiscoveryService,
+	scraperService *service.ScraperService,
+) *DestinationHandler {
 	return &DestinationHandler{
-		tmpl:        tmpl,
-		destService: destService,
+		tmpl:             tmpl,
+		destService:      destService,
+		discoveryService: discoveryService,
+		scraperService:   scraperService,
 	}
 }
 
@@ -60,12 +69,13 @@ func (h *DestinationHandler) ExplorePage(w http.ResponseWriter, r *http.Request)
 	}
 
 	destinations, total, err := h.destService.SearchDestinations(ctx, filter)
-	if err != nil || len(destinations) == 0 {
-		// DB is empty — seed from Amadeus then re-query (runs once).
-		if seedErr := h.destService.SeedFromAmadeus(ctx); seedErr == nil {
-			destinations, total, _ = h.destService.SearchDestinations(ctx, filter)
-		}
+	if err != nil {
+		slog.Warn("explore: SearchDestinations failed", "error", err)
 	}
+	// If the collection is empty we render the empty state; the background
+	// seed worker (main.go) and the admin `reseed` endpoint own population.
+	// Calling SeedFromAmadeus from the request path is never safe — a single
+	// cold page load would hammer the upstream for dozens of cities, serially.
 
 	categories := []string{"beach", "city", "nature", "adventure", "cultural", "romantic", "luxury", "island"}
 	regions := []string{"Europe", "Asia", "North America", "South America", "Africa", "Oceania", "Middle East"}
@@ -187,28 +197,214 @@ func (h *DestinationHandler) AdminAddDestination(w http.ResponseWriter, r *http.
 	respondJSON(w, http.StatusCreated, dest)
 }
 
+// AdminDiscoverDestinations runs a Wikidata + Wikipedia-Pageviews discovery
+// pass for a named region (e.g. "Michigan", "Bavaria", "Kyushu") and returns
+// ranked candidates for admin review. No DB writes happen here.
+// POST /api/v1/admin/destinations/discover  {"region":"Michigan","limit":30}
+func (h *DestinationHandler) AdminDiscoverDestinations(w http.ResponseWriter, r *http.Request) {
+	if h.discoveryService == nil {
+		http.Error(w, "discovery service not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	var body struct {
+		Region string `json:"region"`
+		Limit  int    `json:"limit"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Region == "" {
+		http.Error(w, "region is required", http.StatusBadRequest)
+		return
+	}
+
+	// SPARQL + pageviews + enrichment can take 30-60 seconds for a large
+	// region. Detach from the request context's default so a client that
+	// hung up doesn't cancel in the middle of enrichment.
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+
+	result, err := h.discoveryService.Discover(ctx, body.Region, body.Limit)
+	if err != nil {
+		slog.Warn("admin discover failed", "region", body.Region, "error", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, result)
+}
+
+// AdminConfirmDiscovered takes the admin-approved subset of candidates and
+// upserts them into the destinations collection. When a scraper is wired in,
+// it also dispatches a background rust-scraper job per candidate so the
+// /listings page has inventory for the newly-added cities.
+// POST /api/v1/admin/destinations/discover/confirm  {"candidates": [...]}
+func (h *DestinationHandler) AdminConfirmDiscovered(w http.ResponseWriter, r *http.Request) {
+	if h.discoveryService == nil {
+		http.Error(w, "discovery service not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	var body struct {
+		Candidates []service.DiscoveryCandidate `json:"candidates"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	if len(body.Candidates) == 0 {
+		http.Error(w, "no candidates provided", http.StatusBadRequest)
+		return
+	}
+
+	inserted, skipped, err := h.discoveryService.ConfirmAndInsert(r.Context(), body.Candidates)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	scrapingStarted := 0
+	if h.scraperService != nil {
+		scrapingStarted = h.scrapeDiscoveredAsync(body.Candidates)
+	}
+
+	respondJSON(w, http.StatusOK, map[string]int{
+		"inserted": inserted,
+		"skipped":  skipped,
+		"scraping": scrapingStarted,
+	})
+}
+
+// scrapeDiscoveredAsync fires off per-city rust-scraper jobs for every
+// candidate we just upserted. Runs in a detached goroutine because a 30-city
+// batch can take hours — the rust scraper serializes via a single Chrome, so
+// we call sequentially with a generous per-job timeout. Returns the count of
+// jobs queued so the UI can surface it in the confirm toast.
+func (h *DestinationHandler) scrapeDiscoveredAsync(cands []service.DiscoveryCandidate) int {
+	// Sensible admin defaults: 14 days out, 5-night stay, 2 adults, 50 listings
+	// per city. If an operator wants finer control we'll promote these to
+	// fields on the confirm request, but baking defaults in keeps the flow
+	// one-click.
+	const (
+		daysUntilCheckIn = 14
+		stayNights       = 5
+		adults           = 2
+		limitPerCity     = 50
+	)
+	checkIn := time.Now().AddDate(0, 0, daysUntilCheckIn)
+	checkOut := checkIn.AddDate(0, 0, stayNights)
+
+	jobs := make([]service.ScrapeParams, 0, len(cands))
+	for _, c := range cands {
+		if c.Name == "" {
+			continue
+		}
+		country := c.Country
+		if country == "" {
+			country = c.CountryCode
+		}
+		jobs = append(jobs, service.ScrapeParams{
+			City:     c.Name,
+			Country:  country,
+			CheckIn:  checkIn.Format("2006-01-02"),
+			CheckOut: checkOut.Format("2006-01-02"),
+			Adults:   adults,
+			Limit:    limitPerCity,
+		})
+	}
+	if len(jobs) == 0 {
+		return 0
+	}
+
+	go func(jobs []service.ScrapeParams) {
+		// Detached context — the admin's HTTP response has already returned.
+		// Cap the whole batch at 2 hours; each ScrapeCity call has its own
+		// 5-minute HTTP timeout inside ScraperService.
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+		defer cancel()
+		for _, p := range jobs {
+			if ctx.Err() != nil {
+				slog.Warn("discover scrape batch aborted", "remaining", len(jobs), "error", ctx.Err())
+				return
+			}
+			if _, err := h.scraperService.ScrapeCity(ctx, p); err != nil {
+				slog.Warn("discover scrape failed", "city", p.City, "country", p.Country, "error", err)
+				continue
+			}
+			slog.Info("discover scrape finished", "city", p.City, "country", p.Country)
+		}
+	}(jobs)
+	return len(jobs)
+}
+
+// SearchAPI is the JSON backend for the dynamic /explore page. It accepts
+// every filter the template exposes — category, region, best_for, search
+// string, travel month, budget band, sort, page size/offset — and returns
+// a JSON envelope with destinations + total.
+//
+// When the destinations collection is empty we kick off a one-shot seed in
+// the background (not blocking this response) and flag `seeding: true` so
+// the client can poll again in a few seconds.
 func (h *DestinationHandler) SearchAPI(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	q := r.URL.Query()
 
 	filter := models.DestinationFilter{
-		Category: r.URL.Query().Get("category"),
-		Region:   r.URL.Query().Get("region"),
-		BestFor:  r.URL.Query().Get("best_for"),
-		Search:   r.URL.Query().Get("q"),
-		SortBy:   r.URL.Query().Get("sort"),
+		Category: q.Get("category"),
+		Region:   q.Get("region"),
+		BestFor:  q.Get("best_for"),
+		Search:   q.Get("q"),
+		SortBy:   q.Get("sort"),
 		Limit:    24,
 	}
 
-	if limit := r.URL.Query().Get("limit"); limit != "" {
-		if l, err := strconv.Atoi(limit); err == nil {
-			filter.Limit = l
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 100 {
+			filter.Limit = n
+		}
+	}
+	if v := q.Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			filter.Offset = n
+		}
+	}
+	if v := q.Get("page"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 1 {
+			filter.Offset = (n - 1) * filter.Limit
+		}
+	}
+	if v := q.Get("month"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= 12 {
+			filter.Month = n
+		}
+	}
+	if v := q.Get("min_budget"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			filter.MinBudget = f
+		}
+	}
+	if v := q.Get("max_budget"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			filter.MaxBudget = f
 		}
 	}
 
-	destinations, total, _ := h.destService.SearchDestinations(ctx, filter)
+	destinations, total, err := h.destService.SearchDestinations(ctx, filter)
+	if err != nil {
+		slog.Warn("destinations search: query failed", "error", err)
+	}
+
+	// Auto-seed on first-ever request to /api/v1/destinations when the
+	// collection is empty. We detach from the request context so the
+	// response returns immediately; the client polls again after a beat.
+	seeding := false
+	if total == 0 && filter.Search == "" && filter.Category == "" && filter.Region == "" {
+		if h.destService.TryStartSeed() {
+			seeding = true
+		}
+	}
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"destinations": destinations,
 		"total":        total,
+		"seeding":      seeding,
 	})
 }

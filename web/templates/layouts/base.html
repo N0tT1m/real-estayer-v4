@@ -86,6 +86,12 @@
         }
       };
     </script>
+    {{/* app.js must load BEFORE Alpine — Alpine auto-initialises on
+         DOMContentLoaded and walks the DOM for x-data expressions like
+         `commandPalette()`. If app.js ran second, that global wouldn't exist
+         yet and Alpine would render the palette with no event bindings,
+         leaving it stuck open. */}}
+    <script src="/static/js/app.js" defer></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -96,7 +102,6 @@
         .font-display { font-family: 'Fraunces', ui-serif, Georgia, serif; font-optical-sizing: auto; }
         [x-cloak] { display: none !important; }
     </style>
-    <script src="/static/js/app.js" defer></script>
 </head>
 <body class="h-full bg-gray-50 text-gray-900 dark:bg-[color:var(--re-bg)] dark:text-[color:var(--re-text)] pb-16 md:pb-0" x-data="{ mobileMenu: false }">
     <a href="#main" class="skip-link">Skip to main content</a>

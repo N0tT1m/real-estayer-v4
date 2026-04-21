@@ -3,8 +3,11 @@ package service
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"strings"
+	"sync"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
@@ -137,6 +140,35 @@ var regionBudgets = map[string]float64{
 	"Africa":        85,
 	"Middle East":   180,
 	"Oceania":       170,
+}
+
+// cityBudget produces a deterministic per-city daily budget around the
+// region's average. Without this, every card in the same region reads the
+// same flat number (e.g. all European cities at $150) which looks fake.
+// Range is roughly ±40% of the regional base.
+func cityBudget(name, region string) float64 {
+	base := regionBudgets[region]
+	if base == 0 {
+		base = 100
+	}
+	jitter := float64(cityHash(name)%81) - 40 // -40..+40
+	b := base + jitter
+	if b < 30 {
+		b = 30
+	}
+	return b
+}
+
+// cityPopularity gives each city a stable score in 70..94 so the rating
+// badge isn't uniformly 70% across the grid.
+func cityPopularity(name string) int {
+	return 70 + int(cityHash(name)%25)
+}
+
+func cityHash(s string) uint32 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(s))
+	return h.Sum32()
 }
 
 // isoCountryNames maps ISO 3166-1 alpha-2 codes to their English country names.
@@ -292,6 +324,13 @@ type DestinationService struct {
 	repo          *repository.DestinationRepository
 	amadeusClient *amadeus.Client
 	wikiClient    *wikipedia.Client
+	overpass      *OverpassService // used for POI highlights after Amadeus was dropped
+
+	// seeding guards a background seed so two racing API calls can't both
+	// start one. atomic.Bool would be slightly cleaner but we target Go
+	// versions back to 1.18; sync.Mutex + bool is fine.
+	seedMu     sync.Mutex
+	seeding    bool
 }
 
 func NewDestinationService(repo *repository.DestinationRepository, amadeusClient *amadeus.Client) *DestinationService {
@@ -299,6 +338,7 @@ func NewDestinationService(repo *repository.DestinationRepository, amadeusClient
 		repo:          repo,
 		amadeusClient: amadeusClient,
 		wikiClient:    wikipedia.NewClient(),
+		overpass:      NewOverpassService(),
 	}
 }
 
@@ -369,51 +409,95 @@ func (s *DestinationService) GetRegions(ctx context.Context) ([]string, error) {
 	return s.repo.GetRegions(ctx)
 }
 
-// SeedFromAmadeus seeds/refreshes all destinations in MongoDB.
-// Amadeus provides location data; Wikipedia provides descriptions and images.
-func (s *DestinationService) SeedFromAmadeus(ctx context.Context) error {
-	if s.amadeusClient == nil {
-		return fmt.Errorf("amadeus client not configured")
+// TryStartSeed kicks off a background seed if one isn't already running.
+// Returns true when a seed was started, false when one was already in
+// flight. The background goroutine uses a detached context with a 10
+// minute deadline so an in-progress seed survives the triggering HTTP
+// request but can't outlive a dev process indefinitely.
+func (s *DestinationService) TryStartSeed() bool {
+	s.seedMu.Lock()
+	if s.seeding {
+		s.seedMu.Unlock()
+		return false
 	}
+	s.seeding = true
+	s.seedMu.Unlock()
 
-	seeded := 0
+	go func() {
+		defer func() {
+			s.seedMu.Lock()
+			s.seeding = false
+			s.seedMu.Unlock()
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		if err := s.SeedDestinations(ctx); err != nil {
+			slog.Warn("background seed failed", "error", err)
+		}
+	}()
+	return true
+}
+
+// SeedDestinations populates the destinations collection from the embedded
+// seedCities list + cityMetadata (IATA + coords) + Wikipedia (description
+// and hero image). This replaces the former Amadeus-driven seed; Amadeus's
+// Self-Service tier was unreliable in test and was marked for decommission.
+//
+// The function is idempotent: each city is upserted, so re-running it
+// refreshes descriptions/images without creating duplicates.
+//
+// Wikipedia failures are tolerated silently — we fall back to the hardcoded
+// seedImages entry if one exists, otherwise we write the destination with
+// an empty description and a placeholder image pulled from Unsplash at
+// render time. Missing cityMetadata entries are logged as warnings; they'd
+// show on the map as (0,0) so we skip them instead.
+func (s *DestinationService) SeedDestinations(ctx context.Context) error {
+	seeded, skipped, wikiFailures := 0, 0, 0
+
 	for _, city := range seedCities {
-		amResult, err := s.amadeusClient.SearchCity(ctx, city.Name, city.CountryCode)
-		if err != nil {
-			slog.Warn("destination seed: amadeus lookup failed", "city", city.Name, "error", err)
+		if ctx.Err() != nil {
+			slog.Info("destination seed: context cancelled", "seeded", seeded)
+			return ctx.Err()
+		}
+
+		meta, ok := cityMetadata[city.Name]
+		if !ok {
+			slog.Warn("destination seed: missing city metadata, skipping", "city", city.Name)
+			skipped++
 			continue
 		}
 
-		cityName := formatCityName(amResult.Name, city.Name)
+		description, wikiImage := s.enrichFromWikipedia(ctx, city.Name)
+		if description == "" {
+			wikiFailures++
+		}
+		// Prefer the curated Unsplash image. Wikipedia Commons rate-limits
+		// hotlinks (HTTP 429) per their user-agent policy, so direct image
+		// embeds often fail in the browser even when the URL is valid.
+		imageURL := seedImages[city.Name]
+		if imageURL == "" {
+			imageURL = wikiImage
+		}
+
 		countryName := isoCountryNames[city.CountryCode]
 		if countryName == "" {
-			countryName = formatCountryName(amResult.CountryName)
-		}
-
-		description, imageURL := s.enrichFromWikipedia(ctx, city.Name)
-		if imageURL == "" {
-			imageURL = seedImages[city.Name]
-		}
-
-		budget := regionBudgets[city.Region]
-		if budget == 0 {
-			budget = 100
+			countryName = city.CountryCode
 		}
 
 		dest := &models.Destination{
-			Name:            cityName,
+			Name:            city.Name,
 			Country:         countryName,
 			CountryCode:     city.CountryCode,
 			Region:          city.Region,
-			AirportCode:     amResult.IataCode,
-			Latitude:        amResult.Latitude,
-			Longitude:       amResult.Longitude,
+			AirportCode:     meta.IATA,
+			Latitude:        meta.Lat,
+			Longitude:       meta.Lng,
 			Description:     description,
 			ImageURL:        imageURL,
 			Categories:      city.Categories,
-			AvgDailyBudget:  budget,
+			AvgDailyBudget:  cityBudget(city.Name, city.Region),
 			Currency:        "USD",
-			PopularityScore: 70,
+			PopularityScore: cityPopularity(city.Name),
 		}
 
 		if err := s.repo.Upsert(ctx, dest); err != nil {
@@ -423,31 +507,53 @@ func (s *DestinationService) SeedFromAmadeus(ctx context.Context) error {
 		seeded++
 	}
 
-	slog.Info("destination seed complete", "seeded", seeded, "total", len(seedCities))
+	slog.Info("destination seed complete",
+		"seeded", seeded,
+		"skipped_missing_metadata", skipped,
+		"wikipedia_failures", wikiFailures,
+		"total", len(seedCities))
 	return nil
 }
 
-// GetHighlights fetches live Points of Interest from Amadeus for a destination.
+// SeedFromAmadeus is retained as a thin alias so existing callers
+// (startup goroutine, admin reseed endpoint) don't need to change. The name
+// is a misnomer now — Amadeus is no longer called — but renaming across
+// HandlerDeps + routes is out of scope for this change.
+func (s *DestinationService) SeedFromAmadeus(ctx context.Context) error {
+	return s.SeedDestinations(ctx)
+}
+
+// GetHighlights returns up to 6 nearby Points of Interest — museums,
+// viewpoints, galleries, attractions — around (latitude, longitude). Pulls
+// from OpenStreetMap via Overpass (keyless, free), which replaced Amadeus
+// after it was decommissioned. Returns an empty slice (not an error) when
+// nothing useful is within ~3 km so the destination template can just hide
+// the section cleanly.
 func (s *DestinationService) GetHighlights(ctx context.Context, latitude, longitude float64) ([]models.DestinationHighlight, error) {
-	if s.amadeusClient == nil {
+	if s.overpass == nil || (latitude == 0 && longitude == 0) {
 		return nil, nil
 	}
 
-	pois, err := s.amadeusClient.GetPointsOfInterest(ctx, latitude, longitude)
+	places, err := s.overpass.Nearby(ctx, "sight", latitude, longitude, 3000)
 	if err != nil {
 		return nil, err
 	}
 
-	highlights := make([]models.DestinationHighlight, 0, 3)
-	for _, poi := range pois {
-		if len(highlights) >= 3 {
+	highlights := make([]models.DestinationHighlight, 0, 6)
+	seen := make(map[string]bool)
+	for _, p := range places {
+		if p.Name == "" || seen[p.Name] {
+			continue
+		}
+		seen[p.Name] = true
+		highlights = append(highlights, models.DestinationHighlight{
+			Title:       p.Name,
+			Description: categoryLabel(p.Subtype),
+			Icon:        categoryIcon(p.Subtype),
+		})
+		if len(highlights) >= 6 {
 			break
 		}
-		highlights = append(highlights, models.DestinationHighlight{
-			Title:       poi.Name,
-			Description: categoryLabel(poi.Category),
-			Icon:        categoryIcon(poi.Category),
-		})
 	}
 	return highlights, nil
 }
@@ -478,14 +584,10 @@ func (s *DestinationService) fetchAndCache(ctx context.Context, name, countryCod
 	if countryName == "" {
 		countryName = formatCountryName(amResult.CountryName)
 	}
-	description, imageURL := s.enrichFromWikipedia(ctx, name)
+	description, wikiImage := s.enrichFromWikipedia(ctx, name)
+	imageURL := seedImages[name]
 	if imageURL == "" {
-		imageURL = seedImages[name]
-	}
-
-	budget := regionBudgets[region]
-	if budget == 0 {
-		budget = 100
+		imageURL = wikiImage
 	}
 
 	dest := &models.Destination{
@@ -498,9 +600,9 @@ func (s *DestinationService) fetchAndCache(ctx context.Context, name, countryCod
 		Longitude:       amResult.Longitude,
 		Description:     description,
 		ImageURL:        imageURL,
-		AvgDailyBudget:  budget,
+		AvgDailyBudget:  cityBudget(cityName, region),
 		Currency:        "USD",
-		PopularityScore: 70,
+		PopularityScore: cityPopularity(cityName),
 	}
 
 	if err := s.repo.Upsert(ctx, dest); err != nil {

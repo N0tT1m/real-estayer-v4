@@ -1,0 +1,32 @@
+{{template "base.html" .}}
+
+{{define "content"}}
+<div class="max-w-xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+    <div class="surface p-8 text-center">
+        <div class="mx-auto h-14 w-14 rounded-full bg-primary-50 dark:bg-[color:var(--re-primary-soft)] flex items-center justify-center text-primary-700 dark:text-primary-300 mb-5">
+            <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+            </svg>
+        </div>
+        <h1 class="font-display text-3xl font-medium">You're booked.</h1>
+        <p class="mt-2 text-muted">We've kicked off the booking with the provider. Keep the reference below — it's your lookup key if anything needs changing.</p>
+
+        {{if .Reference}}
+        <div class="mt-6 inline-flex items-center gap-3 px-4 py-3 surface-sunk">
+            <span class="text-xs uppercase tracking-wide text-soft">Reference</span>
+            <code class="font-mono text-sm" id="ref">{{.Reference}}</code>
+            <button type="button"
+                    class="text-sm text-primary-600 hover:text-primary-500"
+                    onclick="navigator.clipboard && navigator.clipboard.writeText(document.getElementById('ref').textContent)">
+                Copy
+            </button>
+        </div>
+        {{end}}
+
+        <div class="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
+            <a href="/bookings" class="btn btn-primary">See all bookings</a>
+            <a href="/trips" class="btn btn-secondary">Add to a trip</a>
+        </div>
+    </div>
+</div>
+{{end}}

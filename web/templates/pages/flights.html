@@ -250,7 +250,12 @@ function flightSearch() {
         selectFlight(flight) {
             sessionStorage.setItem('selectedFlight', JSON.stringify(flight));
             sessionStorage.setItem('flightSearchParams', JSON.stringify(this.search));
-            window.location.href = '/flights/book';
+            // Preserve the provider so the booking page posts back to the
+            // same one that priced the offer. Offer IDs are provider-scoped
+            // so crossing wires here would 404.
+            const provider = encodeURIComponent(flight.provider || '');
+            const offer = encodeURIComponent(flight.id || '');
+            window.location.href = `/flights/book?offer=${offer}&provider=${provider}`;
         }
     }
 }

@@ -22,6 +22,8 @@ import (
 	authMiddleware "github.com/realestayer/v4/internal/middleware"
 	"github.com/realestayer/v4/internal/provider"
 	"github.com/realestayer/v4/internal/provider/amadeus"
+	"github.com/realestayer/v4/internal/provider/duffel"
+	"github.com/realestayer/v4/internal/provider/wikipedia"
 	"github.com/realestayer/v4/internal/repository"
 	"github.com/realestayer/v4/internal/service"
 	"github.com/realestayer/v4/internal/service/booking"
@@ -70,9 +72,16 @@ func main() {
 	providerRegistry := provider.NewRegistry()
 
 	amadeusClient := amadeus.NewClient(cfg.Amadeus.ClientID, cfg.Amadeus.ClientSecret, cfg.Amadeus.BaseURL)
-	providerRegistry.RegisterFlight("amadeus", amadeusClient)
 	providerRegistry.RegisterHotel("amadeus", amadeusClient)
 	providerRegistry.RegisterCar("amadeus", amadeusClient)
+
+	// Duffel is the primary flight provider. When no token is set the client
+	// returns ErrNotConfigured for every call; we still register it so
+	// `/api/v1/providers` and future fallback logic can see it. Amadeus is
+	// kept as a secondary flight provider during the migration window.
+	duffelClient := duffel.NewClient(cfg.Duffel.AccessToken, cfg.Duffel.BaseURL)
+	providerRegistry.RegisterFlight("duffel", duffelClient)
+	providerRegistry.RegisterFlight("amadeus", amadeusClient)
 
 	destRepo := repository.NewDestinationRepository(db.Database)
 
@@ -134,6 +143,11 @@ func main() {
 	pollService := service.NewPollService(repos.Poll, repos.User)
 	receiptOCR := service.NewReceiptOCRService(aiItineraryService)
 	auditService := service.NewAuditService(repos.Audit)
+	carAffiliates := service.NewCarAffiliateService(
+		cfg.RentalcarsAffiliateID,
+		cfg.PricelineAffiliateID,
+		cfg.KayakAffiliateID,
+	)
 
 	// Public URL used in notification emails — strip trailing slash once.
 	appBase := cfg.AppBaseURL
@@ -193,6 +207,7 @@ func main() {
 		Transit:        transitService,
 		Poll:           pollService,
 		ReceiptOCR:     receiptOCR,
+		CarAffiliates:  carAffiliates,
 		Audit:          auditService,
 		Users:          repos.User,
 		Collections:    repos.Collection,
@@ -201,7 +216,8 @@ func main() {
 		Car:            carService,
 	})
 
-	destHandler := handler.NewDestinationHandler(h.Templates(), destService)
+	discoveryService := service.NewDestinationDiscoveryService(destRepo, wikidataService, wikipedia.NewClient())
+	destHandler := handler.NewDestinationHandler(h.Templates(), destService, discoveryService, scraperService)
 
 	r := chi.NewRouter()
 
@@ -465,6 +481,8 @@ func main() {
 			r.Delete("/listings/{id}", h.AdminDeleteListing)
 			r.Post("/destinations", destHandler.AdminAddDestination)
 			r.Post("/destinations/reseed", destHandler.AdminReseedDestinations)
+			r.Post("/destinations/discover", destHandler.AdminDiscoverDestinations)
+			r.Post("/destinations/discover/confirm", destHandler.AdminConfirmDiscovered)
 		})
 	})
 
@@ -482,6 +500,10 @@ func main() {
 		r.Get("/profile", h.ProfilePage)
 		r.Get("/profile/security", h.SecurityPage)
 		r.Get("/bookings", h.BookingsPage)
+		r.Get("/flights/book", h.FlightBookingPage)
+		r.Get("/hotels/book", h.HotelBookingPage)
+		r.Get("/cars/book", h.CarBookingPage)
+		r.Get("/bookings/confirmation", h.BookingConfirmationPage)
 	})
 
 	r.Group(func(r chi.Router) {

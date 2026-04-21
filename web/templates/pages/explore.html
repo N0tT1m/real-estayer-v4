@@ -4,281 +4,422 @@
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-data="exploreView()">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10" x-data="exploreView()" x-init="init()">
     <!-- Hero -->
-    <div class="text-center mb-12">
-        <h1 class="text-4xl font-bold text-gray-900 mb-4">Explore Destinations</h1>
-        <p class="text-xl text-gray-600 max-w-2xl mx-auto">Discover your next adventure. From tropical beaches to mountain retreats, find the perfect destination for your journey.</p>
+    <div class="text-center mb-10">
+        <p class="text-soft text-xs uppercase tracking-wide">Plan · Book · Remember</p>
+        <h1 class="font-display text-4xl md:text-5xl font-medium display-balance mt-2 mb-3">Explore destinations</h1>
+        <p class="text-muted max-w-2xl mx-auto">From tropical beaches to mountain retreats — filter the shortlist to your budget, season, and vibe.</p>
     </div>
 
-    <!-- Search Bar -->
-    <div class="max-w-2xl mx-auto mb-12">
-        <form action="/explore" method="GET" class="relative">
-            <input type="text" name="q" value="{{.Filter.Search}}" placeholder="Search destinations..." class="w-full px-6 py-4 pl-12 border-2 border-gray-200 rounded-full focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-lg">
-            <svg class="absolute left-4 top-1/2 -translate-y-1/2 h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+    <!-- Search -->
+    <div class="max-w-2xl mx-auto mb-10">
+        <div class="relative">
+            <input type="text"
+                   x-model="filters.q"
+                   @input.debounce.300ms="reload(true)"
+                   placeholder="Search destinations…"
+                   aria-label="Search destinations"
+                   class="w-full px-6 py-4 pl-12 border-2 border-[color:var(--re-border)] rounded-full bg-[color:var(--re-surface)] focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-lg">
+            <svg class="absolute left-4 top-1/2 -translate-y-1/2 h-6 w-6 text-soft" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
             </svg>
-            <button type="submit" class="absolute right-2 top-1/2 -translate-y-1/2 bg-primary-600 text-white px-6 py-2 rounded-full font-medium hover:bg-primary-700 transition">
-                Search
-            </button>
-        </form>
+        </div>
     </div>
 
-    <!-- Category Pills -->
-    <div class="flex flex-wrap justify-center gap-3 mb-12">
-        <a href="/explore" class="px-4 py-2 rounded-full font-medium transition {{if not .Filter.Category}}bg-primary-600 text-white{{else}}bg-gray-100 text-gray-700 hover:bg-gray-200{{end}}">
+    <!-- Category pills — click to toggle. -->
+    <div class="flex flex-wrap justify-center gap-2 mb-10">
+        <button type="button"
+                @click="filters.category = ''; reload(true)"
+                :class="!filters.category ? 'bg-primary-600 text-white border-primary-600' : 'bg-[color:var(--re-surface)] text-[color:var(--re-text)] border-[color:var(--re-border)] hover:bg-[color:var(--re-surface-muted)]'"
+                class="px-4 py-1.5 rounded-full font-medium text-sm border transition">
             All
-        </a>
+        </button>
         {{range .Categories}}
-        <a href="/explore?category={{.}}" class="px-4 py-2 rounded-full font-medium transition {{if eq $.Filter.Category .}}bg-primary-600 text-white{{else}}bg-gray-100 text-gray-700 hover:bg-gray-200{{end}}">
+        <button type="button"
+                @click="filters.category = (filters.category === {{. | printf "%q"}} ? '' : {{. | printf "%q"}}); reload(true)"
+                :class="filters.category === {{. | printf "%q"}} ? 'bg-primary-600 text-white border-primary-600' : 'bg-[color:var(--re-surface)] text-[color:var(--re-text)] border-[color:var(--re-border)] hover:bg-[color:var(--re-surface-muted)]'"
+                class="px-4 py-1.5 rounded-full font-medium text-sm border transition capitalize">
             {{.}}
-        </a>
+        </button>
         {{end}}
     </div>
 
     <div class="flex flex-col lg:flex-row gap-8">
-        <!-- Filters Sidebar -->
+        <!-- Filters -->
         <aside class="lg:w-64 flex-shrink-0">
-            <div class="bg-white rounded-xl shadow-sm p-6 sticky top-24">
-                <h2 class="font-semibold text-gray-900 mb-4">Filters</h2>
+            <div class="surface p-6 sticky top-24">
+                <h2 class="font-semibold mb-4">Filters</h2>
 
-                <form action="/explore" method="GET" class="space-y-4">
-                    {{if .Filter.Category}}
-                    <input type="hidden" name="category" value="{{.Filter.Category}}">
-                    {{end}}
-                    {{if .Filter.Search}}
-                    <input type="hidden" name="q" value="{{.Filter.Search}}">
-                    {{end}}
-
+                <div class="space-y-4">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Region</label>
-                        <select name="region" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm">
+                        <label class="block text-xs font-medium text-soft uppercase tracking-wide mb-1">Region</label>
+                        <select x-model="filters.region" @change="reload(true)"
+                                class="w-full px-3 py-2 border border-[color:var(--re-border)] rounded-lg bg-[color:var(--re-surface)] text-sm focus:ring-2 focus:ring-primary-500">
                             <option value="">All Regions</option>
                             {{range .Regions}}
-                            <option value="{{.}}" {{if eq $.Filter.Region .}}selected{{end}}>{{.}}</option>
+                            <option value="{{.}}">{{.}}</option>
                             {{end}}
                         </select>
                     </div>
 
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Best For</label>
-                        <select name="best_for" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm">
+                        <label class="block text-xs font-medium text-soft uppercase tracking-wide mb-1">Best For</label>
+                        <select x-model="filters.best_for" @change="reload(true)"
+                                class="w-full px-3 py-2 border border-[color:var(--re-border)] rounded-lg bg-[color:var(--re-surface)] text-sm focus:ring-2 focus:ring-primary-500">
                             <option value="">Anyone</option>
-                            <option value="couples" {{if eq .Filter.BestFor "couples"}}selected{{end}}>Couples</option>
-                            <option value="families" {{if eq .Filter.BestFor "families"}}selected{{end}}>Families</option>
-                            <option value="solo" {{if eq .Filter.BestFor "solo"}}selected{{end}}>Solo Travelers</option>
-                            <option value="adventurers" {{if eq .Filter.BestFor "adventurers"}}selected{{end}}>Adventurers</option>
-                            <option value="honeymooners" {{if eq .Filter.BestFor "honeymooners"}}selected{{end}}>Honeymooners</option>
+                            <option value="couples">Couples</option>
+                            <option value="family">Family</option>
+                            <option value="solo">Solo</option>
+                            <option value="group">Group</option>
                         </select>
                     </div>
 
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Travel Month</label>
-                        <select name="month" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm">
+                        <label class="block text-xs font-medium text-soft uppercase tracking-wide mb-1">Travel Month</label>
+                        <select x-model="filters.month" @change="reload(true)"
+                                class="w-full px-3 py-2 border border-[color:var(--re-border)] rounded-lg bg-[color:var(--re-surface)] text-sm focus:ring-2 focus:ring-primary-500">
                             <option value="">Any Month</option>
-                            <option value="1" {{if eq .Filter.Month 1}}selected{{end}}>January</option>
-                            <option value="2" {{if eq .Filter.Month 2}}selected{{end}}>February</option>
-                            <option value="3" {{if eq .Filter.Month 3}}selected{{end}}>March</option>
-                            <option value="4" {{if eq .Filter.Month 4}}selected{{end}}>April</option>
-                            <option value="5" {{if eq .Filter.Month 5}}selected{{end}}>May</option>
-                            <option value="6" {{if eq .Filter.Month 6}}selected{{end}}>June</option>
-                            <option value="7" {{if eq .Filter.Month 7}}selected{{end}}>July</option>
-                            <option value="8" {{if eq .Filter.Month 8}}selected{{end}}>August</option>
-                            <option value="9" {{if eq .Filter.Month 9}}selected{{end}}>September</option>
-                            <option value="10" {{if eq .Filter.Month 10}}selected{{end}}>October</option>
-                            <option value="11" {{if eq .Filter.Month 11}}selected{{end}}>November</option>
-                            <option value="12" {{if eq .Filter.Month 12}}selected{{end}}>December</option>
+                            <template x-for="(m, i) in ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']" :key="m">
+                                <option :value="i + 1" x-text="m"></option>
+                            </template>
                         </select>
                     </div>
 
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Daily Budget (USD)</label>
-                        <div class="flex space-x-2">
-                            <input type="number" name="min_budget" value="{{.Filter.MinBudget}}" placeholder="Min" class="w-1/2 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm">
-                            <input type="number" name="max_budget" value="{{.Filter.MaxBudget}}" placeholder="Max" class="w-1/2 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm">
+                        <label class="block text-xs font-medium text-soft uppercase tracking-wide mb-1">Daily Budget (USD)</label>
+                        <div class="flex gap-2">
+                            <input type="number" x-model.number="filters.min_budget" @change.debounce.500ms="reload(true)" min="0" placeholder="Min" class="w-full px-2 py-1.5 border border-[color:var(--re-border)] rounded-lg bg-[color:var(--re-surface)] text-sm focus:ring-2 focus:ring-primary-500">
+                            <input type="number" x-model.number="filters.max_budget" @change.debounce.500ms="reload(true)" min="0" placeholder="Max" class="w-full px-2 py-1.5 border border-[color:var(--re-border)] rounded-lg bg-[color:var(--re-surface)] text-sm focus:ring-2 focus:ring-primary-500">
                         </div>
                     </div>
 
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Sort By</label>
-                        <select name="sort" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm">
-                            <option value="popularity" {{if eq .Filter.SortBy "popularity"}}selected{{end}}>Most Popular</option>
-                            <option value="name" {{if eq .Filter.SortBy "name"}}selected{{end}}>Name A-Z</option>
-                            <option value="budget_asc" {{if eq .Filter.SortBy "budget_asc"}}selected{{end}}>Budget: Low to High</option>
-                            <option value="budget_desc" {{if eq .Filter.SortBy "budget_desc"}}selected{{end}}>Budget: High to Low</option>
+                        <label class="block text-xs font-medium text-soft uppercase tracking-wide mb-1">Sort By</label>
+                        <select x-model="filters.sort" @change="reload(true)"
+                                class="w-full px-3 py-2 border border-[color:var(--re-border)] rounded-lg bg-[color:var(--re-surface)] text-sm focus:ring-2 focus:ring-primary-500">
+                            <option value="popularity">Most Popular</option>
+                            <option value="name">Name A-Z</option>
+                            <option value="budget_asc">Budget: Low to High</option>
+                            <option value="budget_desc">Budget: High to Low</option>
                         </select>
                     </div>
 
-                    <button type="submit" class="w-full bg-primary-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-primary-700 transition text-sm">
-                        Apply Filters
-                    </button>
-
-                    <a href="/explore" class="block text-center text-sm text-gray-500 hover:text-gray-700">Clear all filters</a>
-                </form>
+                    <button type="button" @click="clearFilters()" class="btn btn-ghost w-full">Clear all filters</button>
+                </div>
             </div>
         </aside>
 
-        <!-- Destinations Grid -->
-        <div class="flex-1">
-            <div class="flex justify-between items-center mb-6">
-                <p class="text-gray-600 dark:text-gray-400">{{.Total}} destinations found</p>
-                <div class="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden" role="tablist" aria-label="View mode">
-                    <button type="button" role="tab" @click="setView('grid')" :aria-selected="view === 'grid'" :class="view === 'grid' ? 'bg-primary-600 text-white' : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300'" class="px-3 py-1.5 text-sm font-medium">Grid</button>
-                    <button type="button" role="tab" @click="setView('map')" :aria-selected="view === 'map'" :class="view === 'map' ? 'bg-primary-600 text-white' : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300'" class="px-3 py-1.5 text-sm font-medium border-l border-gray-200 dark:border-gray-700">Map</button>
+        <!-- Grid / Map -->
+        <div class="flex-1 min-w-0">
+            <div class="flex justify-between items-center mb-6 gap-4">
+                <p class="text-muted text-sm">
+                    <span x-show="loading" class="skeleton inline-block w-28 h-4 align-middle"></span>
+                    <span x-show="!loading">
+                        <span x-text="total"></span> destination<span x-show="total !== 1">s</span> found
+                        <span x-show="seeding" class="ml-2 chip chip-primary" title="We're populating the list right now">
+                            <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3a9 9 0 109 9"/></svg>
+                            populating…
+                        </span>
+                    </span>
+                </p>
+                <div class="inline-flex rounded-lg border border-[color:var(--re-border)] overflow-hidden" role="tablist" aria-label="View mode">
+                    <button type="button" role="tab" @click="setView('grid')" :aria-selected="view === 'grid'"
+                            :class="view === 'grid' ? 'bg-primary-600 text-white' : 'bg-[color:var(--re-surface)] text-[color:var(--re-text)]'"
+                            class="px-3 py-1.5 text-sm font-medium">Grid</button>
+                    <button type="button" role="tab" @click="setView('map')" :aria-selected="view === 'map'"
+                            :class="view === 'map' ? 'bg-primary-600 text-white' : 'bg-[color:var(--re-surface)] text-[color:var(--re-text)]'"
+                            class="px-3 py-1.5 text-sm font-medium border-l border-[color:var(--re-border)]">Map</button>
                 </div>
             </div>
 
-            <!-- Map view (MapLibre with CARTO tiles — free for non-commercial use) -->
+            <!-- Map -->
             <div x-show="view === 'map'" x-cloak class="mb-6">
-                <div id="explore-map" class="w-full h-[600px] rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden" aria-label="Map of destinations"></div>
-                <p class="mt-2 text-xs text-gray-500">Tiles © <a href="https://carto.com/attributions" class="underline" rel="noopener">CARTO</a>, data © <a href="https://www.openstreetmap.org/copyright" class="underline" rel="noopener">OpenStreetMap</a> contributors.</p>
+                <div id="explore-map" class="w-full h-[600px] rounded-xl border border-[color:var(--re-border)] overflow-hidden" aria-label="Map of destinations"></div>
+                <p class="mt-2 text-xs text-soft">
+                    Tiles © <a href="https://carto.com/attributions" class="underline" rel="noopener">CARTO</a>,
+                    data © <a href="https://www.openstreetmap.org/copyright" class="underline" rel="noopener">OpenStreetMap</a> contributors.
+                </p>
             </div>
 
+            <!-- Grid -->
             <div x-show="view === 'grid'">
-
-            {{if .Destinations}}
-            <div class="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
-                {{range .Destinations}}
-                <a href="/explore/{{.Name}}" class="group bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-lg transition">
-                    <div class="aspect-[4/3] overflow-hidden relative">
-                        <img src="{{.ImageURL}}" alt="{{.Name}}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" data-fallback="https://via.placeholder.com/400x300?text=Destination" onerror="if(!this.dataset.fallbackApplied){this.dataset.fallbackApplied='1';this.src=this.dataset.fallback;}">
-                        {{if .Featured}}
-                        <div class="absolute top-3 left-3">
-                            <span class="bg-yellow-400 text-yellow-900 text-xs font-medium px-2 py-1 rounded">Featured</span>
-                        </div>
-                        {{end}}
-                        <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-4">
-                            <h3 class="text-xl font-bold text-white">{{.Name}}</h3>
-                            <p class="text-white/90 text-sm">{{.Country}}</p>
-                        </div>
-                    </div>
-                    <div class="p-4">
-                        <p class="text-sm text-gray-600 line-clamp-2 mb-3">{{.Description}}</p>
-
-                        <div class="flex flex-wrap gap-1 mb-3">
-                            {{range $i, $cat := .Categories}}
-                            {{if lt $i 3}}
-                            <span class="text-xs bg-primary-50 text-primary-700 px-2 py-1 rounded">{{$cat}}</span>
-                            {{end}}
-                            {{end}}
-                        </div>
-
-                        <div class="flex items-center justify-between text-sm">
-                            <div class="flex items-center text-gray-500">
-                                <svg class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                ${{.AvgDailyBudget}}/day
+                <!-- Loading skeletons: show on cold fetch before first results. -->
+                <div x-show="loading && destinations.length === 0" class="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
+                    <template x-for="i in 6" :key="i">
+                        <div class="surface overflow-hidden">
+                            <div class="skeleton aspect-[4/3] rounded-none"></div>
+                            <div class="p-4 space-y-2">
+                                <div class="skeleton h-4 w-3/4"></div>
+                                <div class="skeleton h-3 w-full"></div>
+                                <div class="skeleton h-3 w-2/3"></div>
                             </div>
-                            {{if .PopularityScore}}
-                            <div class="flex items-center">
-                                <svg class="h-4 w-4 text-yellow-400 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                                </svg>
-                                <span class="font-medium">{{.PopularityScore}}%</span>
-                            </div>
-                            {{end}}
                         </div>
-                    </div>
-                </a>
-                {{end}}
+                    </template>
+                </div>
+
+                <!-- Results -->
+                <div x-show="destinations.length > 0" class="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
+                    <template x-for="d in destinations" :key="d.id || d.name">
+                        <a :href="'/explore/' + encodeURIComponent(d.name)"
+                           class="group surface overflow-hidden transition-all hover:shadow-lift hover:-translate-y-0.5 fade-in">
+                            <div class="aspect-[4/3] overflow-hidden relative bg-[color:var(--re-surface-muted)]">
+                                <img :src="d.image_url || placeholderImage(d.name)"
+                                     :alt="d.name"
+                                     loading="lazy"
+                                     class="w-full h-full object-cover group-hover:scale-[1.04] transition duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                                     @error="$el.src = placeholderImage(d.name)">
+                                <template x-if="d.featured">
+                                    <div class="absolute top-3 left-3 chip chip-accent">Featured</div>
+                                </template>
+                                <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-4">
+                                    <h3 class="font-display text-xl font-medium text-white" x-text="d.name"></h3>
+                                    <p class="text-white/85 text-sm" x-text="d.country"></p>
+                                </div>
+                            </div>
+                            <div class="p-4">
+                                <p class="text-sm text-muted line-clamp-2 mb-3" x-text="d.description || 'A beautiful destination worth exploring.'"></p>
+                                <div class="flex flex-wrap gap-1 mb-3">
+                                    <template x-for="cat in (d.categories || []).slice(0, 3)" :key="cat">
+                                        <span class="chip chip-primary capitalize" x-text="cat"></span>
+                                    </template>
+                                </div>
+                                <div class="flex items-center justify-between text-sm">
+                                    <span class="text-muted" x-show="d.avg_daily_budget">
+                                        $<span x-text="d.avg_daily_budget"></span><span class="text-soft"> / day</span>
+                                    </span>
+                                    <span class="flex items-center gap-1 text-soft" x-show="d.popularity_score">
+                                        <svg class="h-4 w-4 text-accent-500" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                                        <span x-text="d.popularity_score + '%'"></span>
+                                    </span>
+                                </div>
+                            </div>
+                        </a>
+                    </template>
+                </div>
+
+                <!-- Load more -->
+                <div x-show="!loading && destinations.length > 0 && destinations.length < total" class="text-center mt-10">
+                    <button type="button" class="btn btn-secondary" @click="loadMore()" :disabled="loadingMore">
+                        <span x-show="!loadingMore">Load more (<span x-text="total - destinations.length"></span> left)</span>
+                        <span x-show="loadingMore">Loading…</span>
+                    </button>
+                </div>
+
+                <!-- Empty state -->
+                <div x-show="!loading && destinations.length === 0 && !seeding" class="empty-state surface">
+                    <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+                        <circle cx="12" cy="12" r="9"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 12h18M12 3c3 3.5 3 14 0 18M12 3C9 6.5 9 17 12 21"/>
+                    </svg>
+                    <p class="font-display text-xl font-medium text-[color:var(--re-text)]">No destinations match</p>
+                    <p class="mt-1 text-sm">Try widening your filters or clearing the search.</p>
+                    <button type="button" @click="clearFilters()" class="btn btn-ghost mt-4">Clear filters</button>
+                </div>
+
+                <!-- Seeding-in-progress state: collection is empty and a seed is running. -->
+                <div x-show="!loading && destinations.length === 0 && seeding" class="empty-state surface">
+                    <svg class="empty-icon animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 3a9 9 0 109 9"/>
+                    </svg>
+                    <p class="font-display text-xl font-medium text-[color:var(--re-text)]">Populating the world map…</p>
+                    <p class="mt-1 text-sm">First load takes a moment. We'll refresh automatically.</p>
+                </div>
             </div>
-            {{else}}
-            <div class="text-center py-12">
-                <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <h3 class="mt-2 text-sm font-medium">No destinations found</h3>
-                <p class="mt-1 text-sm text-gray-500">Try adjusting your filters or search criteria.</p>
-            </div>
-            {{end}}
-            </div> <!-- /grid container -->
         </div>
     </div>
 </div>
-
-<script id="explore-destinations" type="application/json">
-[
-    {{range $i, $d := .Destinations}}{{if $i}},{{end}}{"name": {{.Name | printf "%q"}}, "country": {{.Country | printf "%q"}}, "lat": {{.Latitude}}, "lng": {{.Longitude}}, "image": {{.ImageURL | printf "%q"}}}{{end}}
-]
-</script>
 
 <script>
 function exploreView() {
     return {
         view: 'grid',
-        map: null,
-        markers: [],
-        init() {
-            // Persist view choice in the URL so back/forward and shares keep it.
-            const params = new URLSearchParams(window.location.search);
-            if (params.get('view') === 'map') this.view = 'map';
-            this.$watch('view', (v) => {
-                const p = new URLSearchParams(window.location.search);
-                if (v === 'map') p.set('view', 'map'); else p.delete('view');
-                const qs = p.toString();
-                const url = window.location.pathname + (qs ? '?' + qs : '');
-                window.history.replaceState(null, '', url);
-                if (v === 'map') this.$nextTick(() => this.initMap());
-            });
-            if (this.view === 'map') this.$nextTick(() => this.initMap());
+        loading: true,
+        loadingMore: false,
+        destinations: [],
+        total: 0,
+        seeding: false,
+        seedPollHandle: null,
+        limit: 24,
+        filters: {
+            q: '', category: '', region: '', best_for: '',
+            month: '', min_budget: '', max_budget: '',
+            sort: 'popularity',
         },
-        setView(v) { this.view = v; },
-        initMap() {
-            if (this.map || typeof maplibregl === 'undefined') {
-                // MapLibre script may not have loaded yet; retry briefly.
-                if (!this.map && typeof maplibregl === 'undefined') {
-                    setTimeout(() => this.initMap(), 200);
-                }
+        map: null,
+        _markers: [],
+
+        init() {
+            // Restore filters + view from the URL so deep-links and
+            // browser navigation work.
+            const p = new URLSearchParams(window.location.search);
+            for (const key of Object.keys(this.filters)) {
+                const v = p.get(key);
+                if (v !== null && v !== '') this.filters[key] = v;
+            }
+            if (p.get('view') === 'map') this.view = 'map';
+            this.$watch('view', (v) => this._syncURL());
+
+            this.reload(true);
+        },
+
+        setView(v) {
+            this.view = v;
+            this._syncURL();
+            if (v === 'map') this.$nextTick(() => this._refreshMap());
+        },
+
+        clearFilters() {
+            this.filters = {
+                q: '', category: '', region: '', best_for: '',
+                month: '', min_budget: '', max_budget: '',
+                sort: 'popularity',
+            };
+            this.reload(true);
+        },
+
+        async reload(resetPage) {
+            if (resetPage) this.destinations = [];
+            this.loading = true;
+            this._syncURL();
+            try {
+                const data = await this._fetchPage(0);
+                this.destinations = data.destinations || [];
+                this.total = data.total || 0;
+                this.seeding = !!data.seeding;
+                if (this.seeding) this._schedulePollForSeed();
+                if (this.view === 'map') this.$nextTick(() => this._refreshMap());
+            } catch (e) {
+                console.error('explore: reload failed', e);
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async loadMore() {
+            if (this.loadingMore) return;
+            this.loadingMore = true;
+            try {
+                const data = await this._fetchPage(this.destinations.length);
+                this.destinations = this.destinations.concat(data.destinations || []);
+                this.total = data.total || this.total;
+                if (this.view === 'map') this.$nextTick(() => this._refreshMap());
+            } catch (e) {
+                console.error('explore: loadMore failed', e);
+            } finally {
+                this.loadingMore = false;
+            }
+        },
+
+        async _fetchPage(offset) {
+            const p = new URLSearchParams();
+            for (const [k, v] of Object.entries(this.filters)) {
+                if (v !== '' && v !== null && v !== undefined) p.set(k, v);
+            }
+            p.set('limit', String(this.limit));
+            p.set('offset', String(offset));
+            return await window.api('/api/v1/destinations?' + p.toString());
+        },
+
+        _schedulePollForSeed() {
+            // Back-off poll: 3s, 6s, 10s, 15s, 20s, 25s, 30s … cap at 30s.
+            if (this.seedPollHandle) return;
+            const delays = [3000, 6000, 10000, 15000, 20000, 25000, 30000];
+            let tick = 0;
+            const poll = async () => {
+                try {
+                    const data = await this._fetchPage(0);
+                    if ((data.destinations || []).length > 0) {
+                        this.destinations = data.destinations;
+                        this.total = data.total || 0;
+                        this.seeding = !!data.seeding;
+                        if (this.view === 'map') this._refreshMap();
+                        if (!data.seeding) {
+                            this.seedPollHandle = null;
+                            return;
+                        }
+                    }
+                } catch (e) { /* keep polling */ }
+                tick = Math.min(tick + 1, delays.length - 1);
+                this.seedPollHandle = setTimeout(poll, delays[tick]);
+            };
+            this.seedPollHandle = setTimeout(poll, delays[0]);
+        },
+
+        _syncURL() {
+            const p = new URLSearchParams();
+            for (const [k, v] of Object.entries(this.filters)) {
+                if (v !== '' && v !== null && v !== undefined) p.set(k, v);
+            }
+            if (this.view === 'map') p.set('view', 'map');
+            const qs = p.toString();
+            const url = window.location.pathname + (qs ? '?' + qs : '');
+            window.history.replaceState(null, '', url);
+        },
+
+        placeholderImage(name) {
+            // source.unsplash.com/featured/ was retired in 2023 and now 503s.
+            // Use a stable Unsplash CDN image so the card never renders blank.
+            return 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800&q=80&fit=crop';
+        },
+
+        _refreshMap() {
+            if (typeof maplibregl === 'undefined') {
+                setTimeout(() => this._refreshMap(), 300);
                 return;
             }
-            const raw = document.getElementById('explore-destinations');
-            let destinations = [];
-            try { destinations = JSON.parse(raw.textContent || '[]'); } catch (e) {}
-            destinations = destinations.filter((d) => d.lat && d.lng);
-
-            // Center on the mean of the destinations, falling back to the
-            // Atlantic so Europe + the Americas are both in frame.
-            let lat = 20, lng = -20, zoom = 1.5;
-            if (destinations.length) {
-                lat = destinations.reduce((s, d) => s + d.lat, 0) / destinations.length;
-                lng = destinations.reduce((s, d) => s + d.lng, 0) / destinations.length;
-                zoom = 2.5;
+            const pts = this.destinations.filter((d) => d.latitude && d.longitude);
+            if (!this.map) {
+                let lat = 20, lng = -20, zoom = 1.5;
+                if (pts.length) {
+                    lat = pts.reduce((s, d) => s + d.latitude, 0) / pts.length;
+                    lng = pts.reduce((s, d) => s + d.longitude, 0) / pts.length;
+                    zoom = 2.4;
+                }
+                this.map = new maplibregl.Map({
+                    container: 'explore-map',
+                    style: {{.MapStyleURL | printf "%q"}},
+                    center: [lng, lat],
+                    zoom,
+                });
+                this.map.addControl(new maplibregl.NavigationControl(), 'top-right');
             }
 
-            this.map = new maplibregl.Map({
-                container: 'explore-map',
-                style: {{.MapStyleURL | printf "%q"}},
-                center: [lng, lat],
-                zoom,
-            });
-            this.map.addControl(new maplibregl.NavigationControl(), 'top-right');
+            // Clear old markers before redrawing. Simpler than diffing; we
+            // never render more than `limit` at a time so it's cheap.
+            this._markers.forEach((m) => m.remove());
+            this._markers = [];
 
-            this.map.on('load', () => {
+            const draw = () => {
                 const bounds = new maplibregl.LngLatBounds();
-                destinations.forEach((d) => {
+                pts.forEach((d) => {
                     const el = document.createElement('div');
                     el.className = 'w-8 h-8 rounded-full bg-primary-600 border-2 border-white shadow-md flex items-center justify-center text-white text-xs font-bold cursor-pointer';
                     el.textContent = d.name.charAt(0).toUpperCase();
                     const popup = new maplibregl.Popup({ offset: 18 }).setHTML(
                         `<a href="/explore/${encodeURIComponent(d.name)}" class="block w-48">`
-                        + (d.image ? `<img src="${d.image}" alt="" class="w-full h-24 object-cover rounded">` : '')
-                        + `<div class="p-2"><div class="font-semibold text-sm">${escapeHTML(d.name)}</div>`
-                        + `<div class="text-xs text-gray-500">${escapeHTML(d.country)}</div></div></a>`
+                        + (d.image_url ? `<img src="${d.image_url}" alt="" class="w-full h-24 object-cover rounded">` : '')
+                        + `<div class="p-2"><div class="font-semibold text-sm">${this._esc(d.name)}</div>`
+                        + `<div class="text-xs text-gray-500">${this._esc(d.country || '')}</div></div></a>`
                     );
-                    new maplibregl.Marker({ element: el })
-                        .setLngLat([d.lng, d.lat])
+                    const m = new maplibregl.Marker({ element: el })
+                        .setLngLat([d.longitude, d.latitude])
                         .setPopup(popup)
                         .addTo(this.map);
-                    bounds.extend([d.lng, d.lat]);
+                    this._markers.push(m);
+                    bounds.extend([d.longitude, d.latitude]);
                 });
-                if (destinations.length > 1) this.map.fitBounds(bounds, { padding: 60, maxZoom: 6 });
-            });
+                if (pts.length > 1) this.map.fitBounds(bounds, { padding: 60, maxZoom: 6 });
+            };
+
+            // MapLibre needs the style to be loaded before we add markers.
+            if (this.map.loaded()) draw(); else this.map.once('load', draw);
+        },
+
+        _esc(s) {
+            return String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
         },
     };
-}
-function escapeHTML(s) {
-    return String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 </script>
 {{end}}

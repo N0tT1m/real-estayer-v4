@@ -203,6 +203,49 @@ func (h *Handler) BookingsPage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// FlightBookingPage renders the passenger-details form for a flight offer
+// selected on /flights. The offer ID is carried through from the search
+// page — the template posts back to /api/v1/flights/book to create the
+// actual order via whichever provider is configured (Duffel by default).
+func (h *Handler) FlightBookingPage(w http.ResponseWriter, r *http.Request) {
+	h.render(w, r, "flight_book.html", map[string]interface{}{
+		"Title":    "Complete your flight booking",
+		"OfferID":  r.URL.Query().Get("offer"),
+		"Provider": r.URL.Query().Get("provider"),
+	})
+}
+
+// HotelBookingPage is a soft landing for users who click "View Rooms" on a
+// hotel result. We don't have a live hotel booking API (Booking.com /
+// Expedia partners are clickouts), so this page explains the flow and
+// links out. If we later wire a principal booking path, replace the body
+// with the real form.
+func (h *Handler) HotelBookingPage(w http.ResponseWriter, r *http.Request) {
+	h.render(w, r, "hotel_book.html", map[string]interface{}{
+		"Title": "Finish your hotel booking",
+	})
+}
+
+// CarBookingPage is the car-rental equivalent of HotelBookingPage — we
+// don't book cars as principal yet, so this nudges the user back to the
+// /cars page where the affiliate compare-cards live.
+func (h *Handler) CarBookingPage(w http.ResponseWriter, r *http.Request) {
+	h.render(w, r, "car_book.html", map[string]interface{}{
+		"Title": "Finish your car rental",
+	})
+}
+
+// BookingConfirmationPage is the landing after a successful flight (or
+// future hotel) booking. Reference ID comes in via ?ref=. We don't fetch
+// the booking server-side here — the page reads it for display only; the
+// real source of truth is /bookings.
+func (h *Handler) BookingConfirmationPage(w http.ResponseWriter, r *http.Request) {
+	h.render(w, r, "booking_confirmation.html", map[string]interface{}{
+		"Title":     "Booking confirmed",
+		"Reference": r.URL.Query().Get("ref"),
+	})
+}
+
 // Health check page
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("OK"))

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
@@ -107,10 +108,10 @@ func (db *DB) createIndexes(ctx context.Context) error {
 			Options: options.Index().SetUnique(true),
 		},
 		{
-			Keys: map[string]int{"location": 1, "price_numeric": 1},
+			Keys: bson.D{{Key: "location", Value: 1}, {Key: "price_numeric", Value: 1}},
 		},
 		{
-			Keys: map[string]int{"region": 1, "country": 1},
+			Keys: bson.D{{Key: "region", Value: 1}, {Key: "country", Value: 1}},
 		},
 		{
 			Keys: map[string]int{"rating_numeric": -1},
@@ -123,7 +124,7 @@ func (db *DB) createIndexes(ctx context.Context) error {
 	// Watchlists collection indexes
 	watchlistIndexes := []mongo.IndexModel{
 		{
-			Keys:    map[string]int{"user_id": 1, "listing_id": 1},
+			Keys:    bson.D{{Key: "user_id", Value: 1}, {Key: "listing_id", Value: 1}},
 			Options: options.Index().SetUnique(true),
 		},
 		{
@@ -150,32 +151,32 @@ func (db *DB) createIndexes(ctx context.Context) error {
 	// Trip-scoped collections — every query is keyed on trip_id so those
 	// indexes are non-optional.
 	tripCommentIndexes := []mongo.IndexModel{
-		{Keys: map[string]int{"trip_id": 1, "created_at": 1}},
+		{Keys: bson.D{{Key: "trip_id", Value: 1}, {Key: "created_at", Value: 1}}},
 	}
 	_, _ = db.Collection("trip_comments").Indexes().CreateMany(ctx, tripCommentIndexes)
 
 	tripExpenseIndexes := []mongo.IndexModel{
-		{Keys: map[string]int{"trip_id": 1, "spent_at": -1}},
+		{Keys: bson.D{{Key: "trip_id", Value: 1}, {Key: "spent_at", Value: -1}}},
 	}
 	_, _ = db.Collection("trip_expenses").Indexes().CreateMany(ctx, tripExpenseIndexes)
 
 	tripJournalIndexes := []mongo.IndexModel{
-		{Keys: map[string]int{"trip_id": 1, "entry_date": -1}},
+		{Keys: bson.D{{Key: "trip_id", Value: 1}, {Key: "entry_date", Value: -1}}},
 	}
 	_, _ = db.Collection("trip_journal").Indexes().CreateMany(ctx, tripJournalIndexes)
 
 	_, _ = db.Collection("trip_reviews").Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys:    map[string]int{"user_id": 1, "trip_id": 1, "item_id": 1},
+		Keys:    bson.D{{Key: "user_id", Value: 1}, {Key: "trip_id", Value: 1}, {Key: "item_id", Value: 1}},
 		Options: options.Index().SetUnique(true),
 	})
 
 	priceHistoryIndexes := []mongo.IndexModel{
-		{Keys: map[string]int{"listing_id": 1, "captured_at": -1}},
+		{Keys: bson.D{{Key: "listing_id", Value: 1}, {Key: "captured_at", Value: -1}}},
 	}
 	_, _ = db.Collection("price_history").Indexes().CreateMany(ctx, priceHistoryIndexes)
 
 	savedSearchIndexes := []mongo.IndexModel{
-		{Keys: map[string]int{"user_id": 1, "created_at": -1}},
+		{Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "created_at", Value: -1}}},
 		{Keys: map[string]int{"last_run_at": 1}},
 	}
 	_, _ = db.Collection("saved_searches").Indexes().CreateMany(ctx, savedSearchIndexes)
@@ -190,7 +191,7 @@ func (db *DB) createIndexes(ctx context.Context) error {
 
 	collectionIndexes := []mongo.IndexModel{
 		{Keys: map[string]int{"slug": 1}, Options: options.Index().SetUnique(true)},
-		{Keys: map[string]int{"destination": 1, "featured": -1}},
+		{Keys: bson.D{{Key: "destination", Value: 1}, {Key: "featured", Value: -1}}},
 	}
 	_, _ = db.Collection("collections").Indexes().CreateMany(ctx, collectionIndexes)
 
@@ -205,7 +206,7 @@ func (db *DB) createIndexes(ctx context.Context) error {
 	// Trip queries hit FindByUserID (with shared_with OR) and share-slug
 	// lookups constantly.
 	_, _ = db.Collection("trips").Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys: map[string]int{"user_id": 1, "start_date": -1},
+		Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "start_date", Value: -1}},
 	})
 	_, _ = db.Collection("trips").Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys: map[string]int{"shared_with": 1},
@@ -225,7 +226,7 @@ func (db *DB) createIndexes(ctx context.Context) error {
 			Options: options.Index().SetUnique(true).SetSparse(true),
 		},
 		{
-			Keys: map[string]int{"type": 1, "status": 1},
+			Keys: bson.D{{Key: "type", Value: 1}, {Key: "status", Value: 1}},
 		},
 	}
 	if _, err := db.Collection("bookings").Indexes().CreateMany(ctx, bookingsIndexes); err != nil {
@@ -233,8 +234,8 @@ func (db *DB) createIndexes(ctx context.Context) error {
 	}
 
 	auditIndexes := []mongo.IndexModel{
-		{Keys: map[string]int{"user_id": 1, "created_at": -1}},
-		{Keys: map[string]int{"action": 1, "created_at": -1}},
+		{Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "created_at", Value: -1}}},
+		{Keys: bson.D{{Key: "action", Value: 1}, {Key: "created_at", Value: -1}}},
 	}
 	if _, err := db.Collection("audit_logs").Indexes().CreateMany(ctx, auditIndexes); err != nil {
 		slog.Warn("failed to create audit indexes", "error", err)

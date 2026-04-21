@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -234,15 +235,84 @@ func (h *Handler) SearchHotels(w http.ResponseWriter, r *http.Request) {
 		req.Radius = n
 	}
 
-	offers, err := h.hotelService.Search(r.Context(), req)
-	if err != nil {
-		h.jsonError(w, http.StatusInternalServerError, err.Error())
+	// Fan out in parallel to the legacy provider registry (Amadeus) AND to
+	// the partner services (Booking.com Demand + Expedia EPS). Partners
+	// speak a simpler shape than HotelProvider so we surface them in a
+	// separate `partner_offers` key rather than forcing model translation.
+	type result struct {
+		hotels   []models.HotelOffer
+		partners []map[string]interface{}
+		err      error
+	}
+	ctx := r.Context()
+
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		hotels  []models.HotelOffer
+		partners []map[string]interface{}
+		firstErr error
+	)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		offers, err := h.hotelService.Search(ctx, req)
+		mu.Lock()
+		defer mu.Unlock()
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			return
+		}
+		hotels = offers
+	}()
+
+	ssr := service.StaySearchRequest{
+		Destination: req.CityCode,
+		CheckIn:     req.CheckIn,
+		CheckOut:    req.CheckOut,
+		Adults:      req.Adults,
+		Currency:    req.Currency,
+	}
+	if h.bookingPartner != nil && h.bookingPartner.Configured() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			offers, err := h.bookingPartner.Search(ctx, ssr)
+			mu.Lock()
+			partners = append(partners, map[string]interface{}{
+				"source": "booking", "offers": offers, "error": errString(err),
+			})
+			mu.Unlock()
+		}()
+	}
+	if h.expediaPartner != nil && h.expediaPartner.Configured() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			offers, err := h.expediaPartner.Search(ctx, ssr)
+			mu.Lock()
+			partners = append(partners, map[string]interface{}{
+				"source": "expedia", "offers": offers, "error": errString(err),
+			})
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+
+	// Only treat the request as failed when every source failed — partial
+	// results still render cleanly.
+	if len(hotels) == 0 && len(partners) == 0 && firstErr != nil {
+		h.jsonError(w, http.StatusInternalServerError, firstErr.Error())
 		return
 	}
 
 	h.jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"hotels": offers,
-		"count":  len(offers),
+		"hotels":         hotels,
+		"count":          len(hotels),
+		"partner_offers": partners,
 	})
 }
 
@@ -349,13 +419,28 @@ func (h *Handler) SearchCars(w http.ResponseWriter, r *http.Request) {
 
 	offers, err := h.carService.Search(r.Context(), req)
 	if err != nil {
-		h.jsonError(w, http.StatusInternalServerError, err.Error())
-		return
+		// When the primary provider is dead we still hand back affiliate
+		// deep-links so the user can compare prices elsewhere rather than
+		// seeing a generic error. Logged so operations can spot provider
+		// outages.
+		slog.Warn("cars: primary provider failed, returning affiliate deep-links", "error", err)
+		offers = nil
+	}
+
+	var deepLinks []service.CarDeepLink
+	if h.carAffiliates != nil {
+		deepLinks = h.carAffiliates.Generate(r.Context(), service.CarSearchInput{
+			PickupLocation:  req.PickupLocation,
+			DropoffLocation: req.DropoffLocation,
+			PickupAt:        req.PickupDateTime,
+			DropoffAt:       req.DropoffDateTime,
+		})
 	}
 
 	h.jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"cars":  offers,
-		"count": len(offers),
+		"cars":       offers,
+		"count":      len(offers),
+		"affiliates": deepLinks,
 	})
 }
 

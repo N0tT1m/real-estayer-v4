@@ -469,6 +469,101 @@
                     </form>
                 </div>
             </div>
+
+            <!-- Discover Destinations by Region -->
+            <div class="bg-white rounded-xl shadow-sm p-6 mt-8">
+                <div class="flex items-start justify-between mb-4">
+                    <div>
+                        <h2 class="text-lg font-semibold text-gray-900 mb-1">Discover Destinations by Region</h2>
+                        <p class="text-sm text-gray-500">Type a state, province, or country (e.g. <em>Michigan</em>, <em>Bavaria</em>, <em>Kyushu</em>). We query Wikidata for tourism-relevant places in that region and rank them by Wikipedia pageviews. Pick which ones to add.</p>
+                    </div>
+                </div>
+
+                <form @submit.prevent="discoverDestinations" class="flex flex-col sm:flex-row gap-3 mb-5">
+                    <input type="text" x-model="discoverForm.region" placeholder="Region name (e.g. Michigan)"
+                           class="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" required>
+                    <select x-model.number="discoverForm.limit" class="sm:w-40 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                        <option :value="20">Top 20</option>
+                        <option :value="30">Top 30</option>
+                        <option :value="50">Top 50</option>
+                        <option :value="100">Top 100</option>
+                    </select>
+                    <button type="submit" :disabled="discovering" class="sm:w-40 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition font-medium">
+                        <span x-show="!discovering">Discover</span>
+                        <span x-show="discovering">Searching…</span>
+                    </button>
+                </form>
+
+                <div x-show="discoverError" class="mb-4 p-3 rounded-lg bg-red-50 border border-red-200">
+                    <p class="text-sm text-red-700" x-text="discoverError"></p>
+                </div>
+
+                <div x-show="discoverRegion" class="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-800">
+                    <span>Matched Wikidata entity:</span>
+                    <strong x-text="discoverRegion?.label"></strong>
+                    <span class="text-blue-600" x-show="discoverRegion?.description" x-text="'— ' + (discoverRegion?.description || '')"></span>
+                    <a :href="'https://www.wikidata.org/wiki/' + (discoverRegion?.qid || '')" target="_blank" class="ml-2 text-blue-600 underline" x-text="discoverRegion?.qid"></a>
+                </div>
+
+                <template x-if="discoverCandidates.length > 0">
+                    <div>
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="text-sm text-gray-600">
+                                <span x-text="discoverCandidates.length"></span> candidates
+                                <span class="text-gray-400">· </span>
+                                <button @click="toggleSelectAll" class="text-primary-600 hover:underline" x-text="allNewSelected ? 'Clear selection' : 'Select all new'"></button>
+                            </div>
+                            <div class="text-sm text-gray-500">
+                                <span x-text="selectedCount"></span> selected
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 max-h-[650px] overflow-y-auto pr-1">
+                            <template x-for="(c, idx) in discoverCandidates" :key="c.wikidata_id">
+                                <label class="relative flex gap-3 p-3 border rounded-lg cursor-pointer transition"
+                                       :class="c.already_exists ? 'bg-gray-50 border-gray-200 opacity-75' : (c._selected ? 'border-primary-500 bg-primary-50 ring-2 ring-primary-200' : 'border-gray-200 hover:border-gray-300')">
+                                    <input type="checkbox" x-model="c._selected" :disabled="c.already_exists" class="absolute top-3 right-3 h-4 w-4 text-primary-600 rounded focus:ring-primary-500">
+                                    <div class="h-20 w-20 flex-shrink-0 rounded-md bg-gray-100 overflow-hidden">
+                                        <template x-if="c.image_url">
+                                            <img :src="c.image_url" :alt="c.name" class="h-full w-full object-cover" loading="lazy" @error="c.image_url = ''">
+                                        </template>
+                                        <template x-if="!c.image_url">
+                                            <div class="h-full w-full flex items-center justify-center text-gray-400 text-xs">no image</div>
+                                        </template>
+                                    </div>
+                                    <div class="flex-1 min-w-0 pr-6">
+                                        <div class="flex items-center gap-2">
+                                            <h3 class="font-medium text-gray-900 truncate" x-text="c.name"></h3>
+                                            <span x-show="c.already_exists" class="text-[10px] uppercase tracking-wide px-1.5 py-0.5 bg-gray-200 text-gray-600 rounded">in DB</span>
+                                        </div>
+                                        <p class="text-xs text-gray-500 truncate" x-text="(c.country || c.country_code || '—') + (c.region ? ' · ' + c.region : '')"></p>
+                                        <p class="text-xs text-gray-600 mt-1 line-clamp-2" x-text="c.description"></p>
+                                        <div class="flex items-center gap-3 mt-1.5 text-xs text-gray-400">
+                                            <span title="Annual Wikipedia pageviews">👁 <span x-text="formatNumber(c.page_views_year)"></span></span>
+                                            <span title="Wikipedia sitelink count">🔗 <span x-text="c.sitelink_count"></span></span>
+                                            <a :href="c.wikipedia_url" target="_blank" class="text-primary-600 hover:underline">wiki</a>
+                                        </div>
+                                    </div>
+                                </label>
+                            </template>
+                        </div>
+
+                        <div class="flex items-center justify-between mt-5 pt-4 border-t border-gray-200">
+                            <div x-show="confirmResult" class="text-sm text-green-700" x-text="confirmResult"></div>
+                            <div x-show="confirmError" class="text-sm text-red-700" x-text="confirmError"></div>
+                            <button @click="confirmDiscovered" :disabled="confirming || selectedCount === 0"
+                                    class="ml-auto px-5 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed transition font-medium">
+                                <span x-show="!confirming">Add <span x-text="selectedCount"></span> destinations</span>
+                                <span x-show="confirming">Adding…</span>
+                            </button>
+                        </div>
+                    </div>
+                </template>
+
+                <div x-show="!discovering && !discoverCandidates.length && discoverAttempted" class="text-sm text-gray-500 text-center py-8">
+                    No tourism-relevant places found for that region. Try a broader name or a different language.
+                </div>
+            </div>
         </div>
 
         <!-- Jobs Tab -->
@@ -566,6 +661,29 @@ function adminDashboard() {
             name: '',
             country_code: '',
             region: ''
+        },
+
+        // Region-based discovery (Wikidata SPARQL + Wikipedia pageviews)
+        discovering: false,
+        discoverAttempted: false,
+        discoverError: null,
+        discoverRegion: null,
+        discoverCandidates: [],
+        discoverForm: {
+            region: '',
+            limit: 30
+        },
+        confirming: false,
+        confirmResult: null,
+        confirmError: null,
+
+        get selectedCount() {
+            return this.discoverCandidates.filter(c => c._selected).length;
+        },
+
+        get allNewSelected() {
+            const newOnes = this.discoverCandidates.filter(c => !c.already_exists);
+            return newOnes.length > 0 && newOnes.every(c => c._selected);
         },
         popularLocations: [
             { city: 'Miami', state: 'Florida', country: 'USA', flag: '🇺🇸' },
@@ -882,6 +1000,106 @@ function adminDashboard() {
             } finally {
                 this.addingDest = false;
             }
+        },
+
+        async discoverDestinations() {
+            if (!this.discoverForm.region) return;
+
+            this.discovering = true;
+            this.discoverAttempted = true;
+            this.discoverError = null;
+            this.discoverRegion = null;
+            this.discoverCandidates = [];
+            this.confirmResult = null;
+            this.confirmError = null;
+
+            try {
+                const res = await fetch('/api/v1/admin/destinations/discover', {
+                    method: 'POST',
+                    headers: window.csrfHeaders({ 'Content-Type': 'application/json' }),
+                    body: JSON.stringify({
+                        region: this.discoverForm.region,
+                        limit: this.discoverForm.limit || 30
+                    })
+                });
+
+                if (!res.ok) {
+                    const text = await res.text();
+                    throw new Error(text || 'Discovery failed');
+                }
+
+                const data = await res.json();
+                this.discoverRegion = data.region;
+                // Each candidate gets a client-side _selected flag; pre-check the
+                // ones that don't already exist so the admin's default is "add
+                // everything you just showed me."
+                this.discoverCandidates = (data.candidates || []).map(c => ({
+                    ...c,
+                    _selected: !c.already_exists
+                }));
+            } catch (e) {
+                this.discoverError = e.message || 'Discovery failed';
+            } finally {
+                this.discovering = false;
+            }
+        },
+
+        toggleSelectAll() {
+            const shouldSelect = !this.allNewSelected;
+            this.discoverCandidates.forEach(c => {
+                if (!c.already_exists) c._selected = shouldSelect;
+            });
+        },
+
+        async confirmDiscovered() {
+            const picked = this.discoverCandidates
+                .filter(c => c._selected && !c.already_exists)
+                .map(({ _selected, ...rest }) => rest);
+
+            if (picked.length === 0) return;
+
+            this.confirming = true;
+            this.confirmResult = null;
+            this.confirmError = null;
+
+            try {
+                const res = await fetch('/api/v1/admin/destinations/discover/confirm', {
+                    method: 'POST',
+                    headers: window.csrfHeaders({ 'Content-Type': 'application/json' }),
+                    body: JSON.stringify({ candidates: picked })
+                });
+
+                if (!res.ok) {
+                    const text = await res.text();
+                    throw new Error(text || 'Confirm failed');
+                }
+
+                const data = await res.json();
+                let msg = `Added ${data.inserted} destinations` + (data.skipped ? ` (${data.skipped} skipped)` : '') + '.';
+                if (data.scraping) {
+                    msg += ` Queued ${data.scraping} rust-scraper jobs — check the Scraping tab for progress.`;
+                }
+                this.confirmResult = msg;
+                // Flip the successfully-inserted rows to "already_exists" so the
+                // admin can't double-click and duplicate them.
+                this.discoverCandidates.forEach(c => {
+                    if (c._selected && !c.already_exists) {
+                        c.already_exists = true;
+                        c._selected = false;
+                    }
+                });
+            } catch (e) {
+                this.confirmError = e.message || 'Confirm failed';
+            } finally {
+                this.confirming = false;
+            }
+        },
+
+        formatNumber(n) {
+            if (!n) return '0';
+            if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+            if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+            return String(n);
         },
 
         formatDate(dateStr) {

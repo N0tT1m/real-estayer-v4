@@ -62,6 +62,12 @@ type Config struct {
 	// the service gracefully falls back to OSRM driving.
 	GoogleDirectionsKey string
 
+	// Car-rental affiliate IDs. All three are optional — when empty the
+	// deep-link still renders, just without the tracking parameter.
+	RentalcarsAffiliateID string
+	PricelineAffiliateID  string
+	KayakAffiliateID      string
+
 	// Public URL of this deployment — used in email links. Falls back to
 	// http://localhost:<port> in dev.
 	AppBaseURL string
@@ -75,8 +81,11 @@ type Config struct {
 	// empty, fields are stored plain-text and the profile UI shows a warning.
 	FieldEncryptionKey string
 
-	// Amadeus API
+	// Amadeus API (legacy — kept for backwards compat while we migrate off)
 	Amadeus AmadeusConfig
+
+	// Duffel API — flights replacement for Amadeus. Single access token.
+	Duffel DuffelConfig
 
 	// Email
 	Email EmailConfig
@@ -86,6 +95,14 @@ type AmadeusConfig struct {
 	ClientID     string
 	ClientSecret string
 	BaseURL      string
+}
+
+// DuffelConfig holds Duffel Air API credentials. BaseURL defaults to
+// https://api.duffel.com; Duffel doesn't ship a separate test host — test
+// tokens return sandbox data against the same URL.
+type DuffelConfig struct {
+	AccessToken string
+	BaseURL     string
 }
 
 type EmailConfig struct {
@@ -125,7 +142,10 @@ func Load() (*Config, error) {
 		BookingDemandKey:   os.Getenv("BOOKING_DEMAND_KEY"),
 		ExpediaAPIKey:      os.Getenv("EPS_API_KEY"),
 		ExpediaSharedSecret: os.Getenv("EPS_SHARED_SECRET"),
-		GoogleDirectionsKey: os.Getenv("GOOGLE_DIRECTIONS_KEY"),
+		GoogleDirectionsKey:   os.Getenv("GOOGLE_DIRECTIONS_KEY"),
+		RentalcarsAffiliateID: os.Getenv("RENTALCARS_AFFILIATE_ID"),
+		PricelineAffiliateID:  os.Getenv("PRICELINE_AFFILIATE_ID"),
+		KayakAffiliateID:      os.Getenv("KAYAK_AFFILIATE_ID"),
 		AppBaseURL:         os.Getenv("APP_BASE_URL"),
 		ErrorWebhookURL:    os.Getenv("ERROR_WEBHOOK_URL"),
 		MetricsEnabled:     getEnvBool("METRICS_ENABLED", false),
@@ -138,6 +158,10 @@ func Load() (*Config, error) {
 			// override — so we don't silently route real bookings through the
 			// sandbox because an env var got missed.
 			BaseURL: ensureHTTPS(resolveAmadeusBaseURL()),
+		},
+		Duffel: DuffelConfig{
+			AccessToken: os.Getenv("DUFFEL_ACCESS_TOKEN"),
+			BaseURL:     getEnv("DUFFEL_BASE_URL", "https://api.duffel.com"),
 		},
 		Email: EmailConfig{
 			SMTPHost:     os.Getenv("SMTP_HOST"),
@@ -218,8 +242,10 @@ func (c *Config) LogFeatureSummary() {
 		}
 	}
 
+	feature("duffel", c.Duffel.AccessToken != "",
+		"flights (new primary provider)")
 	feature("amadeus", c.Amadeus.ClientID != "" && c.Amadeus.ClientSecret != "",
-		"flights/hotels/cars + destination seed")
+		"legacy flights/hotels/cars — being decommissioned")
 	feature("email_smtp", c.Email.SMTPHost != "",
 		"password reset + notification emails")
 	feature("redis", c.RedisURL != "" && !strings.HasPrefix(c.RedisURL, "redis://localhost"),
@@ -238,6 +264,8 @@ func (c *Config) LogFeatureSummary() {
 	feature("unsplash", c.UnsplashKey != "", "destination hero images")
 	feature("google_directions", c.GoogleDirectionsKey != "", "transit routing (falls back to OSRM)")
 	feature("booking_affiliate", c.BookingAffiliateID != "", "Booking.com affiliate links")
+	feature("car_affiliates", c.RentalcarsAffiliateID != "" || c.PricelineAffiliateID != "" || c.KayakAffiliateID != "",
+		"/cars deep-link tracking (at least one of rentalcars/priceline/kayak)")
 	feature("expedia", c.ExpediaAPIKey != "" && c.ExpediaSharedSecret != "", "Expedia partner search")
 	feature("metrics", c.MetricsEnabled, "/metrics endpoint")
 	feature("error_webhook", c.ErrorWebhookURL != "", "panic reporting")

@@ -62,10 +62,34 @@
         </form>
     </div>
 
+    <!-- Affiliate compare cards — shown alongside any direct results, or
+         on their own when we don't have a car API contract live. Clicking
+         a card opens the partner search in a new tab with the user's dates
+         pre-filled. -->
+    <div x-show="affiliates.length > 0 && searched" x-cloak class="mb-8">
+        <div class="divider-label mb-3"><span>Compare rental prices</span></div>
+        <div class="grid md:grid-cols-3 gap-4">
+            <template x-for="link in affiliates" :key="link.partner">
+                <a :href="link.url" target="_blank" rel="noopener sponsored"
+                   class="surface p-5 hover:shadow-lift hover:-translate-y-0.5 transition flex flex-col gap-3">
+                    <div class="flex items-center justify-between">
+                        <span class="font-display text-lg font-medium" x-text="link.partner"></span>
+                        <svg class="h-4 w-4 text-soft" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h7v7M20 7L10 17M7 4H5a2 2 0 00-2 2v13a2 2 0 002 2h13a2 2 0 002-2v-2"/>
+                        </svg>
+                    </div>
+                    <p class="text-sm text-muted" x-text="link.subtitle"></p>
+                    <p class="mt-auto text-sm text-primary-600 dark:text-primary-300 font-medium" x-text="link.label + ' →'"></p>
+                </a>
+            </template>
+        </div>
+        <p class="text-xs text-soft mt-3">Links above are affiliate comparisons — we earn a small commission on bookings, at no extra cost to you.</p>
+    </div>
+
     <!-- Results -->
     <div x-show="cars.length > 0" x-cloak>
         <div class="flex justify-between items-center mb-4">
-            <h2 class="text-xl font-semibold text-gray-900" x-text="`${cars.length} cars found`"></h2>
+            <h2 class="text-xl font-semibold" x-text="`${cars.length} cars available`"></h2>
             <select x-model="sortBy" @change="sortCars" class="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                 <option value="price_asc">Price: Low to High</option>
                 <option value="price_desc">Price: High to Low</option>
@@ -136,13 +160,15 @@
         </div>
     </div>
 
-    <!-- Empty state -->
-    <div x-show="searched && cars.length === 0" x-cloak class="text-center py-12">
-        <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+    <!-- Empty state: shown only when neither the primary provider nor the
+         affiliate links returned anything. In practice affiliates always
+         render because they're just deep-link generators. -->
+    <div x-show="searched && cars.length === 0 && affiliates.length === 0" x-cloak class="empty-state surface">
+        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 17a2 2 0 104 0 2 2 0 00-4 0zm10 0a2 2 0 104 0 2 2 0 00-4 0zM3 13l1-5a2 2 0 012-2h12a2 2 0 012 2l1 5M5 13h14"/>
         </svg>
-        <h3 class="mt-2 text-sm font-medium text-gray-900">No cars found</h3>
-        <p class="mt-1 text-sm text-gray-500">Try adjusting your search criteria.</p>
+        <p class="font-display text-xl font-medium text-[color:var(--re-text)]">No cars for those dates</p>
+        <p class="mt-1 text-sm">Try a nearby pickup location or adjust your window.</p>
     </div>
 
     <!-- Initial state -->
@@ -168,6 +194,7 @@ function carSearch() {
             driverAge: 25
         },
         cars: [],
+        affiliates: [], // affiliate compare-links populated from the API
         loading: false,
         searched: false,
         sortBy: 'price_asc',
@@ -190,10 +217,12 @@ function carSearch() {
                 const response = await fetch(`/api/v1/cars/search?${params}`);
                 const data = await response.json();
                 this.cars = data.cars || [];
+                this.affiliates = data.affiliates || [];
                 this.sortCars();
             } catch (error) {
                 console.error('Search failed:', error);
                 this.cars = [];
+                this.affiliates = [];
             } finally {
                 this.loading = false;
             }
@@ -210,11 +239,12 @@ function carSearch() {
         },
 
         selectCar(car) {
-            // Store selected car and redirect to booking
             sessionStorage.setItem('selectedCar', JSON.stringify(car));
             sessionStorage.setItem('carSearchParams', JSON.stringify(this.search));
-            // In a real app, redirect to booking page
-            alert('Car selected: ' + car.vehicle.type + ' from ' + car.vendor + '\n\nTotal: $' + car.price.total.toFixed(2));
+            // Stash the affiliate compare-links built for this search so the
+            // /cars/book page can offer them without re-querying the API.
+            sessionStorage.setItem('carAffiliates', JSON.stringify(this.affiliates));
+            window.location.href = '/cars/book';
         }
     }
 }
