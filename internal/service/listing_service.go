@@ -49,6 +49,21 @@ func (s *ListingService) GetCountries(ctx context.Context) ([]string, error) {
 	return s.listingRepo.GetCountries(ctx)
 }
 
+// GetStates returns distinct US regions across listings.
+func (s *ListingService) GetStates(ctx context.Context) ([]string, error) {
+	return s.listingRepo.GetStates(ctx)
+}
+
+// GetProvinces returns distinct Canadian regions across listings.
+func (s *ListingService) GetProvinces(ctx context.Context) ([]string, error) {
+	return s.listingRepo.GetProvinces(ctx)
+}
+
+// GetCities returns distinct city names parsed from listing locations.
+func (s *ListingService) GetCities(ctx context.Context) ([]string, error) {
+	return s.listingRepo.GetCities(ctx)
+}
+
 // GetStats returns listing statistics
 func (s *ListingService) GetStats(ctx context.Context) (map[string]interface{}, error) {
 	count, err := s.listingRepo.Count(ctx)

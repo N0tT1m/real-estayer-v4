@@ -48,33 +48,55 @@ func (h *Handler) DashboardPage(w http.ResponseWriter, r *http.Request) {
 
 // ListingsPage renders the listings browse page
 func (h *Handler) ListingsPage(w http.ResponseWriter, r *http.Request) {
-	// Parse amenities from query params (can be multiple)
-	amenities := r.URL.Query()["amenities"]
+	q := r.URL.Query()
+	amenities := q["amenities"]
 
-	// Parse page number from query params
 	page := 1
-	if pageStr := r.URL.Query().Get("page"); pageStr != "" {
+	if pageStr := q.Get("page"); pageStr != "" {
 		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
 			page = p
 		}
 	}
 
+	// locType controls how the single "Location" dropdown is interpreted:
+	// state/province populate Region (with a matching Country constraint so a
+	// New York state match doesn't leak into a New York city in Ontario),
+	// city populates the City prefix filter. Defaults to state.
+	locType := q.Get("loc_type")
+	locValue := q.Get("loc_value")
+	if locType == "" {
+		locType = "state"
+	}
+
 	params := models.ListingSearchParams{
-		Query:    r.URL.Query().Get("q"),
-		Location: r.URL.Query().Get("location"),
-		Region:   r.URL.Query().Get("region"),
-		Country:  r.URL.Query().Get("country"),
+		Query:    q.Get("q"),
+		Location: q.Get("location"),
 		Features: amenities,
-		SortBy:   r.URL.Query().Get("sort"),
+		SortBy:   q.Get("sort"),
 		Page:     page,
 		Limit:    20,
+	}
+	switch locType {
+	case "state":
+		if locValue != "" {
+			params.Region = locValue
+			params.Country = "United States"
+		}
+	case "province":
+		if locValue != "" {
+			params.Region = locValue
+			params.Country = "Canada"
+		}
+	case "city":
+		params.City = locValue
 	}
 
 	result, _ := h.listingService.Search(r.Context(), params)
 	features, _ := h.listingService.GetFeatures(r.Context())
-	regions, _ := h.listingService.GetRegions(r.Context())
+	states, _ := h.listingService.GetStates(r.Context())
+	provinces, _ := h.listingService.GetProvinces(r.Context())
+	cities, _ := h.listingService.GetCities(r.Context())
 
-	// Create a map of selected amenities for easy lookup in template
 	selectedAmenities := make(map[string]bool)
 	for _, a := range amenities {
 		selectedAmenities[a] = true
@@ -88,7 +110,11 @@ func (h *Handler) ListingsPage(w http.ResponseWriter, r *http.Request) {
 		"TotalPages":        result.TotalPages,
 		"Limit":             result.Limit,
 		"Features":          features,
-		"Regions":           regions,
+		"States":            states,
+		"Provinces":         provinces,
+		"Cities":            cities,
+		"LocType":           locType,
+		"LocValue":          locValue,
 		"Params":            params,
 		"SelectedAmenities": selectedAmenities,
 	})

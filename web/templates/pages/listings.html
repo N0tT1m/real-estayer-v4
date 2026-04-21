@@ -10,21 +10,61 @@
                     <h2 class="font-semibold text-gray-900 mb-4">Filters</h2>
                 </div>
 
-                <form action="/listings" method="GET" class="flex flex-col flex-1 min-h-0">
+                <form action="/listings" method="GET" class="flex flex-col flex-1 min-h-0"
+                      x-data="{
+                          locType: '{{.LocType}}',
+                          locValue: '{{.LocValue}}',
+                          // Switching toggle blanks the current selection so the
+                          // submit doesn't carry a stale state value into a city
+                          // query (etc.).
+                          setType(t) { this.locType = t; this.locValue = ''; }
+                      }">
+                    <input type="hidden" name="loc_type" :value="locType">
                     <div class="flex-1 overflow-y-auto px-6 space-y-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Location</label>
-                            <input type="text" name="location" value="{{.Params.Location}}" placeholder="Any location" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Browse by</label>
+                            <div class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 w-full">
+                                <button type="button" @click="setType('state')"
+                                        :class="locType === 'state' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'"
+                                        class="flex-1 px-2 py-1.5 text-xs font-medium rounded-md transition">State</button>
+                                <button type="button" @click="setType('province')"
+                                        :class="locType === 'province' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'"
+                                        class="flex-1 px-2 py-1.5 text-xs font-medium rounded-md transition">Province</button>
+                                <button type="button" @click="setType('city')"
+                                        :class="locType === 'city' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'"
+                                        class="flex-1 px-2 py-1.5 text-xs font-medium rounded-md transition">City</button>
+                            </div>
+
+                            <div class="mt-2">
+                                <template x-if="locType === 'state'">
+                                    <select name="loc_value" x-model="locValue"
+                                            class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm">
+                                        <option value="">Any state</option>
+                                        {{range .States}}<option value="{{.}}">{{.}}</option>{{end}}
+                                    </select>
+                                </template>
+                                <template x-if="locType === 'province'">
+                                    <select name="loc_value" x-model="locValue"
+                                            class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm">
+                                        <option value="">Any province</option>
+                                        {{range .Provinces}}<option value="{{.}}">{{.}}</option>{{end}}
+                                    </select>
+                                </template>
+                                <template x-if="locType === 'city'">
+                                    <select name="loc_value" x-model="locValue"
+                                            class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm">
+                                        <option value="">Any city</option>
+                                        {{range .Cities}}<option value="{{.}}">{{.}}</option>{{end}}
+                                    </select>
+                                </template>
+                                <p class="mt-1 text-[11px] text-gray-400"
+                                   x-text="locType === 'state' ? ('{{len .States}}' + ' US states with scraped listings') : (locType === 'province' ? ('{{len .Provinces}}' + ' Canadian provinces with scraped listings') : ('{{len .Cities}}' + ' cities with scraped listings'))"></p>
+                            </div>
                         </div>
 
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Region</label>
-                            <select name="region" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm">
-                                <option value="">All regions</option>
-                                {{range .Regions}}
-                                <option value="{{.}}" {{if eq $.Params.Region .}}selected{{end}}>{{.}}</option>
-                                {{end}}
-                            </select>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Keyword</label>
+                            <input type="text" name="location" value="{{.Params.Location}}" placeholder="Freeform match on address" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm">
                         </div>
 
                         <div>
@@ -82,7 +122,7 @@
         <div class="flex-1">
             <div class="flex justify-between items-center mb-6">
                 <h1 class="text-2xl font-bold text-gray-900">
-                    {{if .Params.Location}}Stays in {{.Params.Location}}{{else}}All Stays{{end}}
+                    {{if .LocValue}}Stays in {{.LocValue}}{{else if .Params.Location}}Stays in {{.Params.Location}}{{else}}All Stays{{end}}
                 </h1>
                 <span class="text-gray-500">{{.Total}} results</span>
             </div>
@@ -138,7 +178,7 @@
             <nav class="mt-8 flex items-center justify-center">
                 <div class="flex items-center gap-1">
                     {{if gt .Page 1}}
-                    <a href="?{{with .Params}}{{if .Location}}location={{.Location}}&{{end}}{{if .Region}}region={{.Region}}&{{end}}{{if .Country}}country={{.Country}}&{{end}}{{range .Features}}amenities={{.}}&{{end}}{{if .SortBy}}sort={{.SortBy}}&{{end}}{{end}}page={{subtract .Page 1}}"
+                    <a href="?{{if .LocType}}loc_type={{.LocType}}&{{end}}{{if .LocValue}}loc_value={{.LocValue}}&{{end}}{{with .Params}}{{if .Location}}location={{.Location}}&{{end}}{{range .Features}}amenities={{.}}&{{end}}{{if .SortBy}}sort={{.SortBy}}&{{end}}{{end}}page={{subtract .Page 1}}"
                        class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
                         Previous
                     </a>
@@ -150,7 +190,7 @@
                     {{else if eq $p $.Page}}
                     <span class="px-3 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg">{{$p}}</span>
                     {{else}}
-                    <a href="?{{with $.Params}}{{if .Location}}location={{.Location}}&{{end}}{{if .Region}}region={{.Region}}&{{end}}{{if .Country}}country={{.Country}}&{{end}}{{range .Features}}amenities={{.}}&{{end}}{{if .SortBy}}sort={{.SortBy}}&{{end}}{{end}}page={{$p}}"
+                    <a href="?{{if $.LocType}}loc_type={{$.LocType}}&{{end}}{{if $.LocValue}}loc_value={{$.LocValue}}&{{end}}{{with $.Params}}{{if .Location}}location={{.Location}}&{{end}}{{range .Features}}amenities={{.}}&{{end}}{{if .SortBy}}sort={{.SortBy}}&{{end}}{{end}}page={{$p}}"
                        class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
                         {{$p}}
                     </a>
@@ -158,7 +198,7 @@
                     {{end}}
 
                     {{if lt .Page .TotalPages}}
-                    <a href="?{{with .Params}}{{if .Location}}location={{.Location}}&{{end}}{{if .Region}}region={{.Region}}&{{end}}{{if .Country}}country={{.Country}}&{{end}}{{range .Features}}amenities={{.}}&{{end}}{{if .SortBy}}sort={{.SortBy}}&{{end}}{{end}}page={{add .Page 1}}"
+                    <a href="?{{if .LocType}}loc_type={{.LocType}}&{{end}}{{if .LocValue}}loc_value={{.LocValue}}&{{end}}{{with .Params}}{{if .Location}}location={{.Location}}&{{end}}{{range .Features}}amenities={{.}}&{{end}}{{if .SortBy}}sort={{.SortBy}}&{{end}}{{end}}page={{add .Page 1}}"
                        class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
                         Next
                     </a>
