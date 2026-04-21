@@ -46,8 +46,12 @@ type CityFacts struct {
 }
 
 func NewWikidataService() *WikidataService {
+	// 90s ceiling: Wikidata's public SPARQL endpoint enforces a ~60s server
+	// timeout on heavy queries (e.g. P131* over US states), and DNS/TLS
+	// setup eats another few seconds on cold calls. Inner call sites still
+	// pass a tighter context deadline when they want one — that wins.
 	return &WikidataService{
-		client: &http.Client{Timeout: 15 * time.Second},
+		client: &http.Client{Timeout: 90 * time.Second},
 		cache:  map[string]wikidataCacheEntry{},
 	}
 }
@@ -369,14 +373,20 @@ ORDER BY DESC(?sitelinks)
 LIMIT 200
 `, regionQID)
 
-	u := "https://query.wikidata.org/sparql?query=" + url.QueryEscape(query) + "&format=json"
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	// POST the query so it doesn't ride in the URL — SPARQL queries over large
+	// regions can exceed practical GET length limits, and some proxies cap
+	// query strings below what Wikidata will accept.
+	form := url.Values{}
+	form.Set("query", query)
+	form.Set("format", "json")
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "https://query.wikidata.org/sparql", strings.NewReader(form.Encode()))
 	req.Header.Set("Accept", "application/sparql-results+json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", "Real-Estayer/1.0 (https://real-estayer.app)")
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("wikidata discover: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
