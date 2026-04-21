@@ -41,10 +41,12 @@ services:
 
   mongodb:
     image: mongo:7.0.14
-    # Only exposed on the compose network; uncomment `ports` for local-dev DB
-    # access and know that you're punching a hole to 0.0.0.0.
-    # ports:
-    #   - "127.0.0.1:27017:27017"
+    # Exposed on all interfaces so an off-box rust-scraper can write directly
+    # into the same collection the Go app reads from. Fine for LAN-only dev.
+    # In production this should stay on the compose network and the scraper
+    # should authenticate (or write through an HTTP API).
+    ports:
+      - "0.0.0.0:27017:27017"
     volumes:
       - mongodb_data:/data/db
     restart: unless-stopped

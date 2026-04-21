@@ -50,6 +50,11 @@ type ListingSearchParams struct {
 	Location    string   `json:"location"`
 	Region      string   `json:"region"`
 	Country     string   `json:"country"`
+	// City matches the first comma-separated segment of the listing's raw
+	// location string — set by the /listings location-type toggle ("city"
+	// mode). Region covers state/province since both live in the same bson
+	// field; the toggle just constrains which values the dropdown offers.
+	City        string   `json:"city"`
 	MinPrice    float64  `json:"min_price"`
 	MaxPrice    float64  `json:"max_price"`
 	MinRating   float64  `json:"min_rating"`

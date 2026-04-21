@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -76,6 +77,14 @@ func (r *ListingRepository) Search(ctx context.Context, params models.ListingSea
 	// Country filter
 	if params.Country != "" {
 		filter["country"] = bson.M{"$regex": params.Country, "$options": "i"}
+	}
+
+	// City filter: anchored to the start of `location` so "Port Huron" doesn't
+	// also match "Export Huron" (hypothetical) and ends at a comma so
+	// "Detroit" matches "Detroit, Michigan..." but not "Detroit Lakes, MN".
+	if params.City != "" {
+		escaped := regexp.QuoteMeta(params.City)
+		filter["location"] = bson.M{"$regex": "^" + escaped + "\\s*,", "$options": "i"}
 	}
 
 	// Price range filter
@@ -235,6 +244,85 @@ func (r *ListingRepository) GetCountries(ctx context.Context) ([]string, error) 
 // Count returns total listing count
 func (r *ListingRepository) Count(ctx context.Context) (int64, error) {
 	return r.collection.CountDocuments(ctx, bson.M{})
+}
+
+// usCountries / caCountries capture the spelling variants the scraper has
+// emitted across its lifetime. Listings older than the normalisation pass
+// may still carry "USA" / "US" instead of "United States".
+var (
+	usCountryVariants = []string{"United States", "USA", "US", "U.S.", "U.S.A."}
+	caCountryVariants = []string{"Canada", "CA"}
+)
+
+// GetStates returns distinct regions (the scraper's state/province field) for
+// listings located in the United States, sorted alphabetically. Powers the
+// /listings "State" filter toggle.
+func (r *ListingRepository) GetStates(ctx context.Context) ([]string, error) {
+	return r.distinctRegionsByCountry(ctx, usCountryVariants)
+}
+
+// GetProvinces is the Canadian twin of GetStates.
+func (r *ListingRepository) GetProvinces(ctx context.Context) ([]string, error) {
+	return r.distinctRegionsByCountry(ctx, caCountryVariants)
+}
+
+func (r *ListingRepository) distinctRegionsByCountry(ctx context.Context, variants []string) ([]string, error) {
+	results, err := r.collection.Distinct(ctx, "region", bson.M{
+		"country": bson.M{"$in": variants},
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(results))
+	for _, v := range results {
+		if s, ok := v.(string); ok && s != "" {
+			out = append(out, s)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// GetCities returns distinct cities derived from the first comma-separated
+// segment of `location`. The aggregation does the split server-side so we
+// don't ship every listing row to the app just to pick a prefix. Sorted
+// alphabetically for UI stability.
+func (r *ListingRepository) GetCities(ctx context.Context) ([]string, error) {
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{"location": bson.M{"$ne": ""}}}},
+		{{Key: "$group", Value: bson.M{
+			"_id": bson.M{
+				"$trim": bson.M{
+					"input": bson.M{
+						"$arrayElemAt": bson.A{
+							bson.M{"$split": bson.A{"$location", ","}},
+							0,
+						},
+					},
+				},
+			},
+		}}},
+		{{Key: "$match", Value: bson.M{"_id": bson.M{"$ne": ""}}}},
+		{{Key: "$sort", Value: bson.M{"_id": 1}}},
+	}
+	cursor, err := r.collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var rows []struct {
+		ID string `bson:"_id"`
+	}
+	if err := cursor.All(ctx, &rows); err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		if r.ID != "" {
+			out = append(out, r.ID)
+		}
+	}
+	return out, nil
 }
 
 // Delete removes a listing by ID
