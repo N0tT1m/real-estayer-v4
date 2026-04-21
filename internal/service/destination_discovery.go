@@ -97,6 +97,15 @@ func (s *DestinationDiscoveryService) Discover(ctx context.Context, regionName s
 		return nil, err
 	}
 
+	// Wikidata already sorted by sitelink count (a decent popularity proxy),
+	// so pageview-ranking all ~200 rows wastes HTTP — 200 calls × rate limit
+	// can push this past a minute. Cap to 2× the requested limit: enough
+	// headroom for pageviews to reorder the head of the list without paying
+	// for every obscure entry.
+	if pageviewCap := limit * 2; len(raw) > pageviewCap {
+		raw = raw[:pageviewCap]
+	}
+
 	ranked := s.rankByPageviews(ctx, raw)
 
 	// Trim to the requested limit before we spend time on Wikipedia enrichment,
