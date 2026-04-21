@@ -216,10 +216,12 @@ func (h *DestinationHandler) AdminDiscoverDestinations(w http.ResponseWriter, r 
 		return
 	}
 
-	// SPARQL + pageviews + enrichment can take 30-60 seconds for a large
-	// region. Detach from the request context's default so a client that
-	// hung up doesn't cancel in the middle of enrichment.
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	// SPARQL + pageviews + enrichment can take 60-120 seconds for a large
+	// region (e.g. a US state with thousands of subdivisions). Detach from
+	// the request context's default so a client that hung up doesn't cancel
+	// in the middle of enrichment. Wikipedia calls are rate-limited at 5/s
+	// which throttles the enrichment fan-out.
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
 	defer cancel()
 
 	result, err := h.discoveryService.Discover(ctx, body.Region, body.Limit)
