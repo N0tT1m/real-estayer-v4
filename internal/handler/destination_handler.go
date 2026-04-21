@@ -316,17 +316,21 @@ func (h *DestinationHandler) scrapeDiscoveredAsync(cands []service.DiscoveryCand
 		return 0
 	}
 
+	slog.Info("discover scrape batch queued", "count", len(jobs), "check_in", checkIn.Format("2006-01-02"), "check_out", checkOut.Format("2006-01-02"))
+
 	go func(jobs []service.ScrapeParams) {
 		// Detached context — the admin's HTTP response has already returned.
 		// Cap the whole batch at 2 hours; each ScrapeCity call has its own
 		// 5-minute HTTP timeout inside ScraperService.
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 		defer cancel()
-		for _, p := range jobs {
+		slog.Info("discover scrape batch starting", "count", len(jobs))
+		for i, p := range jobs {
 			if ctx.Err() != nil {
-				slog.Warn("discover scrape batch aborted", "remaining", len(jobs), "error", ctx.Err())
+				slog.Warn("discover scrape batch aborted", "remaining", len(jobs)-i, "error", ctx.Err())
 				return
 			}
+			slog.Info("discover scrape starting job", "index", i+1, "of", len(jobs), "city", p.City, "country", p.Country)
 			if _, err := h.scraperService.ScrapeCity(ctx, p); err != nil {
 				slog.Warn("discover scrape failed", "city", p.City, "country", p.Country, "error", err)
 				continue
