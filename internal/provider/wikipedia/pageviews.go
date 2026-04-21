@@ -38,16 +38,21 @@ func (c *Client) MonthlyViews(ctx context.Context, articleTitle string) (int64, 
 	if err != nil {
 		return 0, err
 	}
-	req.Header.Set("User-Agent", "real-estayer/1.0 (travel app)")
+	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := c.http.Do(req)
+	resp, err := c.doWithRetry(req)
 	if err != nil {
 		return 0, fmt.Errorf("pageviews request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
+		return 0, nil
+	}
+	// A persistent 429 after one retry: return zero so the ranker doesn't
+	// drop the candidate — the sitelink count tiebreak still ranks it.
+	if resp.StatusCode == http.StatusTooManyRequests {
 		return 0, nil
 	}
 	if resp.StatusCode != http.StatusOK {
