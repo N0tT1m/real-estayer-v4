@@ -4,12 +4,12 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"
+      - "8347:8347"
     env_file:
       - .env
     environment:
       - APP_ENV=${APP_ENV:-development}
-      - PORT=8080
+      - PORT=8347
       - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/real_estayer}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-real_estayer}
       - REDIS_URL=redis://redis:6379
@@ -17,7 +17,7 @@ services:
       - RUST_SCRAPER_URL=${RUST_SCRAPER_URL:-http://rust-scraper:3001}
       - SCRAPER_API_KEY=${SCRAPER_API_KEY}
       - SESSION_SECRET=${SESSION_SECRET}
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8080}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8347}
       - ADMIN_BOOTSTRAP_EMAILS=${ADMIN_BOOTSTRAP_EMAILS:-}
     depends_on:
       mongodb:
@@ -25,7 +25,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8347/health"]
       interval: 30s
       timeout: 3s
       retries: 3
