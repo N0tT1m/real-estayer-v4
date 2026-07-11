@@ -119,9 +119,9 @@ type EmailConfig struct {
 func Load() (*Config, error) {
 	cfg := &Config{
 		Env:               getEnv("APP_ENV", getEnv("ENV", "development")),
-		Port:              getEnv("PORT", "8080"),
+		Port:              getEnv("PORT", "8347"),
 		SessionSecret:     os.Getenv("SESSION_SECRET"),
-		AllowedOrigins:    splitCSV(getEnv("ALLOWED_ORIGINS", "http://localhost:8080")),
+		AllowedOrigins:    splitCSV(getEnv("ALLOWED_ORIGINS", "http://localhost:8347")),
 		ScraperAPIKey:     strings.TrimSpace(os.Getenv("SCRAPER_API_KEY")),
 		AdminBootstrap:    splitCSV(os.Getenv("ADMIN_BOOTSTRAP_EMAILS")),
 		MongoURI:          getEnv("MONGODB_URI", "mongodb://localhost:27017/real_estayer"),

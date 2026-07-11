@@ -233,7 +233,7 @@ func main() {
 
 	allowedOrigins := cfg.AllowedOrigins
 	if len(allowedOrigins) == 0 {
-		allowedOrigins = []string{"http://localhost:8080"}
+		allowedOrigins = []string{"http://localhost:8347"}
 	}
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   allowedOrigins,
