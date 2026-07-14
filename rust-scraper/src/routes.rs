@@ -253,6 +253,158 @@ pub async fn scrape_north_america() -> impl IntoResponse {
     }
 }
 
+/// Scrape *everything* in a large bounding box via top-down map tiling. Seed
+/// with a named preset (usa|north-america|world) or explicit ne_lat/ne_lng/
+/// sw_lat/sw_lng. Long-running; streams inserts and reports via /scrape/status.
+#[axum::debug_handler]
+pub async fn scrape_everything(
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    log::info!("[EVERYTHING] ========== NEW REGION SCRAPE ==========");
+    log::info!("[EVERYTHING] params: {:?}", params);
+
+    if SCRAPE_IN_PROGRESS.swap(true, Ordering::SeqCst) {
+        log::warn!("[EVERYTHING] Scrape already in progress, rejecting");
+        return (StatusCode::CONFLICT, Json(json!({
+            "error": "A scrape is already in progress. Please wait for it to complete.",
+            "status": "busy"
+        }))).into_response();
+    }
+    struct ScrapeGuard;
+    impl Drop for ScrapeGuard {
+        fn drop(&mut self) {
+            SCRAPE_IN_PROGRESS.store(false, Ordering::SeqCst);
+            log::info!("[EVERYTHING] Scrape lock released");
+        }
+    }
+
+    use crate::scraping::{BoundingBox, preset_bbox};
+    let preset = params.get("preset").cloned().unwrap_or_else(|| "usa".to_string());
+
+    // Explicit bounding-box params override the named preset.
+    let bbox = match (
+        params.get("ne_lat").and_then(|v| v.parse::<f64>().ok()),
+        params.get("ne_lng").and_then(|v| v.parse::<f64>().ok()),
+        params.get("sw_lat").and_then(|v| v.parse::<f64>().ok()),
+        params.get("sw_lng").and_then(|v| v.parse::<f64>().ok()),
+    ) {
+        (Some(ne_lat), Some(ne_lng), Some(sw_lat), Some(sw_lng)) =>
+            BoundingBox { ne_lat, ne_lng, sw_lat, sw_lng },
+        _ => match preset_bbox(&preset) {
+            Some(b) => b,
+            None => {
+                SCRAPE_IN_PROGRESS.store(false, Ordering::SeqCst);
+                return (StatusCode::BAD_REQUEST, Json(json!({
+                    "error": format!("Unknown preset '{}'. Use usa|north-america|world, or pass ne_lat/ne_lng/sw_lat/sw_lng.", preset)
+                }))).into_response();
+            }
+        },
+    };
+
+    let location = params.get("location").cloned().unwrap_or_else(|| "United States".to_string());
+    let adults = params.get("adults").and_then(|a| a.parse::<i32>().ok()).unwrap_or(2);
+    let children = params.get("children").and_then(|c| c.parse::<i32>().ok()).unwrap_or(0);
+    let infants = params.get("infants").and_then(|i| i.parse::<i32>().ok()).unwrap_or(0);
+    let pets = params.get("pets").and_then(|p| p.parse::<i32>().ok()).unwrap_or(0);
+    let hot_tub = params.get("hot_tub").map(|v| v == "true").unwrap_or(false);
+    let pool = params.get("pool").map(|v| v == "true").unwrap_or(false);
+    let waterfront = params.get("waterfront").map(|v| v == "true").unwrap_or(false);
+    // Enrichment is heavy at region scale (one HTTP fetch per listing); default on
+    // but overridable with enrich=false for a lighter card-only sweep.
+    let enrich = params.get("enrich").map(|v| v != "false").unwrap_or(true);
+    let max_depth = params.get("max_depth").and_then(|v| v.parse::<usize>().ok()).unwrap_or(9).clamp(1, 12);
+
+    let preset_resp = preset.clone();
+
+    tokio::spawn(async move {
+        let _guard = ScrapeGuard;
+        use crate::scraping::{GuestParams, scrape_region_tiled};
+        use std::sync::atomic::AtomicUsize;
+        use std::sync::Arc;
+
+        {
+            let mut status = SCRAPE_STATUS.lock().unwrap();
+            *status = ScrapeStatus {
+                status: "scraping".to_string(),
+                city: Some(location.clone()),
+                current_listing: 0,
+                total_listings: 0,
+                successful: 0,
+                failed: 0,
+                message: format!("Region scrape starting (preset={}, max_depth={}, enrich={})", preset, max_depth, enrich),
+                started_at: Some(chrono::Utc::now().to_rfc3339()),
+                completed_at: None,
+                last_scraped_title: None,
+            };
+        }
+
+        let result: Result<(usize, usize)> = async {
+            let driver = create_stealth_driver().await?;
+            let guest_params = GuestParams::new(adults, children, infants, pets);
+            let amenity_filter = if hot_tub || pool || waterfront {
+                Some(AmenityFilter::new(hot_tub, pool, waterfront))
+            } else { None };
+
+            let inserted = Arc::new(AtomicUsize::new(0));
+            let tiles = Arc::new(AtomicUsize::new(0));
+
+            // Mirror the atomic counters into SCRAPE_STATUS every 5s.
+            let poll_inserted = inserted.clone();
+            let poll_tiles = tiles.clone();
+            let poller = tokio::spawn(async move {
+                loop {
+                    sleep(Duration::from_secs(5)).await;
+                    let ins = poll_inserted.load(Ordering::SeqCst);
+                    let tl = poll_tiles.load(Ordering::SeqCst);
+                    let mut status = SCRAPE_STATUS.lock().unwrap();
+                    status.successful = ins;
+                    status.total_listings = ins;
+                    status.current_listing = tl;
+                    status.message = format!("Scraping region: {} listings from {} tiles", ins, tl);
+                }
+            });
+
+            let outcome = scrape_region_tiled(
+                &driver, &location, bbox, guest_params, amenity_filter,
+                enrich, max_depth, &inserted, &tiles,
+            ).await;
+
+            poller.abort();
+            if let Err(e) = driver.quit().await {
+                log::error!("[EVERYTHING] Error closing driver: {}", e);
+            }
+            outcome
+        }.await;
+
+        match result {
+            Ok((inserted, tiles)) => {
+                log::info!("[EVERYTHING] Completed: {} listings from {} tiles", inserted, tiles);
+                let mut status = SCRAPE_STATUS.lock().unwrap();
+                status.status = "completed".to_string();
+                status.successful = inserted;
+                status.total_listings = inserted;
+                status.current_listing = tiles;
+                status.message = format!("Completed! {} listings inserted from {} tiles", inserted, tiles);
+                status.completed_at = Some(chrono::Utc::now().to_rfc3339());
+            }
+            Err(e) => {
+                log::error!("[EVERYTHING] Failed: {}", e);
+                let mut status = SCRAPE_STATUS.lock().unwrap();
+                status.status = "failed".to_string();
+                status.message = format!("Failed: {}", e);
+                status.completed_at = Some(chrono::Utc::now().to_rfc3339());
+            }
+        }
+    });
+
+    Json(json!({
+        "status": "started",
+        "message": "Region scrape started. Long-running job — poll /scrape/status for progress.",
+        "preset": preset_resp,
+        "note": "Watch scraper logs for [TILE]/[REGION] progress. Use proxy rotation for large runs; pass enrich=false for a lighter sweep."
+    })).into_response()
+}
+
 #[axum::debug_handler]
 pub async fn scrape_city_data(
     Query(params): Query<HashMap<String, String>>,

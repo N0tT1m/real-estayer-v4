@@ -231,6 +231,95 @@
                 </div>
             </div>
 
+            <!-- Scrape Everything (Region) -->
+            <div class="mt-8 bg-white rounded-xl shadow-sm p-6">
+                <div class="flex items-start justify-between mb-4">
+                    <div>
+                        <h2 class="text-lg font-semibold text-gray-900">Scrape Everything (Region)</h2>
+                        <p class="text-sm text-gray-500 mt-1">Top-down map tiling for full coverage. Use <span class="font-medium">Test</span> first to validate, then run a preset.</p>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Area</label>
+                        <select x-model="regionForm.preset" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                            <option value="test">Test — small area (Austin, ~1–2 min)</option>
+                            <option value="usa">Continental USA (hours–days)</option>
+                            <option value="north-america">North America (days)</option>
+                            <option value="world">World (very large)</option>
+                            <option value="custom">Custom bounding box…</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Max tiling depth <span class="text-gray-500">(1–12)</span></label>
+                        <input type="number" x-model.number="regionForm.maxDepth" min="1" max="12" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                    </div>
+                </div>
+
+                <!-- Custom bounding box -->
+                <div x-show="regionForm.preset === 'custom'" x-cloak class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">NE lat</label>
+                        <input type="number" step="any" x-model.number="regionForm.neLat" placeholder="49.5" class="w-full px-3 py-2 border rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">NE lng</label>
+                        <input type="number" step="any" x-model.number="regionForm.neLng" placeholder="-66.9" class="w-full px-3 py-2 border rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">SW lat</label>
+                        <input type="number" step="any" x-model.number="regionForm.swLat" placeholder="24.5" class="w-full px-3 py-2 border rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">SW lng</label>
+                        <input type="number" step="any" x-model.number="regionForm.swLng" placeholder="-125.0" class="w-full px-3 py-2 border rounded-lg text-sm">
+                    </div>
+                </div>
+
+                <!-- Options -->
+                <div class="flex flex-wrap items-center gap-4 mt-4">
+                    <label class="flex items-center p-2 border rounded-lg cursor-pointer hover:bg-gray-50 transition" :class="{'border-primary-500 bg-primary-50': regionForm.enrich}">
+                        <input type="checkbox" x-model="regionForm.enrich" class="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded">
+                        <span class="ml-2 text-sm text-gray-700">Enrich (full amenities — slower)</span>
+                    </label>
+                    <label class="flex items-center p-2 border rounded-lg cursor-pointer hover:bg-gray-50 transition" :class="{'border-primary-500 bg-primary-50': regionForm.hotTub}">
+                        <input type="checkbox" x-model="regionForm.hotTub" class="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded">
+                        <span class="ml-2 text-sm text-gray-700">Hot Tub</span>
+                    </label>
+                    <label class="flex items-center p-2 border rounded-lg cursor-pointer hover:bg-gray-50 transition" :class="{'border-primary-500 bg-primary-50': regionForm.pool}">
+                        <input type="checkbox" x-model="regionForm.pool" class="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded">
+                        <span class="ml-2 text-sm text-gray-700">Pool</span>
+                    </label>
+                    <label class="flex items-center p-2 border rounded-lg cursor-pointer hover:bg-gray-50 transition" :class="{'border-primary-500 bg-primary-50': regionForm.waterfront}">
+                        <input type="checkbox" x-model="regionForm.waterfront" class="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded">
+                        <span class="ml-2 text-sm text-gray-700">Waterfront</span>
+                    </label>
+                </div>
+
+                <div class="flex flex-wrap gap-3 mt-6">
+                    <button @click="triggerRegionScrape(true)" :disabled="regionScraping || scraping" class="bg-gray-100 text-gray-800 py-2.5 px-5 rounded-lg font-medium hover:bg-gray-200 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                        Run Test (small area)
+                    </button>
+                    <button @click="triggerRegionScrape(false)" :disabled="regionScraping || scraping" class="bg-primary-600 text-white py-2.5 px-5 rounded-lg font-medium hover:bg-primary-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center">
+                        <template x-if="regionScraping">
+                            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                            </svg>
+                        </template>
+                        <span x-text="regionScraping ? 'Starting…' : 'Start Region Scrape'"></span>
+                    </button>
+                </div>
+
+                <div x-show="regionStarted" x-cloak class="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
+                    <p class="font-medium" x-text="regionStarted"></p>
+                    <p class="mt-1 text-blue-700">Progress appears in the scraper status above (updates every 10s). This runs in the background — you can leave this page.</p>
+                </div>
+                <div x-show="regionError" x-cloak class="mt-4 bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">
+                    <span x-text="regionError"></span>
+                </div>
+            </div>
+
             <!-- Scrape Results -->
             <div x-show="scrapeResult" x-cloak class="mt-8 bg-white rounded-xl shadow-sm p-6">
                 <div class="flex items-center justify-between mb-4">
@@ -645,6 +734,18 @@ function adminDashboard() {
         },
         scrapeResult: null,
         scrapeError: null,
+        regionForm: {
+            preset: 'test',
+            neLat: '', neLng: '', swLat: '', swLng: '',
+            maxDepth: 9,
+            enrich: true,
+            hotTub: false,
+            pool: false,
+            waterfront: false
+        },
+        regionScraping: false,
+        regionError: null,
+        regionStarted: null,
         listings: [],
         listingsTotal: 0,
         listingsPage: 1,
@@ -862,6 +963,69 @@ function adminDashboard() {
                 });
             } finally {
                 this.scraping = false;
+            }
+        },
+
+        async triggerRegionScrape(test) {
+            this.regionError = null;
+            this.regionStarted = null;
+
+            // Test always forces the small validation preset regardless of form.
+            const preset = test ? 'test' : this.regionForm.preset;
+
+            if (!test && (preset === 'usa' || preset === 'north-america' || preset === 'world')) {
+                if (!confirm(`Start a full "${preset}" scrape? This can run for hours to days and will hit Airbnb hard — run "Test" first and make sure proxies are configured.`)) {
+                    return;
+                }
+            }
+
+            this.regionScraping = true;
+            try {
+                const params = new URLSearchParams();
+                if (preset === 'custom') {
+                    // Custom bounding box — all four corners required.
+                    const { neLat, neLng, swLat, swLng } = this.regionForm;
+                    if ([neLat, neLng, swLat, swLng].some(v => v === '' || v === null || isNaN(v))) {
+                        throw new Error('Custom bounding box needs all four corners (NE lat/lng, SW lat/lng).');
+                    }
+                    params.set('ne_lat', neLat);
+                    params.set('ne_lng', neLng);
+                    params.set('sw_lat', swLat);
+                    params.set('sw_lng', swLng);
+                } else {
+                    params.set('preset', preset);
+                }
+                params.set('max_depth', test ? 6 : this.regionForm.maxDepth);
+                params.set('enrich', this.regionForm.enrich ? 'true' : 'false');
+                params.set('hot_tub', this.regionForm.hotTub ? 'true' : 'false');
+                params.set('pool', this.regionForm.pool ? 'true' : 'false');
+                params.set('waterfront', this.regionForm.waterfront ? 'true' : 'false');
+
+                const res = await fetch(`/api/v1/admin/scraping/trigger-region?${params}`, {
+                    method: 'POST',
+                    headers: window.csrfHeaders()
+                });
+
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.error || `Request failed (${res.status})`);
+                }
+
+                const data = await res.json();
+                this.regionStarted = data.message || 'Region scrape started.';
+                this.jobs.unshift({
+                    id: Date.now(),
+                    location: test ? 'Region test' : `Region: ${preset}`,
+                    status: 'running',
+                    started_at: new Date().toISOString()
+                });
+                // Refresh status promptly so the admin sees it flip to "scraping".
+                setTimeout(() => this.checkScraperStatus(), 2000);
+
+            } catch (e) {
+                this.regionError = e.message;
+            } finally {
+                this.regionScraping = false;
             }
         },
 

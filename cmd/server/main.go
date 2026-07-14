@@ -18,8 +18,8 @@ import (
 	"github.com/realestayer/v4/internal/database"
 	"github.com/realestayer/v4/internal/handler"
 	"github.com/realestayer/v4/internal/mailer"
-	"github.com/realestayer/v4/internal/migrations"
 	authMiddleware "github.com/realestayer/v4/internal/middleware"
+	"github.com/realestayer/v4/internal/migrations"
 	"github.com/realestayer/v4/internal/provider"
 	"github.com/realestayer/v4/internal/provider/amadeus"
 	"github.com/realestayer/v4/internal/provider/duffel"
@@ -478,6 +478,7 @@ func main() {
 			r.Put("/users/{id}/role", h.AdminUpdateUserRole)
 			r.Get("/scraping/status", h.ScrapingStatus)
 			r.Post("/scraping/trigger", h.TriggerScraping)
+			r.Post("/scraping/trigger-region", h.TriggerRegionScrape)
 			r.Delete("/listings/{id}", h.AdminDeleteListing)
 			r.Post("/destinations", destHandler.AdminAddDestination)
 			r.Post("/destinations/reseed", destHandler.AdminReseedDestinations)

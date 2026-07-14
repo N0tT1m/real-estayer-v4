@@ -185,6 +185,92 @@ func (s *ScraperService) ScrapeCity(ctx context.Context, p ScrapeParams) (*Scrap
 	return &result, nil
 }
 
+// RegionScrapeParams holds parameters for a large-area "scrape everything" run
+// against the scraper's /scrape-everything endpoint. Either Preset or an
+// explicit bounding box (all four Ne*/Sw* set) selects the area.
+type RegionScrapeParams struct {
+	Preset     string  // "test" | "usa" | "north-america" | "world"
+	NeLat      float64 // explicit bounding box (overrides Preset when all four set)
+	NeLng      float64
+	SwLat      float64
+	SwLng      float64
+	HasBBox    bool // true when the explicit bounding box should be sent
+	MaxDepth   int  // tiling recursion depth (0 => scraper default)
+	Enrich     bool // per-listing HTTP enrichment
+	Adults     int
+	Children   int
+	Infants    int
+	Pets       int
+	HotTub     bool
+	Pool       bool
+	Waterfront bool
+}
+
+// ScrapeEverything kicks off a region-wide tiled scrape. The scraper returns
+// immediately ("started") and runs in the background; callers poll GetStatus.
+func (s *ScraperService) ScrapeEverything(ctx context.Context, p RegionScrapeParams) (map[string]interface{}, error) {
+	params := url.Values{}
+	if p.Preset != "" {
+		params.Set("preset", p.Preset)
+	}
+	if p.HasBBox {
+		params.Set("ne_lat", fmt.Sprintf("%g", p.NeLat))
+		params.Set("ne_lng", fmt.Sprintf("%g", p.NeLng))
+		params.Set("sw_lat", fmt.Sprintf("%g", p.SwLat))
+		params.Set("sw_lng", fmt.Sprintf("%g", p.SwLng))
+	}
+	if p.MaxDepth > 0 {
+		params.Set("max_depth", fmt.Sprintf("%d", p.MaxDepth))
+	}
+	// enrich defaults to true on the scraper; only send when disabling.
+	if !p.Enrich {
+		params.Set("enrich", "false")
+	}
+	if p.Adults > 0 {
+		params.Set("adults", fmt.Sprintf("%d", p.Adults))
+	}
+	if p.Children > 0 {
+		params.Set("children", fmt.Sprintf("%d", p.Children))
+	}
+	if p.Infants > 0 {
+		params.Set("infants", fmt.Sprintf("%d", p.Infants))
+	}
+	if p.Pets > 0 {
+		params.Set("pets", fmt.Sprintf("%d", p.Pets))
+	}
+	if p.HotTub {
+		params.Set("hot_tub", "true")
+	}
+	if p.Pool {
+		params.Set("pool", "true")
+	}
+	if p.Waterfront {
+		params.Set("waterfront", "true")
+	}
+
+	req, err := s.newRequest(ctx, "GET", "/scrape-everything?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := s.do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reach scraper: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("scraper returned error: %s", string(body))
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to parse scraper response: %w", err)
+	}
+	return result, nil
+}
+
 // ScrapeNorthAmerica triggers a full North America scrape
 func (s *ScraperService) ScrapeNorthAmerica(ctx context.Context) (*ScrapingResult, error) {
 	req, err := s.newRequest(ctx, "GET", "/scrape-north-america", nil)

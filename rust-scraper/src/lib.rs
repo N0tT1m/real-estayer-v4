@@ -82,6 +82,7 @@ pub fn build_app(api_key: ApiKey, allowed_origins: Vec<HeaderValue>) -> Router {
 
     Router::new()
         .route("/scrape-north-america", get(routes::scrape_north_america))
+        .route("/scrape-everything", get(routes::scrape_everything))
         .route("/scrape-city-data", get(routes::scrape_city_data))
         .route("/scrape/status", get(routes::scrape_status))
         .route("/get-listings", get(routes::get_listings_without_limit))

@@ -129,6 +129,59 @@ func (h *Handler) TriggerScraping(w http.ResponseWriter, r *http.Request) {
 	h.jsonResponse(w, http.StatusOK, result)
 }
 
+// TriggerRegionScrape kicks off a large-area "scrape everything" run via
+// top-down map tiling. Configurable by preset (test|usa|north-america|world)
+// or an explicit bounding box, plus tiling depth, enrichment, guests and
+// amenity filters. Returns the scraper's "started" acknowledgement immediately.
+func (h *Handler) TriggerRegionScrape(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+
+	params := service.RegionScrapeParams{
+		Preset:     q.Get("preset"),
+		Enrich:     q.Get("enrich") != "false", // default true
+		HotTub:     q.Get("hot_tub") == "true",
+		Pool:       q.Get("pool") == "true",
+		Waterfront: q.Get("waterfront") == "true",
+	}
+	if params.Preset == "" {
+		params.Preset = "test" // safest default if the UI sends nothing
+	}
+
+	// Explicit bounding box: only used when all four corners parse.
+	neLat, e1 := strconv.ParseFloat(q.Get("ne_lat"), 64)
+	neLng, e2 := strconv.ParseFloat(q.Get("ne_lng"), 64)
+	swLat, e3 := strconv.ParseFloat(q.Get("sw_lat"), 64)
+	swLng, e4 := strconv.ParseFloat(q.Get("sw_lng"), 64)
+	if e1 == nil && e2 == nil && e3 == nil && e4 == nil {
+		params.HasBBox = true
+		params.NeLat, params.NeLng, params.SwLat, params.SwLng = neLat, neLng, swLat, swLng
+	}
+
+	if d, err := strconv.Atoi(q.Get("max_depth")); err == nil && d > 0 {
+		params.MaxDepth = d
+	}
+	if a, err := strconv.Atoi(q.Get("adults")); err == nil && a > 0 {
+		params.Adults = a
+	}
+	if c, err := strconv.Atoi(q.Get("children")); err == nil && c >= 0 {
+		params.Children = c
+	}
+	if i, err := strconv.Atoi(q.Get("infants")); err == nil && i >= 0 {
+		params.Infants = i
+	}
+	if p, err := strconv.Atoi(q.Get("pets")); err == nil && p >= 0 {
+		params.Pets = p
+	}
+
+	result, err := h.scraperService.ScrapeEverything(r.Context(), params)
+	if err != nil {
+		h.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.jsonResponse(w, http.StatusOK, result)
+}
+
 // AdminDeleteListing deletes a listing by ID
 func (h *Handler) AdminDeleteListing(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
