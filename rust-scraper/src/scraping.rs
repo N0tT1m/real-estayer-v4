@@ -4214,15 +4214,27 @@ fn listing_from_search_result(entry: &serde_json::Value) -> Option<Listing> {
     }
     let picture_url = pictures.first().cloned().unwrap_or_default();
 
-    // Coordinates (used by the map-tiling pass). Airbnb has used both
-    // "coordinate"/"coordinates" and latitude/lat naming over time.
+    // Coordinates (used by the map-tiling pass). Current Airbnb nests these
+    // under demandStayListing.location.coordinate; older shapes put a
+    // coordinate/coordinates object at the entry top level.
     let coordinates = entry
-        .get("coordinate")
-        .or_else(|| entry.get("coordinates"))
+        .get("demandStayListing")
+        .and_then(|d| d.get("location"))
+        .and_then(|l| l.get("coordinate"))
         .and_then(|c| {
-            let lat = c.get("latitude").or_else(|| c.get("lat")).and_then(|v| v.as_f64())?;
-            let lng = c.get("longitude").or_else(|| c.get("lng")).and_then(|v| v.as_f64())?;
+            let lat = c.get("latitude").and_then(|v| v.as_f64())?;
+            let lng = c.get("longitude").and_then(|v| v.as_f64())?;
             Some(Coordinates { lat, lng })
+        })
+        .or_else(|| {
+            entry
+                .get("coordinate")
+                .or_else(|| entry.get("coordinates"))
+                .and_then(|c| {
+                    let lat = c.get("latitude").or_else(|| c.get("lat")).and_then(|v| v.as_f64())?;
+                    let lng = c.get("longitude").or_else(|| c.get("lng")).and_then(|v| v.as_f64())?;
+                    Some(Coordinates { lat, lng })
+                })
         });
 
     // Features: bed/room summary + badges + payment messages.
@@ -4282,20 +4294,41 @@ fn listing_from_search_result(entry: &serde_json::Value) -> Option<Listing> {
     })
 }
 
+/// Locate the staysSearch `searchResults` array inside the deferred-state JSON.
+/// Airbnb has nested `niobeClientData` differently over time — as `[…, {data}]`
+/// (older) and `[[…, {data}]]` (current) — so probe each container and its
+/// immediate children rather than hard-coding one index path.
+fn find_search_results(json_data: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
+    let niobe = json_data.get("niobeClientData")?.as_array()?;
+    let mut candidates: Vec<&serde_json::Value> = Vec::new();
+    for item in niobe {
+        candidates.push(item);
+        if let Some(inner) = item.as_array() {
+            for x in inner {
+                candidates.push(x);
+            }
+        }
+    }
+    for c in candidates {
+        if let Some(arr) = c
+            .get("data")
+            .and_then(|d| d.get("presentation"))
+            .and_then(|d| d.get("staysSearch"))
+            .and_then(|d| d.get("results"))
+            .and_then(|d| d.get("searchResults"))
+            .and_then(|d| d.as_array())
+        {
+            return Some(arr);
+        }
+    }
+    None
+}
+
 /// Phase 1: build listings for every result in the search-page JSON.
 pub fn extract_all_listings_from_json(json_data: &serde_json::Value) -> Vec<Listing> {
     use tracing::{debug, info};
     let mut listings = Vec::new();
-    let search_results = json_data
-        .get("niobeClientData")
-        .and_then(|d| d.get(1))
-        .and_then(|d| d.get("data"))
-        .and_then(|d| d.get("presentation"))
-        .and_then(|d| d.get("staysSearch"))
-        .and_then(|d| d.get("results"))
-        .and_then(|d| d.get("searchResults"))
-        .and_then(|d| d.as_array());
-    match search_results {
+    match find_search_results(json_data) {
         Some(arr) => {
             for entry in arr {
                 if let Some(listing) = listing_from_search_result(entry) {
@@ -4827,13 +4860,16 @@ mod fast_path_tests {
     fn extract_all_listings_from_json_builds_full_listings() {
         let encoded_id = base64::engine::general_purpose::STANDARD
             .encode("DemandStayListing:12345");
+        // Real current shape: niobeClientData is [[ _, {data} ]] and the
+        // coordinate is nested under demandStayListing.location.coordinate.
         let json = serde_json::json!({
-            "niobeClientData": [
+            "niobeClientData": [[
                 "ignored",
                 { "data": { "presentation": { "staysSearch": { "results": { "searchResults": [
                     {
                         "demandStayListing": {
                             "id": encoded_id,
+                            "location": { "coordinate": { "latitude": 44.76, "longitude": -85.62 } },
                             "description": { "name": {
                                 "localizedStringWithTranslationPreference": "Cozy Cabin"
                             }}
@@ -4842,12 +4878,11 @@ mod fast_path_tests {
                         "structuredDisplayPrice": { "primaryLine": { "price": "$150 night" } },
                         "avgRatingLocalized": "4.90 (128)",
                         "contextualPictures": [ { "picture": "https://img/1.jpg" } ],
-                        "coordinate": { "latitude": 44.76, "longitude": -85.62 },
                         "structuredContent": { "primaryLine": [ { "body": "2 beds" } ] },
                         "badges": [ { "text": "Guest favorite" } ]
                     }
                 ]}}}}}
-            ]
+            ]]
         });
 
         let listings = extract_all_listings_from_json(&json);
