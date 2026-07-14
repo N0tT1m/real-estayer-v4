@@ -1,4 +1,4 @@
-use crate::{database, models::*, scraping::{scrape_region, send_email, get_place_urls_stealth, scrape_place_details_stealth, AmenityFilter}, watchlist::*};
+use crate::{database, models::*, scraping::{scrape_region, send_email, AmenityFilter}, watchlist::*};
 use crate::stealth_browser::StealthDriver;
 use axum::{
     extract::{Path, Query},
@@ -315,9 +315,9 @@ pub async fn scrape_city_data(
     let pets = params.get("pets")
         .and_then(|p| p.parse::<i32>().ok())
         .unwrap_or(0);
-    let trip_duration = params.get("trip_duration")
+    let _trip_duration = params.get("trip_duration")
         .and_then(|d| d.parse::<i32>().ok());
-    let date_mode = params.get("date_mode").cloned().unwrap_or_default();
+    let _date_mode = params.get("date_mode").cloned().unwrap_or_default();
     let limit = params.get("limit")
         .and_then(|l| l.parse::<usize>().ok()); // None means no limit (scrape all)
 
@@ -368,10 +368,13 @@ pub async fn scrape_city_data(
         }
 
         let result: Result<Vec<Listing>, anyhow::Error> = async {
-            log::info!("[STEALTH] Creating StealthDriver...");
+            use tracing::{info, error};
+            use crate::scraping::{GuestParams, scrape_city_fast};
+
+            info!("[FAST] Creating StealthDriver...");
             let driver = create_stealth_driver().await?;
 
-            // Build a properly formatted search location like Python scraper
+            // Build a properly formatted search location.
             let search_location = if !state.is_empty() && !country.is_empty() {
                 format!("{}, {}, {}", city, state, country)
             } else if !country.is_empty() {
@@ -380,255 +383,81 @@ pub async fn scrape_city_data(
                 city.to_string()
             };
 
-            use tracing::{info, warn, error, debug};
-
-            info!("[STEALTH] Getting place URLs for location: {}", search_location);
             let check_in_opt = if !check_in_date.is_empty() { Some(check_in_date.as_str()) } else { None };
             let check_out_opt = if !check_out_date.is_empty() { Some(check_out_date.as_str()) } else { None };
-
-            // Build guest parameters
-            use crate::scraping::GuestParams;
-            let guest_params = Some(GuestParams::new(adults, children, infants, pets));
-
-            // Build amenity filter if any amenity is selected
+            let guest_params = GuestParams::new(adults, children, infants, pets);
             let amenity_filter = if hot_tub || pool || waterfront {
                 Some(AmenityFilter::new(hot_tub, pool, waterfront))
             } else {
                 None
             };
 
-            // Log the search mode being used
-            if date_mode == "duration" && trip_duration.is_some() {
-                info!("[STEALTH] Using duration-based search: {} days starting from {}", trip_duration.unwrap(), check_in_date);
-            } else if date_mode == "specific" {
-                info!("[STEALTH] Using specific date search: {} to {}", check_in_date, check_out_date);
-            } else {
-                info!("[STEALTH] Using flexible date search");
+            // Tile for full coverage only on unlimited scrapes; always enrich so
+            // amenity/badge filters see the full feature list.
+            let limit_opt = match limit { Some(l) if l > 0 => Some(l), _ => None };
+            let tiled = limit_opt.is_none();
+            let enrich = true;
+
+            info!("[FAST] Scraping {} (tiled={}, enrich={})", search_location, tiled, enrich);
+            let scraped = scrape_city_fast(
+                &driver, &search_location, guest_params, amenity_filter,
+                check_in_opt, check_out_opt, limit_opt, enrich, tiled,
+            ).await;
+
+            if let Err(e) = driver.quit().await {
+                error!("[FAST] Error closing driver: {}", e);
             }
 
-            // Use stealth version for URL collection
-            let urls = get_place_urls_stealth(&driver, &search_location, check_in_opt, check_out_opt, guest_params, amenity_filter).await?;
-            info!("[STEALTH] Found {} URLs to scrape", urls.len());
-
-            if urls.is_empty() {
-                warn!("[STEALTH] No URLs found for location: {}", search_location);
-                // Quit the stealth driver
-                if let Err(e) = driver.quit().await {
-                    error!("[STEALTH] Error closing driver: {}", e);
-                }
-                return Err(anyhow::anyhow!("No listings found for location: {}", search_location));
-            }
-
-            let mut place_details = Vec::new();
-            let mut successful_scrapes = 0;
-            let mut failed_scrapes = 0;
-
-            // Apply limit to URLs if specified (0 or None means no limit)
-            let urls_to_scrape = match limit {
-                Some(limit_count) if limit_count > 0 => {
-                    info!("[STEALTH] Limiting scraping to {} listings out of {} found", limit_count, urls.len());
-                    urls.iter().take(limit_count).collect::<Vec<_>>()
-                },
-                _ => {
-                    info!("[STEALTH] No limit specified - scraping all {} listings", urls.len());
-                    urls.iter().collect::<Vec<_>>()
-                }
-            };
-
-            info!("[STEALTH] Starting to scrape {} individual listing pages", urls_to_scrape.len());
-
-            // Update status with total count
+            let scraped = scraped?;
+            let found = scraped.len();
+            info!("[FAST] Harvested {} listings for {}", found, search_location);
             {
                 let mut status = SCRAPE_STATUS.lock().unwrap();
-                status.total_listings = urls_to_scrape.len();
-                status.message = format!("Scraping {} listings...", urls_to_scrape.len());
+                status.total_listings = found;
+                status.message = format!("Harvested {} listings, filtering...", found);
             }
 
-            for (i, url) in urls_to_scrape.iter().enumerate() {
-                // Sanitize URL: fix HTML entities and double slashes
-                let sanitized_url = url
-                    .replace("&amp;", "&")  // Fix HTML-encoded ampersands
-                    .replace("//rooms/", "/rooms/");  // Fix double slashes
-                let full_url = if sanitized_url.starts_with("http") {
-                    sanitized_url
-                } else {
-                    format!("https://www.airbnb.com{}", sanitized_url.trim_start_matches('/'))
-                };
-                info!("[STEALTH] Scraping URL {}/{}: {}", i + 1, urls_to_scrape.len(), full_url);
+            // Apply badge / amenity filters and stamp caller-declared region/country.
+            let mut kept: Vec<Listing> = Vec::new();
+            for mut details in scraped.into_iter() {
+                let has_badge = details.features.iter().any(|f| {
+                    let f = f.to_lowercase();
+                    f.contains("superhost") || f.contains("guest fav") || f.contains("guest-fav")
+                        || f.contains("rare find") || f.contains("highly rated") || f.contains("top rated")
+                });
+                let has_hot_tub = details.features.iter().any(|f| f == "Hot Tub");
+                let has_pool = details.features.iter().any(|f| f == "Pool");
+                let has_waterfront = details.features.iter().any(|f| f == "Waterfront");
+                let passes_amenity =
+                    (!hot_tub || has_hot_tub) && (!pool || has_pool) && (!waterfront || has_waterfront);
 
-                // Use stealth version for place details with retry logic
-                debug!("[STEALTH] Starting scrape for listing {}/{}...", i + 1, urls_to_scrape.len());
-
-                const MAX_RETRIES: u32 = 3;
-                let mut attempt = 0;
-                let mut last_error: Option<anyhow::Error> = None;
-                let mut scrape_succeeded = false;
-                let mut browser_dead = false;
-
-                while attempt < MAX_RETRIES && !scrape_succeeded && !browser_dead {
-                    attempt += 1;
-                    if attempt > 1 {
-                        info!("[STEALTH] Retry attempt {}/{} for URL {}/{}", attempt, MAX_RETRIES, i + 1, urls_to_scrape.len());
-                        // Wait a bit longer before retry
-                        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-                    }
-
-                    match scrape_place_details_stealth(&driver, &full_url).await {
-                        Ok(mut details) => {
-                            info!("[STEALTH] Successfully scraped details for listing {}/{}: '{}'{}",
-                                  i + 1, urls_to_scrape.len(), details.title,
-                                  if attempt > 1 { format!(" (after {} attempts)", attempt) } else { String::new() });
-                            let title = details.title.clone();
-
-                            // Check for badges if badges_only filter is enabled
-                            if badges_only && i == 0 {
-                                // Log first listing's features to help debug badge detection
-                                info!("[STEALTH] First listing '{}' has {} features: {:?}", title, details.features.len(), details.features);
-                            }
-                            let has_badge = details.features.iter().any(|f| {
-                                let f_lower = f.to_lowercase();
-                                f_lower.contains("superhost") ||
-                                f_lower.contains("guest fav") ||
-                                f_lower.contains("guest-fav") ||
-                                f_lower.contains("rare find") ||
-                                f_lower.contains("highly rated") ||
-                                f_lower.contains("top rated")
-                            });
-
-                            // Check amenity filters - verify the listing actually has the requested amenities
-                            let has_hot_tub = details.features.iter().any(|f| f == "Hot Tub");
-                            let has_pool = details.features.iter().any(|f| f == "Pool");
-                            let has_waterfront = details.features.iter().any(|f| f == "Waterfront");
-
-                            // Debug: log features for hot_tub filtered listings
-                            if hot_tub {
-                                info!("[FILTER DEBUG] Listing '{}' has {} features, has_hot_tub={}", title, details.features.len(), has_hot_tub);
-                            }
-
-                            let passes_amenity_filter =
-                                (!hot_tub || has_hot_tub) &&
-                                (!pool || has_pool) &&
-                                (!waterfront || has_waterfront);
-
-                            if badges_only && !has_badge {
-                                // Only log every 50th skip to reduce noise
-                                if i % 50 == 0 {
-                                    info!("[STEALTH] Skipping listing {} '{}' - no badges in {} features", i + 1, title, details.features.len());
-                                }
-                            } else if !passes_amenity_filter {
-                                info!("[STEALTH] Skipping listing '{}' - missing required amenities (hot_tub={}/{}, pool={}/{}, waterfront={}/{})",
-                                      title, hot_tub, has_hot_tub, pool, has_pool, waterfront, has_waterfront);
-                            } else {
-                                if badges_only {
-                                    info!("[STEALTH] KEEPING listing '{}' - has badge!", title);
-                                }
-                                // Stamp the state/country from the query params onto the
-                                // listing before storing. The scraper doesn't reliably
-                                // extract these from Airbnb pages, so the caller's
-                                // declaration wins — empty state falls through to
-                                // whatever was parsed from the page (may stay None).
-                                if !state.is_empty() {
-                                    details.region = Some(state.clone());
-                                }
-                                if !country.is_empty() {
-                                    details.country = Some(country.clone());
-                                }
-                                place_details.push(details);
-                                successful_scrapes += 1;
-                            }
-                            scrape_succeeded = true;
-
-                            // Update status
-                            {
-                                let mut status = SCRAPE_STATUS.lock().unwrap();
-                                status.current_listing = i + 1;
-                                status.successful = successful_scrapes;
-                                status.last_scraped_title = Some(title);
-                                status.message = format!("Scraped {}/{} listings ({} with badges)", i + 1, urls_to_scrape.len(), successful_scrapes);
-                            }
-                        },
-                        Err(e) => {
-                            let error_str = e.to_string();
-                            let is_timeout = error_str.contains("timed out") || error_str.contains("frozen");
-
-                            if attempt < MAX_RETRIES && is_timeout {
-                                warn!("[STEALTH] Attempt {}/{} failed for URL {}/{}: {} - will retry",
-                                      attempt, MAX_RETRIES, i + 1, urls_to_scrape.len(), error_str);
-                            } else if attempt < MAX_RETRIES {
-                                warn!("[STEALTH] Attempt {}/{} failed for URL {}/{}: {}",
-                                      attempt, MAX_RETRIES, i + 1, urls_to_scrape.len(), error_str);
-                            }
-                            last_error = Some(e);
-
-                            // Check if browser is still alive before retry
-                            // Use current_url() instead of page_source() - much lighter check
-                            let browser_check = tokio::time::timeout(
-                                tokio::time::Duration::from_secs(15),
-                                driver.current_url()
-                            ).await;
-
-                            match browser_check {
-                                Err(_) => {
-                                    error!("[STEALTH] Browser health check timed out. Stopping scrape.");
-                                    browser_dead = true;
-                                }
-                                Ok(Err(browser_err)) => {
-                                    error!("[STEALTH] Browser appears dead: {}. Stopping scrape.", browser_err);
-                                    browser_dead = true;
-                                }
-                                Ok(Ok(_)) => {
-                                    // Browser is alive, continue with retry if applicable
-                                }
-                            }
-                        }
-                    }
+                if badges_only && !has_badge {
+                    continue;
                 }
-
-                // If all retries failed, record the failure
-                if !scrape_succeeded {
-                    if let Some(e) = last_error {
-                        error!("[STEALTH] Error scraping URL {}/{} '{}' after {} attempts: {}",
-                               i + 1, urls_to_scrape.len(), full_url, attempt, e);
-                    }
-                    failed_scrapes += 1;
-
-                    // Update status
-                    {
-                        let mut status = SCRAPE_STATUS.lock().unwrap();
-                        status.current_listing = i + 1;
-                        status.failed = failed_scrapes;
-                        status.message = format!("Scraped {}/{} listings ({} failed)", i + 1, urls_to_scrape.len(), failed_scrapes);
-                    }
+                if !passes_amenity {
+                    continue;
                 }
-
-                // Stop the main loop if browser is dead
-                if browser_dead {
-                    error!("[STEALTH] Browser is dead, stopping scrape loop");
-                    break;
+                if !state.is_empty() {
+                    details.region = Some(state.clone());
                 }
-
-                debug!("[STEALTH] Finished scrape for listing {}/{}", i + 1, urls_to_scrape.len());
-
-                // Add delay between requests to avoid being blocked
-                if i < urls_to_scrape.len() - 1 {
-                    debug!("[STEALTH] Waiting 2 seconds before next request...");
-                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                if !country.is_empty() {
+                    details.country = Some(country.clone());
                 }
+                kept.push(details);
             }
 
-            info!("[STEALTH] Scraping completed: {} successful, {} failed, {} total listings extracted",
-                  successful_scrapes, failed_scrapes, place_details.len());
-
-            // Quit the stealth driver
-            if let Err(e) = driver.quit().await {
-                error!("[STEALTH] Error closing driver: {}", e);
+            info!("[FAST] {} listings after filtering (from {})", kept.len(), found);
+            {
+                let mut status = SCRAPE_STATUS.lock().unwrap();
+                status.successful = kept.len();
+                status.message = format!("Inserting {} listings...", kept.len());
             }
 
-            info!("[STEALTH] Attempting to insert {} listings into database", place_details.len());
-            let inserted_ids = database::insert_many(place_details.clone()).await?;
-            info!("[STEALTH] Successfully inserted {} listings", inserted_ids.len());
+            info!("[FAST] Inserting {} listings into database", kept.len());
+            let inserted_ids = database::insert_many(kept.clone()).await?;
+            info!("[FAST] Successfully inserted {} listings", inserted_ids.len());
 
-            Ok::<Vec<Listing>, anyhow::Error>(place_details)
+            Ok::<Vec<Listing>, anyhow::Error>(kept)
         }
         .await;
 

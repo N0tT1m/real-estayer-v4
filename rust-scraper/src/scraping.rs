@@ -4100,3 +4100,682 @@ fn extract_house_details_from_source(html: &str) -> Vec<String> {
 
     details
 }
+
+// ============================================================================
+// FAST PATH — search-JSON harvest, parallel HTTP enrichment, map-tile coverage
+// ============================================================================
+//
+// The legacy stealth path navigates a browser to every /rooms/<id> page and
+// re-scrapes fields the search-results JSON already contains. These functions
+// instead:
+//   Phase 1  build listings directly from the search JSON already downloaded,
+//   Phase 2  enrich the few missing fields (amenities, house details, region)
+//            over bounded parallel HTTP instead of one browser at a time,
+//   Phase 3  subdivide the search area by map bounding-box so we break past
+//            Airbnb's ~300-results-per-query ceiling.
+
+use crate::models::Coordinates;
+
+/// Airbnb never returns more than ~270-300 results for one search query. When a
+/// tile returns this many listings we assume results are truncated and split it.
+const TILE_SPLIT_THRESHOLD: usize = 270;
+/// Max recursion depth for bounding-box subdivision (4^6 = 4096 tiles worst case).
+const MAX_TILE_DEPTH: usize = 6;
+/// Concurrent HTTP enrichment fetches. Unlike browsers, these don't conflict.
+const ENRICH_CONCURRENCY: usize = 10;
+
+/// Decode Airbnb's base64 "DemandStayListing:12345" id into the numeric id.
+fn decode_listing_id(encoded: &str) -> Option<String> {
+    let decoded = base64::engine::general_purpose::STANDARD.decode(encoded).ok()?;
+    let text = std::str::from_utf8(&decoded).ok()?;
+    text.split(':').nth(1).map(|s| s.to_string())
+}
+
+/// Pull the first number (with optional decimal) out of a string like
+/// "$1,234 night" -> 1234.0 or "4.95 (312)" -> 4.95. Commas are treated as
+/// thousands separators.
+fn first_number(text: &str) -> Option<f64> {
+    let mut buf = String::new();
+    let mut seen_dot = false;
+    for c in text.chars() {
+        if c.is_ascii_digit() {
+            buf.push(c);
+        } else if c == '.' && !seen_dot && !buf.is_empty() {
+            seen_dot = true;
+            buf.push(c);
+        } else if c == ',' && !buf.is_empty() {
+            continue; // thousands separator inside a number
+        } else if !buf.is_empty() {
+            break; // number ended
+        }
+    }
+    buf.parse::<f64>().ok()
+}
+
+/// Build a full Listing from one entry of the search-results JSON array. Returns
+/// None if the entry has no decodable id or title.
+fn listing_from_search_result(entry: &serde_json::Value) -> Option<Listing> {
+    let encoded_id = entry
+        .get("demandStayListing")
+        .and_then(|l| l.get("id"))
+        .and_then(|id| id.as_str())?;
+    let numeric_id = decode_listing_id(encoded_id)?;
+    let url = format!("https://www.airbnb.com/rooms/{}", numeric_id);
+
+    let title = entry.get("title").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    if title.is_empty() {
+        return None;
+    }
+
+    // Price: primaryLine.price, falling back to discountedPrice.
+    let price = entry
+        .get("structuredDisplayPrice")
+        .and_then(|p| p.get("primaryLine"))
+        .and_then(|p| {
+            p.get("price").and_then(|v| v.as_str())
+                .or_else(|| p.get("discountedPrice").and_then(|v| v.as_str()))
+        })
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_default();
+    let price_numeric = first_number(&price);
+
+    // Rating: avgRatingLocalized looks like "4.95 (312)".
+    let rating_localized = entry.get("avgRatingLocalized").and_then(|v| v.as_str()).unwrap_or_default();
+    let rating = rating_localized.split_whitespace().next().unwrap_or_default().to_string();
+    let rating_numeric = first_number(rating_localized);
+    let reviews_count = rating_localized
+        .split_once('(')
+        .and_then(|(_, rest)| first_number(rest))
+        .map(|n| n as i32);
+
+    // Description / property name.
+    let description = entry
+        .get("demandStayListing")
+        .and_then(|l| l.get("description"))
+        .and_then(|d| d.get("name"))
+        .and_then(|n| n.get("localizedStringWithTranslationPreference"))
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+
+    // Location parsed from a "<Type> in <Place>" title.
+    let location = title.split_once(" in ").map(|(_, place)| place.to_string()).unwrap_or_default();
+
+    // Pictures.
+    let mut pictures = Vec::new();
+    if let Some(pics) = entry.get("contextualPictures").and_then(|p| p.as_array()) {
+        for pic in pics {
+            if let Some(u) = pic.get("picture").and_then(|v| v.as_str()) {
+                pictures.push(u.to_string());
+            }
+        }
+    }
+    let picture_url = pictures.first().cloned().unwrap_or_default();
+
+    // Coordinates (used by the map-tiling pass). Airbnb has used both
+    // "coordinate"/"coordinates" and latitude/lat naming over time.
+    let coordinates = entry
+        .get("coordinate")
+        .or_else(|| entry.get("coordinates"))
+        .and_then(|c| {
+            let lat = c.get("latitude").or_else(|| c.get("lat")).and_then(|v| v.as_f64())?;
+            let lng = c.get("longitude").or_else(|| c.get("lng")).and_then(|v| v.as_f64())?;
+            Some(Coordinates { lat, lng })
+        });
+
+    // Features: bed/room summary + badges + payment messages.
+    let mut features = Vec::new();
+    if let Some(body) = entry
+        .get("structuredContent")
+        .and_then(|s| s.get("primaryLine"))
+        .and_then(|p| p.get(0))
+        .and_then(|p| p.get("body"))
+        .and_then(|v| v.as_str())
+    {
+        if !body.is_empty() {
+            features.push(body.to_string());
+        }
+    }
+    if let Some(badges) = entry.get("badges").and_then(|b| b.as_array()) {
+        for badge in badges {
+            if let Some(t) = badge.get("text").and_then(|v| v.as_str()) {
+                if !t.is_empty() {
+                    features.push(t.to_string());
+                }
+            }
+        }
+    }
+    if let Some(msgs) = entry.get("paymentMessages").and_then(|p| p.as_array()) {
+        for msg in msgs {
+            if let Some(t) = msg.get("text").and_then(|v| v.as_str()) {
+                if !t.is_empty() {
+                    features.push(t.to_string());
+                }
+            }
+        }
+    }
+
+    Some(Listing {
+        id: None,
+        url,
+        title,
+        picture_url,
+        pictures,
+        description,
+        price,
+        price_numeric,
+        rating,
+        rating_numeric,
+        reviews_count,
+        location,
+        coordinates,
+        features,
+        house_details: Vec::new(),
+        host: None,
+        region: None,
+        country: None,
+        property_type: None,
+        created_at: None,
+        scraped_at: Some(chrono::Utc::now()),
+    })
+}
+
+/// Phase 1: build listings for every result in the search-page JSON.
+pub fn extract_all_listings_from_json(json_data: &serde_json::Value) -> Vec<Listing> {
+    use tracing::{debug, info};
+    let mut listings = Vec::new();
+    let search_results = json_data
+        .get("niobeClientData")
+        .and_then(|d| d.get(1))
+        .and_then(|d| d.get("data"))
+        .and_then(|d| d.get("presentation"))
+        .and_then(|d| d.get("staysSearch"))
+        .and_then(|d| d.get("results"))
+        .and_then(|d| d.get("searchResults"))
+        .and_then(|d| d.as_array());
+    match search_results {
+        Some(arr) => {
+            for entry in arr {
+                if let Some(listing) = listing_from_search_result(entry) {
+                    listings.push(listing);
+                }
+            }
+            info!("[FAST] Built {} listings from search JSON", listings.len());
+        }
+        None => debug!("[FAST] searchResults array not found in JSON"),
+    }
+    listings
+}
+
+/// A geographic bounding box for map-based search subdivision.
+#[derive(Clone, Copy, Debug)]
+pub struct BoundingBox {
+    pub sw_lat: f64,
+    pub sw_lng: f64,
+    pub ne_lat: f64,
+    pub ne_lng: f64,
+}
+
+impl BoundingBox {
+    /// Split into four equal quadrants for recursive subdivision.
+    fn quarters(&self) -> [BoundingBox; 4] {
+        let mid_lat = (self.sw_lat + self.ne_lat) / 2.0;
+        let mid_lng = (self.sw_lng + self.ne_lng) / 2.0;
+        [
+            BoundingBox { sw_lat: self.sw_lat, sw_lng: self.sw_lng, ne_lat: mid_lat, ne_lng: mid_lng }, // SW
+            BoundingBox { sw_lat: self.sw_lat, sw_lng: mid_lng, ne_lat: mid_lat, ne_lng: self.ne_lng }, // SE
+            BoundingBox { sw_lat: mid_lat, sw_lng: self.sw_lng, ne_lat: self.ne_lat, ne_lng: mid_lng }, // NW
+            BoundingBox { sw_lat: mid_lat, sw_lng: mid_lng, ne_lat: self.ne_lat, ne_lng: self.ne_lng }, // NE
+        ]
+    }
+
+    /// Derive a padded bounding box from the coordinates of harvested listings.
+    /// Returns None if too few listings carry coordinates to bound an area.
+    fn from_listings(listings: &[Listing]) -> Option<BoundingBox> {
+        let coords: Vec<&Coordinates> = listings.iter().filter_map(|l| l.coordinates.as_ref()).collect();
+        if coords.len() < 2 {
+            return None;
+        }
+        let mut min_lat = f64::MAX;
+        let mut max_lat = f64::MIN;
+        let mut min_lng = f64::MAX;
+        let mut max_lng = f64::MIN;
+        for c in &coords {
+            min_lat = min_lat.min(c.lat);
+            max_lat = max_lat.max(c.lat);
+            min_lng = min_lng.min(c.lng);
+            max_lng = max_lng.max(c.lng);
+        }
+        // Pad by 15% (min 0.01 deg) so edge listings aren't clipped.
+        let lat_pad = ((max_lat - min_lat) * 0.15).max(0.01);
+        let lng_pad = ((max_lng - min_lng) * 0.15).max(0.01);
+        Some(BoundingBox {
+            sw_lat: min_lat - lat_pad,
+            sw_lng: min_lng - lng_pad,
+            ne_lat: max_lat + lat_pad,
+            ne_lng: max_lng + lng_pad,
+        })
+    }
+}
+
+/// Build the name-based Airbnb search URL (mirrors get_place_urls_stealth).
+fn build_search_url(
+    location: &str,
+    check_in: Option<&str>,
+    check_out: Option<&str>,
+    guests: &GuestParams,
+    amenity_filter: Option<&AmenityFilter>,
+) -> String {
+    let guest_params_str = format!(
+        "adults={}&children={}&infants={}&pets={}",
+        guests.adults, guests.children, guests.infants, guests.pets
+    );
+    let amenity_params_str = amenity_filter.map(|f| f.to_url_params()).unwrap_or_default();
+    let mut url = if let (Some(checkin), Some(checkout)) = (check_in, check_out) {
+        format!(
+            "{}s/{}/homes?refinement_paths%5B%5D=%2Fhomes&query={}&\
+             search_mode=regular_search&price_filter_input_type=2&channel=EXPLORE&\
+             date_picker_type=calendar&checkin={}&checkout={}&\
+             source=structured_search_input_header&search_type=unknown&{}",
+            AIRBNB_BASE_URL, urlencoding::encode(location), urlencoding::encode(location),
+            checkin, checkout, guest_params_str
+        )
+    } else {
+        format!(
+            "{}s/{}/homes?refinement_paths%5B%5D=%2Fhomes&query={}&\
+             search_mode=regular_search&price_filter_input_type=2&channel=EXPLORE&\
+             date_picker_type=flexible_dates&source=structured_search_input_header&\
+             search_type=unknown&{}",
+            AIRBNB_BASE_URL, urlencoding::encode(location), urlencoding::encode(location),
+            guest_params_str
+        )
+    };
+    if !amenity_params_str.is_empty() {
+        url.push('&');
+        url.push_str(&amenity_params_str);
+    }
+    url
+}
+
+/// Build a map-bounded search URL for a bounding box (Phase 3 tiling).
+fn build_map_search_url(
+    location: &str,
+    bbox: &BoundingBox,
+    guests: &GuestParams,
+    amenity_filter: Option<&AmenityFilter>,
+) -> String {
+    let guest_params_str = format!(
+        "adults={}&children={}&infants={}&pets={}",
+        guests.adults, guests.children, guests.infants, guests.pets
+    );
+    let amenity_params_str = amenity_filter.map(|f| f.to_url_params()).unwrap_or_default();
+    let mut url = format!(
+        "{}s/{}/homes?refinement_paths%5B%5D=%2Fhomes&query={}&search_by_map=true&\
+         search_mode=regular_search&channel=EXPLORE&source=structured_search_input_header&\
+         search_type=user_map_move&ne_lat={}&ne_lng={}&sw_lat={}&sw_lng={}&zoom=12&{}",
+        AIRBNB_BASE_URL, urlencoding::encode(location), urlencoding::encode(location),
+        bbox.ne_lat, bbox.ne_lng, bbox.sw_lat, bbox.sw_lng, guest_params_str
+    );
+    if !amenity_params_str.is_empty() {
+        url.push('&');
+        url.push_str(&amenity_params_str);
+    }
+    url
+}
+
+/// Navigate to a search URL, scroll to load lazy content, and harvest every
+/// listing present in the embedded JSON.
+async fn harvest_search_page(driver: &StealthDriver, url: &str) -> Vec<Listing> {
+    use tracing::{info, warn};
+    info!("[FAST] Harvesting search page: {}", url);
+    if let Err(e) = driver.goto(url).await {
+        warn!("[FAST] Failed to navigate to {}: {}", url, e);
+        return Vec::new();
+    }
+    sleep(Duration::from_secs(5)).await;
+    for i in 1..=5 {
+        let _ = driver.execute_script(&format!("window.scrollBy(0, {});", 800 * i)).await;
+        sleep(Duration::from_millis(1200)).await;
+    }
+    sleep(Duration::from_secs(2)).await;
+    match driver.page_source().await {
+        Ok(html) => match extract_airbnb_json_data(&html) {
+            Some(json) => extract_all_listings_from_json(&json),
+            None => {
+                warn!("[FAST] No embedded JSON on page {}", url);
+                Vec::new()
+            }
+        },
+        Err(e) => {
+            warn!("[FAST] Failed to read page source for {}: {}", url, e);
+            Vec::new()
+        }
+    }
+}
+
+/// Phase 3: recursively harvest a bounding box, splitting into quadrants whenever
+/// a tile returns enough results to look truncated. Deduplicates by URL via `seen`.
+async fn collect_listings_tiled(
+    driver: &StealthDriver,
+    location: &str,
+    bbox: BoundingBox,
+    guests: &GuestParams,
+    amenity_filter: Option<&AmenityFilter>,
+    depth: usize,
+    seen: &mut HashSet<String>,
+    out: &mut Vec<Listing>,
+) {
+    use tracing::info;
+    let url = build_map_search_url(location, &bbox, guests, amenity_filter);
+    let tile_listings = harvest_search_page(driver, &url).await;
+    let returned = tile_listings.len();
+    let mut added = 0;
+    for listing in tile_listings {
+        if seen.insert(listing.url.clone()) {
+            out.push(listing);
+            added += 1;
+        }
+    }
+    info!("[TILE] depth={} returned={} new={} total={}", depth, returned, added, out.len());
+
+    if returned >= TILE_SPLIT_THRESHOLD && depth < MAX_TILE_DEPTH {
+        info!("[TILE] tile at depth {} looks truncated ({} results) - subdividing", depth, returned);
+        for sub in bbox.quarters() {
+            Box::pin(collect_listings_tiled(
+                driver, location, sub, guests, amenity_filter, depth + 1, seen, out,
+            ))
+            .await;
+        }
+    }
+}
+
+/// Build a reqwest client with browser-like headers. Forces identity encoding
+/// because this reqwest build has no decompression features enabled, so a
+/// gzip/br/zstd response would otherwise arrive as undecodable bytes.
+fn build_http_client() -> Result<reqwest::Client> {
+    use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+    let mut headers = HeaderMap::new();
+    for (key, value) in get_realistic_headers() {
+        if key.eq_ignore_ascii_case("accept-encoding") {
+            continue; // overridden below
+        }
+        if let (Ok(name), Ok(val)) = (
+            HeaderName::from_bytes(key.as_bytes()),
+            HeaderValue::from_str(&value),
+        ) {
+            headers.insert(name, val);
+        }
+    }
+    headers.insert(reqwest::header::ACCEPT_ENCODING, HeaderValue::from_static("identity"));
+    let client = reqwest::Client::builder()
+        .default_headers(headers)
+        .timeout(Duration::from_secs(30))
+        .build()?;
+    Ok(client)
+}
+
+/// Fetch a listing's /rooms page over HTTP and fill the fields the search JSON
+/// lacks (full amenities, house details, region/country). No browser involved.
+async fn enrich_listing_http(client: &reqwest::Client, mut listing: Listing) -> Listing {
+    use tracing::{debug, warn};
+    match client.get(&listing.url).send().await {
+        Ok(resp) => match resp.text().await {
+            Ok(html) => {
+                for a in extract_amenities_from_source(&html) {
+                    if !listing.features.contains(&a) {
+                        listing.features.push(a);
+                    }
+                }
+                let house = extract_house_details_from_source(&html);
+                if !house.is_empty() {
+                    listing.house_details = house;
+                }
+                if listing.region.is_none() || listing.country.is_none() {
+                    let (region, country) = extract_region_country_from_source(&html);
+                    if listing.region.is_none() {
+                        listing.region = region;
+                    }
+                    if listing.country.is_none() {
+                        listing.country = country;
+                    }
+                }
+                if listing.description.is_empty() {
+                    if let Some(d) = extract_description_from_source(&html) {
+                        listing.description = d;
+                    }
+                }
+                debug!("[ENRICH] {} -> {} features", listing.url, listing.features.len());
+            }
+            Err(e) => warn!("[ENRICH] Failed to read body for {}: {}", listing.url, e),
+        },
+        Err(e) => warn!("[ENRICH] Failed to fetch {}: {}", listing.url, e),
+    }
+    listing
+}
+
+/// Phase 2: enrich listings over bounded, parallel HTTP fetches.
+pub async fn enrich_listings_parallel(listings: Vec<Listing>, concurrency: usize) -> Vec<Listing> {
+    use tracing::{info, warn};
+    if listings.is_empty() {
+        return listings;
+    }
+    let client = match build_http_client() {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("[ENRICH] Could not build HTTP client, skipping enrichment: {}", e);
+            return listings;
+        }
+    };
+    info!("[ENRICH] Enriching {} listings with concurrency {}", listings.len(), concurrency);
+    let enriched = futures::stream::iter(listings.into_iter().map(|listing| {
+        let client = client.clone();
+        async move {
+            let result = enrich_listing_http(&client, listing).await;
+            // Polite jitter between requests.
+            sleep(Duration::from_millis(150 + fastrand::u64(0..350))).await;
+            result
+        }
+    }))
+    .buffer_unordered(concurrency)
+    .collect::<Vec<_>>()
+    .await;
+    info!("[ENRICH] Enrichment complete: {} listings", enriched.len());
+    enriched
+}
+
+/// High-level fast scrape: Phase 1 harvest, optional Phase 3 tiling for full
+/// coverage, then optional Phase 2 HTTP enrichment. Returns listings ready for
+/// filtering and insertion by the caller.
+pub async fn scrape_city_fast(
+    driver: &StealthDriver,
+    location: &str,
+    guests: GuestParams,
+    amenity_filter: Option<AmenityFilter>,
+    check_in: Option<&str>,
+    check_out: Option<&str>,
+    limit: Option<usize>,
+    enrich: bool,
+    tiled: bool,
+) -> Result<Vec<Listing>> {
+    use tracing::{info, warn};
+
+    // Phase 1: name-based search harvest.
+    let base_url = build_search_url(location, check_in, check_out, &guests, amenity_filter.as_ref());
+    let mut base = harvest_search_page(driver, &base_url).await;
+    info!("[FAST] Phase 1 harvested {} listings for {}", base.len(), location);
+
+    // Phase 3: subdivide by map bounding box for fuller coverage.
+    let mut listings = if tiled {
+        match BoundingBox::from_listings(&base) {
+            Some(bbox) => {
+                info!("[FAST] Phase 3 tiling bbox {:?}", bbox);
+                let mut seen: HashSet<String> = base.iter().map(|l| l.url.clone()).collect();
+                let mut out = std::mem::take(&mut base);
+                collect_listings_tiled(
+                    driver, location, bbox, &guests, amenity_filter.as_ref(), 0, &mut seen, &mut out,
+                )
+                .await;
+                info!("[FAST] Phase 3 produced {} unique listings", out.len());
+                out
+            }
+            None => {
+                warn!("[FAST] No coordinates available for tiling; using Phase 1 results only");
+                base
+            }
+        }
+    } else {
+        base
+    };
+
+    // Apply the caller's limit before the (potentially expensive) enrichment.
+    if let Some(max) = limit {
+        if max > 0 && listings.len() > max {
+            listings.truncate(max);
+        }
+    }
+
+    // Phase 2: enrich missing fields over parallel HTTP.
+    if enrich {
+        listings = enrich_listings_parallel(listings, ENRICH_CONCURRENCY).await;
+    }
+
+    Ok(listings)
+}
+
+#[cfg(test)]
+mod fast_path_tests {
+    use super::*;
+
+    #[test]
+    fn first_number_parses_prices_and_ratings() {
+        assert_eq!(first_number("$1,234 night"), Some(1234.0));
+        assert_eq!(first_number("$1,234.56"), Some(1234.56));
+        assert_eq!(first_number("4.95 (312)"), Some(4.95));
+        assert_eq!(first_number("no digits"), None);
+        assert_eq!(first_number("$99"), Some(99.0));
+    }
+
+    #[test]
+    fn decode_listing_id_extracts_numeric_id() {
+        let encoded = base64::engine::general_purpose::STANDARD
+            .encode("DemandStayListing:633486763306530765");
+        assert_eq!(decode_listing_id(&encoded), Some("633486763306530765".to_string()));
+        assert_eq!(decode_listing_id("not base64!!!"), None);
+    }
+
+    #[test]
+    fn bounding_box_quarters_partition_without_gaps() {
+        let bbox = BoundingBox { sw_lat: 0.0, sw_lng: 0.0, ne_lat: 4.0, ne_lng: 8.0 };
+        let quarters = bbox.quarters();
+        // Every quarter is half the size in each dimension.
+        for q in &quarters {
+            assert!((q.ne_lat - q.sw_lat - 2.0).abs() < 1e-9);
+            assert!((q.ne_lng - q.sw_lng - 4.0).abs() < 1e-9);
+        }
+        // The four quarters together cover the original extent.
+        let min_lat = quarters.iter().map(|q| q.sw_lat).fold(f64::MAX, f64::min);
+        let max_lat = quarters.iter().map(|q| q.ne_lat).fold(f64::MIN, f64::max);
+        assert_eq!(min_lat, 0.0);
+        assert_eq!(max_lat, 4.0);
+    }
+
+    #[test]
+    fn bounding_box_from_listings_needs_two_coords() {
+        let mut a = Listing_stub();
+        a.coordinates = Some(Coordinates { lat: 10.0, lng: 20.0 });
+        let mut b = Listing_stub();
+        b.coordinates = Some(Coordinates { lat: 12.0, lng: 24.0 });
+        let bbox = BoundingBox::from_listings(&[a.clone(), b]).expect("two coords -> bbox");
+        assert!(bbox.sw_lat < 10.0 && bbox.ne_lat > 12.0); // padded outward
+        assert!(bbox.sw_lng < 20.0 && bbox.ne_lng > 24.0);
+        // A single coordinate cannot define an area.
+        assert!(BoundingBox::from_listings(&[a]).is_none());
+    }
+
+    #[test]
+    fn extract_all_listings_from_json_builds_full_listings() {
+        let encoded_id = base64::engine::general_purpose::STANDARD
+            .encode("DemandStayListing:12345");
+        let json = serde_json::json!({
+            "niobeClientData": [
+                "ignored",
+                { "data": { "presentation": { "staysSearch": { "results": { "searchResults": [
+                    {
+                        "demandStayListing": {
+                            "id": encoded_id,
+                            "description": { "name": {
+                                "localizedStringWithTranslationPreference": "Cozy Cabin"
+                            }}
+                        },
+                        "title": "Cabin in Traverse City",
+                        "structuredDisplayPrice": { "primaryLine": { "price": "$150 night" } },
+                        "avgRatingLocalized": "4.90 (128)",
+                        "contextualPictures": [ { "picture": "https://img/1.jpg" } ],
+                        "coordinate": { "latitude": 44.76, "longitude": -85.62 },
+                        "structuredContent": { "primaryLine": [ { "body": "2 beds" } ] },
+                        "badges": [ { "text": "Guest favorite" } ]
+                    }
+                ]}}}}}
+            ]
+        });
+
+        let listings = extract_all_listings_from_json(&json);
+        assert_eq!(listings.len(), 1);
+        let l = &listings[0];
+        assert_eq!(l.url, "https://www.airbnb.com/rooms/12345");
+        assert_eq!(l.title, "Cabin in Traverse City");
+        assert_eq!(l.location, "Traverse City");
+        assert_eq!(l.price, "$150 night");
+        assert_eq!(l.price_numeric, Some(150.0));
+        assert_eq!(l.rating, "4.90");
+        assert_eq!(l.rating_numeric, Some(4.90));
+        assert_eq!(l.reviews_count, Some(128));
+        assert_eq!(l.description, "Cozy Cabin");
+        assert_eq!(l.picture_url, "https://img/1.jpg");
+        let coord = l.coordinates.as_ref().expect("coordinates parsed");
+        assert!((coord.lat - 44.76).abs() < 1e-9);
+        assert!((coord.lng - -85.62).abs() < 1e-9);
+        assert!(l.features.contains(&"2 beds".to_string()));
+        assert!(l.features.contains(&"Guest favorite".to_string()));
+    }
+
+    #[test]
+    fn extract_all_listings_from_json_skips_entries_without_id() {
+        let json = serde_json::json!({
+            "niobeClientData": [ "x", { "data": { "presentation": { "staysSearch": {
+                "results": { "searchResults": [ { "title": "No id here" } ] }
+            }}}}]
+        });
+        assert!(extract_all_listings_from_json(&json).is_empty());
+    }
+
+    // Minimal Listing with required string fields empty; helpers under test only
+    // touch coordinates.
+    #[allow(non_snake_case)]
+    fn Listing_stub() -> Listing {
+        Listing {
+            id: None,
+            url: String::new(),
+            title: String::new(),
+            picture_url: String::new(),
+            pictures: Vec::new(),
+            description: String::new(),
+            price: String::new(),
+            price_numeric: None,
+            rating: String::new(),
+            rating_numeric: None,
+            reviews_count: None,
+            location: String::new(),
+            coordinates: None,
+            features: Vec::new(),
+            house_details: Vec::new(),
+            host: None,
+            region: None,
+            country: None,
+            property_type: None,
+            created_at: None,
+            scraped_at: None,
+        }
+    }
+}
