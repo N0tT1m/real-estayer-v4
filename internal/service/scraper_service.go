@@ -1,14 +1,48 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
+
+// decodeScraperJSON reads resp into v, returning a descriptive error when the
+// scraper returns a non-2xx status or a non-JSON body. The latter is the
+// tell-tale sign that RUST_SCRAPER_URL points at something other than the
+// scraper (e.g. a web/dev server returning an HTML page), which otherwise
+// surfaces only as an opaque "invalid character '<'" JSON error.
+func decodeScraperJSON(resp *http.Response, endpoint string, v any) error {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading scraper response from %s: %w", endpoint, err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("scraper %s returned HTTP %d: %s", endpoint, resp.StatusCode, bodySnippet(body))
+	}
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 || trimmed[0] == '<' {
+		return fmt.Errorf("scraper %s returned non-JSON — is RUST_SCRAPER_URL pointing at the scraper? got: %s", endpoint, bodySnippet(body))
+	}
+	if err := json.Unmarshal(trimmed, v); err != nil {
+		return fmt.Errorf("parsing scraper JSON from %s: %w (body: %s)", endpoint, err, bodySnippet(body))
+	}
+	return nil
+}
+
+func bodySnippet(b []byte) string {
+	const max = 200
+	s := strings.TrimSpace(string(b))
+	if len(s) > max {
+		s = s[:max] + "…"
+	}
+	return s
+}
 
 // ScraperService handles communication with the Rust scraper
 type ScraperService struct {
@@ -171,14 +205,9 @@ func (s *ScraperService) ScrapeCity(ctx context.Context, p ScrapeParams) (*Scrap
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("scraper returned error: %s", string(body))
-	}
-
 	var result ScrapingResult
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to parse scraper response: %w", err)
+	if err := decodeScraperJSON(resp, "/scrape-city-data", &result); err != nil {
+		return nil, err
 	}
 
 	result.Success = true
@@ -259,14 +288,9 @@ func (s *ScraperService) ScrapeEverything(ctx context.Context, p RegionScrapePar
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("scraper returned error: %s", string(body))
-	}
-
 	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to parse scraper response: %w", err)
+	if err := decodeScraperJSON(resp, "/scrape-everything", &result); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
@@ -284,14 +308,9 @@ func (s *ScraperService) ScrapeNorthAmerica(ctx context.Context) (*ScrapingResul
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("scraper returned error: %s", string(body))
-	}
-
 	var result ScrapingResult
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to parse scraper response: %w", err)
+	if err := decodeScraperJSON(resp, "/scrape-north-america", &result); err != nil {
+		return nil, err
 	}
 
 	result.Success = true
