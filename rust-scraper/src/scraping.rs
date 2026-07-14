@@ -6,6 +6,7 @@ use thirtyfour::{By, WebDriver, WebElement};
 use tokio::time::{sleep, Duration, timeout};
 use tokio::sync::Semaphore;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use crate::models::Listing;
 use crate::stealth_browser::StealthDriver;
 use base64::{Engine as _};
@@ -4641,6 +4642,135 @@ pub async fn scrape_city_fast(
     }
 
     Ok(listings)
+}
+
+// ============================================================================
+// "SCRAPE EVERYTHING" — top-down bounding-box tiling with streaming inserts
+// ============================================================================
+//
+// scrape_city_fast tiles *within* a city (bbox derived from a name search).
+// This path instead seeds the recursion with a large preset box (a whole
+// country/continent) and inserts each tile's listings as it goes, so memory
+// stays bounded no matter how many listings a run turns up. Dense areas (metros)
+// recurse deep; sparse rural areas stay shallow — that's how rural listings the
+// name-search path would miss get covered.
+
+/// Preset bounding boxes for large-area "scrape everything" runs.
+pub fn preset_bbox(name: &str) -> Option<BoundingBox> {
+    match name.to_lowercase().as_str() {
+        // Small, dense validation box over central Austin, TX. Finishes in a
+        // minute or two and exercises harvest + a split or two — used by the
+        // admin "Test" button to confirm the pipeline before a big run.
+        "test" => Some(BoundingBox {
+            sw_lat: 30.20, sw_lng: -97.85, ne_lat: 30.35, ne_lng: -97.68,
+        }),
+        // Continental United States (excludes Alaska/Hawaii).
+        "usa" | "us" | "continental-us" => Some(BoundingBox {
+            sw_lat: 24.5, sw_lng: -125.0, ne_lat: 49.5, ne_lng: -66.9,
+        }),
+        "north-america" | "na" => Some(BoundingBox {
+            sw_lat: 14.0, sw_lng: -168.0, ne_lat: 72.0, ne_lng: -52.0,
+        }),
+        "world" => Some(BoundingBox {
+            sw_lat: -56.0, sw_lng: -180.0, ne_lat: 72.0, ne_lng: 180.0,
+        }),
+        _ => None,
+    }
+}
+
+/// Recursively harvest a bounding box, inserting each tile's fresh listings to
+/// the database as it goes (bounded memory), and subdividing tiles that hit the
+/// result cap. `seen` deduplicates URLs across the whole run; the atomics report
+/// running progress to the caller.
+async fn tile_and_store(
+    driver: &StealthDriver,
+    location: &str,
+    bbox: BoundingBox,
+    guests: &GuestParams,
+    amenity_filter: Option<&AmenityFilter>,
+    depth: usize,
+    max_depth: usize,
+    enrich: bool,
+    seen: &mut HashSet<String>,
+    inserted_total: &AtomicUsize,
+    tiles_processed: &AtomicUsize,
+) {
+    use tracing::{info, warn};
+
+    let url = build_map_search_url(location, &bbox, guests, amenity_filter);
+    let tile_listings = harvest_search_page(driver, &url).await;
+    let returned = tile_listings.len();
+    tiles_processed.fetch_add(1, AtomicOrdering::SeqCst);
+
+    // Keep only URLs not already seen earlier in this run.
+    let mut fresh: Vec<Listing> = Vec::new();
+    for listing in tile_listings {
+        if seen.insert(listing.url.clone()) {
+            fresh.push(listing);
+        }
+    }
+    let fresh_count = fresh.len();
+
+    if !fresh.is_empty() {
+        if enrich {
+            fresh = enrich_listings_parallel(fresh, ENRICH_CONCURRENCY).await;
+        }
+        match crate::database::insert_many(fresh).await {
+            Ok(ids) => {
+                inserted_total.fetch_add(ids.len(), AtomicOrdering::SeqCst);
+            }
+            Err(e) => warn!("[TILE] insert failed at depth {}: {}", depth, e),
+        }
+    }
+
+    info!(
+        "[TILE] depth={} returned={} fresh={} | tiles={} inserted={}",
+        depth, returned, fresh_count,
+        tiles_processed.load(AtomicOrdering::SeqCst),
+        inserted_total.load(AtomicOrdering::SeqCst)
+    );
+
+    // If the tile looks truncated, subdivide to reach the hidden listings.
+    if returned >= TILE_SPLIT_THRESHOLD && depth < max_depth {
+        for sub in bbox.quarters() {
+            Box::pin(tile_and_store(
+                driver, location, sub, guests, amenity_filter,
+                depth + 1, max_depth, enrich, seen, inserted_total, tiles_processed,
+            ))
+            .await;
+        }
+    }
+}
+
+/// Top-level "scrape everything in this box" driver. Seeds recursive map-tiling
+/// with an arbitrary bounding box and streams results to the database. Returns
+/// (listings_inserted, tiles_processed).
+pub async fn scrape_region_tiled(
+    driver: &StealthDriver,
+    location: &str,
+    bbox: BoundingBox,
+    guests: GuestParams,
+    amenity_filter: Option<AmenityFilter>,
+    enrich: bool,
+    max_depth: usize,
+    inserted_total: &AtomicUsize,
+    tiles_processed: &AtomicUsize,
+) -> Result<(usize, usize)> {
+    use tracing::info;
+    info!(
+        "[REGION] Starting tiled scrape of bbox {:?} (max_depth={}, enrich={})",
+        bbox, max_depth, enrich
+    );
+    let mut seen: HashSet<String> = HashSet::new();
+    tile_and_store(
+        driver, location, bbox, &guests, amenity_filter.as_ref(),
+        0, max_depth, enrich, &mut seen, inserted_total, tiles_processed,
+    )
+    .await;
+    let inserted = inserted_total.load(AtomicOrdering::SeqCst);
+    let tiles = tiles_processed.load(AtomicOrdering::SeqCst);
+    info!("[REGION] Complete: {} listings inserted across {} tiles", inserted, tiles);
+    Ok((inserted, tiles))
 }
 
 #[cfg(test)]
