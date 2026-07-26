@@ -2,14 +2,13 @@
 use crate::models::*;
 use anyhow::Result;
 use futures::TryStreamExt;
+use mongodb::bson::oid::ObjectId;
 use mongodb::{
     bson::{doc, Document},
     options::{ClientOptions, FindOptions},
-    Client, Collection, Database
+    Client, Collection, Database,
 };
-use mongodb::bson::oid::ObjectId;
 use tokio::sync::OnceCell;
-
 
 static DB: OnceCell<Database> = OnceCell::const_new();
 
@@ -51,37 +50,43 @@ pub async fn get_collection() -> Collection<Listing> {
 
 // Validate a listing before insertion
 fn validate_listing(listing: &Listing) -> bool {
-    use tracing::{warn, debug};
-    
+    use tracing::{debug, warn};
+
     // Check required fields
     if listing.title.trim().is_empty() {
         warn!("Listing rejected: empty title");
         return false;
     }
-    
+
     if listing.url.trim().is_empty() || !listing.url.starts_with("http") {
         warn!("Listing rejected: invalid URL: '{}'", listing.url);
         return false;
     }
-    
+
     // At least one of description or price should be present
     if listing.description.trim().is_empty() && listing.price.trim().is_empty() {
         warn!("Listing rejected: both description and price are empty");
         return false;
     }
-    
+
     // Validate price format if present
     if !listing.price.trim().is_empty() {
         if !listing.price.starts_with('$') {
-            warn!("Listing rejected: invalid price format: '{}'", listing.price);
+            warn!(
+                "Listing rejected: invalid price format: '{}'",
+                listing.price
+            );
             return false;
         }
-        
+
         // Extract numeric part and validate
         let price_num = listing.price[1..].replace(',', "");
         if let Ok(price_val) = price_num.parse::<f64>() {
             if price_val <= 0.0 || price_val > 50000.0 {
-                warn!("Listing rejected: price out of reasonable range: ${}", price_val);
+                warn!(
+                    "Listing rejected: price out of reasonable range: ${}",
+                    price_val
+                );
                 return false;
             }
         } else {
@@ -89,24 +94,33 @@ fn validate_listing(listing: &Listing) -> bool {
             return false;
         }
     }
-    
+
     // Validate description length if present
     if !listing.description.trim().is_empty() && listing.description.trim().len() < 10 {
-        warn!("Listing rejected: description too short: '{}'", listing.description);
+        warn!(
+            "Listing rejected: description too short: '{}'",
+            listing.description
+        );
         return false;
     }
-    
-    debug!("Listing validation passed: title='{}', price='{}'", listing.title, listing.price);
+
+    debug!(
+        "Listing validation passed: title='{}', price='{}'",
+        listing.title, listing.price
+    );
     true
 }
 
 pub async fn insert_many(listings: Vec<Listing>) -> Result<Vec<String>> {
-    use tracing::{info, warn, debug, error, span, Level};
+    use tracing::{debug, error, info, span, warn, Level};
 
     let span = span!(Level::INFO, "insert_many", count = listings.len());
     let _enter = span.enter();
 
-    info!("Attempting to insert {} listings into database", listings.len());
+    info!(
+        "Attempting to insert {} listings into database",
+        listings.len()
+    );
 
     // Check for empty vector to prevent MongoDB error
     if listings.is_empty() {
@@ -116,13 +130,14 @@ pub async fn insert_many(listings: Vec<Listing>) -> Result<Vec<String>> {
 
     // Validate and filter listings
     let original_count = listings.len();
-    let valid_listings: Vec<Listing> = listings.into_iter()
-        .filter(validate_listing)
-        .collect();
+    let valid_listings: Vec<Listing> = listings.into_iter().filter(validate_listing).collect();
 
     let rejected_count = original_count - valid_listings.len();
     if rejected_count > 0 {
-        warn!("Rejected {} invalid listings out of {} total", rejected_count, original_count);
+        warn!(
+            "Rejected {} invalid listings out of {} total",
+            rejected_count, original_count
+        );
     }
 
     if valid_listings.is_empty() {
@@ -147,22 +162,37 @@ pub async fn insert_many(listings: Vec<Listing>) -> Result<Vec<String>> {
 
     let duplicate_count = valid_count - unique_listings.len();
     if duplicate_count > 0 {
-        info!("Filtered out {} duplicate listings (already exist in database)", duplicate_count);
+        info!(
+            "Filtered out {} duplicate listings (already exist in database)",
+            duplicate_count
+        );
     }
 
     if unique_listings.is_empty() {
-        info!("No new unique listings to insert - all {} listings already exist", duplicate_count);
+        info!(
+            "No new unique listings to insert - all {} listings already exist",
+            duplicate_count
+        );
         return Ok(Vec::new());
     }
 
-    info!("Inserting {} new unique listings (filtered {} duplicates, rejected {} invalid)",
-          unique_listings.len(), duplicate_count, rejected_count);
+    info!(
+        "Inserting {} new unique listings (filtered {} duplicates, rejected {} invalid)",
+        unique_listings.len(),
+        duplicate_count,
+        rejected_count
+    );
 
     // Log some sample data for verification
     for (i, listing) in unique_listings.iter().take(3).enumerate() {
         debug!("Unique listing {}: title='{}', location='{}', price='{}', region='{:?}', country='{:?}'",
                i + 1, listing.title, listing.location, listing.price, listing.region, listing.country);
-        info!("Listing {} features ({} total): {:?}", i + 1, listing.features.len(), listing.features);
+        info!(
+            "Listing {} features ({} total): {:?}",
+            i + 1,
+            listing.features.len(),
+            listing.features
+        );
     }
     if unique_listings.len() > 3 {
         debug!("... and {} more unique listings", unique_listings.len() - 3);
@@ -179,18 +209,27 @@ pub async fn insert_many(listings: Vec<Listing>) -> Result<Vec<String>> {
                 .collect();
             info!("Successfully inserted {} new listings into database (skipped {} duplicates, rejected {} invalid)",
                   inserted_ids.len(), duplicate_count, rejected_count);
-            debug!("Inserted IDs: {:?}", inserted_ids.iter().take(3).collect::<Vec<_>>());
+            debug!(
+                "Inserted IDs: {:?}",
+                inserted_ids.iter().take(3).collect::<Vec<_>>()
+            );
             Ok(inserted_ids)
-        },
+        }
         Err(e) => {
-            error!("Failed to insert {} unique listings into database: {}", unique_count, e);
+            error!(
+                "Failed to insert {} unique listings into database: {}",
+                unique_count, e
+            );
             Err(e.into())
         }
     }
 }
 
 /// Get URLs that already exist in the database
-async fn get_existing_urls(collection: &Collection<Listing>, urls: &[&str]) -> Result<std::collections::HashSet<String>> {
+async fn get_existing_urls(
+    collection: &Collection<Listing>,
+    urls: &[&str],
+) -> Result<std::collections::HashSet<String>> {
     use tracing::debug;
 
     let filter = doc! {
@@ -204,13 +243,17 @@ async fn get_existing_urls(collection: &Collection<Listing>, urls: &[&str]) -> R
         existing_urls.insert(listing.url);
     }
 
-    debug!("Found {} existing URLs out of {} to check", existing_urls.len(), urls.len());
+    debug!(
+        "Found {} existing URLs out of {} to check",
+        existing_urls.len(),
+        urls.len()
+    );
     Ok(existing_urls)
 }
 
 pub async fn get_listings_by_query(query: Document, limit: i64) -> Result<Vec<Listing>> {
     let collection = get_collection().await;
-    
+
     let mut cursor = if limit > 0 {
         let options = FindOptions::builder().limit(limit).build();
         collection.find(query, options).await?
@@ -252,8 +295,5 @@ pub async fn get_filters(query: Document, limit: i64) -> Result<FiltersResponse>
 
     let listings = get_listings_by_query(query, limit).await?;
 
-    Ok(FiltersResponse {
-        features,
-        listings,
-    })
+    Ok(FiltersResponse { features, listings })
 }

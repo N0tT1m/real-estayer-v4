@@ -1,10 +1,10 @@
 // watchlist.rs - Airbnb Price Monitoring and Watchlist Service
-use anyhow::{Result, anyhow};
+use crate::routes::create_webdriver;
+use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tokio::time::{sleep, Duration};
 use thirtyfour::{By, WebDriver};
-use crate::routes::create_webdriver;
+use tokio::time::{sleep, Duration};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WatchlistItem {
@@ -13,7 +13,7 @@ pub struct WatchlistItem {
     pub listing_id: String,
     pub title: String,
     pub current_price: f64,
-    pub target_price: f64,  // Alert when price drops to or below this
+    pub target_price: f64, // Alert when price drops to or below this
     pub original_price: f64,
     pub location: String,
     pub check_in_date: String,
@@ -98,19 +98,27 @@ impl AirbnbWatchlistService {
 
     pub async fn add_to_watchlist(&mut self, item: WatchlistItem) -> Result<()> {
         // Check if item already exists
-        if self.watchlist_items.iter().any(|w| w.listing_id == item.listing_id && w.user_id == item.user_id) {
+        if self
+            .watchlist_items
+            .iter()
+            .any(|w| w.listing_id == item.listing_id && w.user_id == item.user_id)
+        {
             return Err(anyhow!("Item already in watchlist"));
         }
 
         self.watchlist_items.push(item);
-        log::info!("Added item to watchlist: {}", self.watchlist_items.last().unwrap().title);
+        log::info!(
+            "Added item to watchlist: {}",
+            self.watchlist_items.last().unwrap().title
+        );
         Ok(())
     }
 
     pub async fn remove_from_watchlist(&mut self, user_id: &str, listing_id: &str) -> Result<()> {
         let initial_len = self.watchlist_items.len();
-        self.watchlist_items.retain(|item| !(item.user_id == user_id && item.listing_id == listing_id));
-        
+        self.watchlist_items
+            .retain(|item| !(item.user_id == user_id && item.listing_id == listing_id));
+
         if self.watchlist_items.len() < initial_len {
             log::info!("Removed item from watchlist: {}", listing_id);
             Ok(())
@@ -120,7 +128,8 @@ impl AirbnbWatchlistService {
     }
 
     pub async fn get_user_watchlist(&self, user_id: &str) -> Vec<&WatchlistItem> {
-        self.watchlist_items.iter()
+        self.watchlist_items
+            .iter()
             .filter(|item| item.user_id == user_id && item.is_active)
             .collect()
     }
@@ -139,7 +148,7 @@ impl AirbnbWatchlistService {
             match Self::scrape_current_price(&driver, &listing_url).await {
                 Ok(current_price) => {
                     let price_changed = (current_price - item.current_price).abs() > 0.01;
-                    
+
                     if price_changed {
                         // Record price history
                         self.price_history.push(PriceHistory {
@@ -159,8 +168,13 @@ impl AirbnbWatchlistService {
                             let price_drop = old_price - current_price;
                             price_drops.push((item.clone(), price_drop));
                             item.alert_count += 1;
-                            log::info!("Price drop alert for {}: ${:.2} -> ${:.2} (dropped ${:.2})", 
-                                     item.title, old_price, current_price, price_drop);
+                            log::info!(
+                                "Price drop alert for {}: ${:.2} -> ${:.2} (dropped ${:.2})",
+                                item.title,
+                                old_price,
+                                current_price,
+                                price_drop
+                            );
                         }
                     }
 
@@ -185,9 +199,9 @@ impl AirbnbWatchlistService {
 
         // Try different price selectors that Airbnb uses
         let price_selectors = vec![
-            "._1y74zjx",      // Main price selector
-            "._j1kt73",       // Alternative price selector
-            "._tyxjp1",       // Another price format
+            "._1y74zjx",                     // Main price selector
+            "._j1kt73",                      // Alternative price selector
+            "._tyxjp1",                      // Another price format
             "[data-testid='price-display']", // Testid selector
         ];
 
@@ -229,7 +243,8 @@ impl AirbnbWatchlistService {
     }
 
     pub async fn get_price_history(&self, listing_id: &str) -> Vec<&PriceHistory> {
-        self.price_history.iter()
+        self.price_history
+            .iter()
             .filter(|h| h.listing_id == listing_id)
             .collect()
     }
@@ -256,14 +271,24 @@ impl AirbnbWatchlistService {
                 item.title, price_drop, item.current_price, item.target_price
             )
         ).await?;
-        
+
         Ok(())
     }
 
     // Email notification placeholder method
-    async fn send_email_notification(&self, email: &str, subject: &str, body: &str) -> Result<(), anyhow::Error> {
-        tracing::info!("Email notification placeholder - To: {}, Subject: {}, Body: {}", email, subject, body);
-        
+    async fn send_email_notification(
+        &self,
+        email: &str,
+        subject: &str,
+        body: &str,
+    ) -> Result<(), anyhow::Error> {
+        tracing::info!(
+            "Email notification placeholder - To: {}, Subject: {}, Body: {}",
+            email,
+            subject,
+            body
+        );
+
         // TODO: Implement actual email sending using lettre crate
         // Example implementation would be:
         // let email = Message::builder()
@@ -271,20 +296,20 @@ impl AirbnbWatchlistService {
         //     .to(email.parse()?)
         //     .subject(subject)
         //     .body(String::from(body))?;
-        // 
+        //
         // let creds = Credentials::new("smtp_username".to_owned(), "smtp_password".to_owned());
         // let mailer = SmtpTransport::relay("smtp.gmail.com")?
         //     .credentials(creds)
         //     .build();
-        // 
+        //
         // mailer.send(&email)?;
-        
+
         Ok(())
     }
 
     pub async fn cleanup_old_alerts(&mut self, days_old: i64) {
         let cutoff_date = Utc::now() - chrono::Duration::days(days_old);
-        
+
         self.watchlist_items.retain(|item| {
             if let Some(last_checked) = item.last_checked {
                 last_checked > cutoff_date
@@ -293,8 +318,9 @@ impl AirbnbWatchlistService {
             }
         });
 
-        self.price_history.retain(|history| history.timestamp > cutoff_date);
-        
+        self.price_history
+            .retain(|history| history.timestamp > cutoff_date);
+
         log::info!("Cleaned up old watchlist items and price history");
     }
 }
@@ -305,17 +331,32 @@ mod tests {
 
     #[test]
     fn test_extract_price_from_text() {
-        assert_eq!(AirbnbWatchlistService::extract_price_from_text("$123"), Some(123.0));
-        assert_eq!(AirbnbWatchlistService::extract_price_from_text("$1,234"), Some(1234.0));
-        assert_eq!(AirbnbWatchlistService::extract_price_from_text("$123 total"), Some(123.0));
-        assert_eq!(AirbnbWatchlistService::extract_price_from_text("$456 per night"), Some(456.0));
-        assert_eq!(AirbnbWatchlistService::extract_price_from_text("invalid"), None);
+        assert_eq!(
+            AirbnbWatchlistService::extract_price_from_text("$123"),
+            Some(123.0)
+        );
+        assert_eq!(
+            AirbnbWatchlistService::extract_price_from_text("$1,234"),
+            Some(1234.0)
+        );
+        assert_eq!(
+            AirbnbWatchlistService::extract_price_from_text("$123 total"),
+            Some(123.0)
+        );
+        assert_eq!(
+            AirbnbWatchlistService::extract_price_from_text("$456 per night"),
+            Some(456.0)
+        );
+        assert_eq!(
+            AirbnbWatchlistService::extract_price_from_text("invalid"),
+            None
+        );
     }
 
     #[tokio::test]
     async fn test_watchlist_operations() {
         let mut service = AirbnbWatchlistService::new();
-        
+
         let item = WatchlistItem::new(
             "user123".to_string(),
             "https://airbnb.com/rooms/123".to_string(),
@@ -342,7 +383,10 @@ mod tests {
         assert_eq!(user_items.len(), 1);
 
         // Test removal
-        assert!(service.remove_from_watchlist("user123", "123").await.is_ok());
+        assert!(service
+            .remove_from_watchlist("user123", "123")
+            .await
+            .is_ok());
         assert_eq!(service.watchlist_items.len(), 0);
     }
 }

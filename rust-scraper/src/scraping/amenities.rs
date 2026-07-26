@@ -13,12 +13,22 @@ pub(crate) fn normalize_amenity(amenity: &str) -> String {
     // Check contains for each amenity type (order matters - more specific first)
 
     // Hot tub variations - all the slang and brand names
-    if lower.contains("hot tub") || lower.contains("hottub") || lower.contains("hot-tub")
-        || lower.contains("jacuzzi") || lower.contains("jaccuzi") || lower.contains("jacuzi")
-        || lower.contains("whirlpool") || lower.contains("jetted tub") || lower.contains("jet tub")
-        || lower.contains("soaking tub") || lower.contains("spa tub") || lower.contains("bubble tub")
-        || lower.contains("hydrotherapy") || lower.contains("plunge pool")
-        || (lower.contains("spa") && !lower.contains("space")) // "spa" but not "workspace"
+    if lower.contains("hot tub")
+        || lower.contains("hottub")
+        || lower.contains("hot-tub")
+        || lower.contains("jacuzzi")
+        || lower.contains("jaccuzi")
+        || lower.contains("jacuzi")
+        || lower.contains("whirlpool")
+        || lower.contains("jetted tub")
+        || lower.contains("jet tub")
+        || lower.contains("soaking tub")
+        || lower.contains("spa tub")
+        || lower.contains("bubble tub")
+        || lower.contains("hydrotherapy")
+        || lower.contains("plunge pool")
+        || (lower.contains("spa") && !lower.contains("space"))
+    // "spa" but not "workspace"
     {
         return "Hot Tub".to_string();
     }
@@ -29,42 +39,70 @@ pub(crate) fn normalize_amenity(amenity: &str) -> String {
     }
 
     // Waterfront/views - check before beach access
-    if lower.contains("waterfront") || lower.contains("lakefront") || lower.contains("beachfront")
-        || lower.contains("oceanfront") || lower.contains("riverfront") || lower.contains("seafront")
-        || lower.contains("lake view") || lower.contains("ocean view") || lower.contains("sea view")
-        || lower.contains("water view") || lower.contains("beach view") || lower.contains("bay view")
-        || lower.contains("harbor view") || lower.contains("marina view")
+    if lower.contains("waterfront")
+        || lower.contains("lakefront")
+        || lower.contains("beachfront")
+        || lower.contains("oceanfront")
+        || lower.contains("riverfront")
+        || lower.contains("seafront")
+        || lower.contains("lake view")
+        || lower.contains("ocean view")
+        || lower.contains("sea view")
+        || lower.contains("water view")
+        || lower.contains("beach view")
+        || lower.contains("bay view")
+        || lower.contains("harbor view")
+        || lower.contains("marina view")
     {
         return "Waterfront".to_string();
     }
 
     // Beach/water access
-    if lower.contains("beach access") || lower.contains("lake access") || lower.contains("private beach")
-        || lower.contains("dock") || lower.contains("pier") || lower.contains("boat slip")
-        || lower.contains("kayak") || lower.contains("canoe")
+    if lower.contains("beach access")
+        || lower.contains("lake access")
+        || lower.contains("private beach")
+        || lower.contains("dock")
+        || lower.contains("pier")
+        || lower.contains("boat slip")
+        || lower.contains("kayak")
+        || lower.contains("canoe")
     {
         return "Beach Access".to_string();
     }
 
     // Air conditioning
-    if lower.contains("air conditioning") || lower.contains("air-conditioning") || lower.contains("aircon")
-        || lower.contains("central air") || lower.contains("mini split") || lower.contains("climate control")
-        || lower == "a/c" || lower == "ac"
+    if lower.contains("air conditioning")
+        || lower.contains("air-conditioning")
+        || lower.contains("aircon")
+        || lower.contains("central air")
+        || lower.contains("mini split")
+        || lower.contains("climate control")
+        || lower == "a/c"
+        || lower == "ac"
     {
         return "Air Conditioning".to_string();
     }
 
     // WiFi/Internet
-    if lower.contains("wifi") || lower.contains("wi-fi") || lower.contains("wi fi")
-        || lower.contains("wireless") || lower.contains("internet") || lower.contains("broadband")
+    if lower.contains("wifi")
+        || lower.contains("wi-fi")
+        || lower.contains("wi fi")
+        || lower.contains("wireless")
+        || lower.contains("internet")
+        || lower.contains("broadband")
     {
         return "WiFi".to_string();
     }
 
     // Kitchen (check before workspace to avoid "kitchenette" issues)
-    if lower.contains("kitchen") || lower.contains("kitchenette") || lower.contains("cooking")
-        || lower.contains("stove") || lower.contains("oven") || lower.contains("microwave")
-        || lower.contains("refrigerator") || lower.contains("fridge")
+    if lower.contains("kitchen")
+        || lower.contains("kitchenette")
+        || lower.contains("cooking")
+        || lower.contains("stove")
+        || lower.contains("oven")
+        || lower.contains("microwave")
+        || lower.contains("refrigerator")
+        || lower.contains("fridge")
     {
         return "Kitchen".to_string();
     }
@@ -72,7 +110,9 @@ pub(crate) fn normalize_amenity(amenity: &str) -> String {
     // Washer. The dishwasher guard matters: "dishwasher" contains "washer",
     // so without it the Dishwasher branch below is unreachable and every
     // dishwasher is mislabelled as laundry.
-    if (lower.contains("washer") || lower.contains("washing machine") || lower.contains("laundry")
+    if (lower.contains("washer")
+        || lower.contains("washing machine")
+        || lower.contains("laundry")
         || lower.contains("clothes washer"))
         && !lower.contains("dishwasher")
     {
@@ -90,58 +130,85 @@ pub(crate) fn normalize_amenity(amenity: &str) -> String {
     }
 
     // Workspace/office
-    if lower.contains("workspace") || lower.contains("work space") || lower.contains("desk")
-        || lower.contains("office") || lower.contains("work from home")
+    if lower.contains("workspace")
+        || lower.contains("work space")
+        || lower.contains("desk")
+        || lower.contains("office")
+        || lower.contains("work from home")
     {
         return "Workspace".to_string();
     }
 
     // Parking
-    if lower.contains("parking") || lower.contains("garage") || lower.contains("carport")
-        || lower.contains("driveway") || lower.contains("car park")
+    if lower.contains("parking")
+        || lower.contains("garage")
+        || lower.contains("carport")
+        || lower.contains("driveway")
+        || lower.contains("car park")
     {
         return "Parking".to_string();
     }
 
     // Gym/Fitness
-    if lower.contains("gym") || lower.contains("fitness") || lower.contains("exercise")
-        || lower.contains("workout") || lower.contains("weights") || lower.contains("treadmill")
+    if lower.contains("gym")
+        || lower.contains("fitness")
+        || lower.contains("exercise")
+        || lower.contains("workout")
+        || lower.contains("weights")
+        || lower.contains("treadmill")
     {
         return "Gym".to_string();
     }
 
     // Fireplace
-    if lower.contains("fireplace") || lower.contains("fire place") || lower.contains("wood burning")
-        || lower.contains("gas fire") || lower.contains("fire pit")
+    if lower.contains("fireplace")
+        || lower.contains("fire place")
+        || lower.contains("wood burning")
+        || lower.contains("gas fire")
+        || lower.contains("fire pit")
     {
         return "Fireplace".to_string();
     }
 
     // BBQ/Grill
-    if lower.contains("bbq") || lower.contains("grill") || lower.contains("barbecue")
-        || lower.contains("outdoor kitchen") || lower.contains("smoker")
+    if lower.contains("bbq")
+        || lower.contains("grill")
+        || lower.contains("barbecue")
+        || lower.contains("outdoor kitchen")
+        || lower.contains("smoker")
     {
         return "BBQ Grill".to_string();
     }
 
     // EV Charger
-    if lower.contains("ev charger") || lower.contains("ev charging") || lower.contains("electric vehicle")
-        || lower.contains("tesla charger") || lower.contains("charging station")
+    if lower.contains("ev charger")
+        || lower.contains("ev charging")
+        || lower.contains("electric vehicle")
+        || lower.contains("tesla charger")
+        || lower.contains("charging station")
     {
         return "EV Charger".to_string();
     }
 
     // Pets
-    if lower.contains("pets allowed") || lower.contains("pet friendly") || lower.contains("pet-friendly")
-        || lower.contains("pets ok") || lower.contains("dog friendly") || lower.contains("cat friendly")
-        || lower.contains("dogs allowed") || lower.contains("cats allowed")
+    if lower.contains("pets allowed")
+        || lower.contains("pet friendly")
+        || lower.contains("pet-friendly")
+        || lower.contains("pets ok")
+        || lower.contains("dog friendly")
+        || lower.contains("cat friendly")
+        || lower.contains("dogs allowed")
+        || lower.contains("cats allowed")
     {
         return "Pets Allowed".to_string();
     }
 
     // Heating
-    if lower.contains("heating") || lower.contains("heater") || lower.contains("furnace")
-        || lower.contains("radiant heat") || lower.contains("central heat")
+    if lower.contains("heating")
+        || lower.contains("heater")
+        || lower.contains("furnace")
+        || lower.contains("radiant heat")
+        || lower.contains("central heat")
         || (lower.contains("heated") && !lower.contains("heated pool"))
         || lower == "heat"
     {
@@ -149,10 +216,17 @@ pub(crate) fn normalize_amenity(amenity: &str) -> String {
     }
 
     // TV/Entertainment
-    if lower.contains("tv") || lower.contains("television") || lower.contains("smart tv")
-        || lower.contains("cable") || lower.contains("netflix") || lower.contains("streaming")
-        || lower.contains("home theater") || lower.contains("projector") || lower.contains("roku")
-        || lower.contains("apple tv") || lower.contains("chromecast")
+    if lower.contains("tv")
+        || lower.contains("television")
+        || lower.contains("smart tv")
+        || lower.contains("cable")
+        || lower.contains("netflix")
+        || lower.contains("streaming")
+        || lower.contains("home theater")
+        || lower.contains("projector")
+        || lower.contains("roku")
+        || lower.contains("apple tv")
+        || lower.contains("chromecast")
     {
         return "TV".to_string();
     }
@@ -163,57 +237,86 @@ pub(crate) fn normalize_amenity(amenity: &str) -> String {
     }
 
     // Elevator/Accessibility
-    if lower.contains("elevator") || lower.contains("lift") || lower.contains("wheelchair")
-        || lower.contains("accessible") || lower.contains("step-free")
+    if lower.contains("elevator")
+        || lower.contains("lift")
+        || lower.contains("wheelchair")
+        || lower.contains("accessible")
+        || lower.contains("step-free")
     {
         return "Elevator".to_string();
     }
 
     // Security
-    if lower.contains("security") || lower.contains("alarm") || lower.contains("safe")
-        || lower.contains("lockbox") || lower.contains("doorman") || lower.contains("concierge")
-        || lower.contains("gated") || lower.contains("security camera")
+    if lower.contains("security")
+        || lower.contains("alarm")
+        || lower.contains("safe")
+        || lower.contains("lockbox")
+        || lower.contains("doorman")
+        || lower.contains("concierge")
+        || lower.contains("gated")
+        || lower.contains("security camera")
     {
         return "Security".to_string();
     }
 
     // Outdoor space
-    if lower.contains("balcony") || lower.contains("patio") || lower.contains("deck")
-        || lower.contains("terrace") || lower.contains("garden") || lower.contains("yard")
-        || lower.contains("porch") || lower.contains("veranda") || lower.contains("rooftop")
+    if lower.contains("balcony")
+        || lower.contains("patio")
+        || lower.contains("deck")
+        || lower.contains("terrace")
+        || lower.contains("garden")
+        || lower.contains("yard")
+        || lower.contains("porch")
+        || lower.contains("veranda")
+        || lower.contains("rooftop")
     {
         return "Outdoor Space".to_string();
     }
 
     // Game room
-    if lower.contains("game room") || lower.contains("pool table") || lower.contains("billiards")
-        || lower.contains("ping pong") || lower.contains("foosball") || lower.contains("arcade")
+    if lower.contains("game room")
+        || lower.contains("pool table")
+        || lower.contains("billiards")
+        || lower.contains("ping pong")
+        || lower.contains("foosball")
+        || lower.contains("arcade")
     {
         return "Game Room".to_string();
     }
 
     // Crib/baby bed
-    if lower.contains("crib") || lower.contains("baby bed") || lower.contains("pack 'n play")
-        || lower.contains("pack n play") || lower.contains("travel crib") || lower.contains("bassinet")
+    if lower.contains("crib")
+        || lower.contains("baby bed")
+        || lower.contains("pack 'n play")
+        || lower.contains("pack n play")
+        || lower.contains("travel crib")
+        || lower.contains("bassinet")
     {
         return "Crib".to_string();
     }
 
     // High chair
-    if lower.contains("high chair") || lower.contains("highchair") || lower.contains("booster seat") {
+    if lower.contains("high chair") || lower.contains("highchair") || lower.contains("booster seat")
+    {
         return "High Chair".to_string();
     }
 
     // Bathtub (regular, not hot tub - soaking tub is handled in Hot Tub above)
-    if lower.contains("bathtub") || lower.contains("bath tub")
-        || lower.contains("clawfoot tub") || lower.contains("garden tub")
+    if lower.contains("bathtub")
+        || lower.contains("bath tub")
+        || lower.contains("clawfoot tub")
+        || lower.contains("garden tub")
     {
         return "Bathtub".to_string();
     }
 
     // Coffee maker
-    if lower.contains("coffee maker") || lower.contains("coffee machine") || lower.contains("espresso")
-        || lower.contains("keurig") || lower.contains("nespresso") || lower.contains("french press")
+    if lower.contains("coffee maker")
+        || lower.contains("coffee machine")
+        || lower.contains("espresso")
+        || lower.contains("keurig")
+        || lower.contains("nespresso")
+        || lower.contains("french press")
     {
         return "Coffee Maker".to_string();
     }
@@ -224,8 +327,12 @@ pub(crate) fn normalize_amenity(amenity: &str) -> String {
     }
 
     // Self check-in
-    if lower.contains("self check-in") || lower.contains("self checkin") || lower.contains("keyless")
-        || lower.contains("smart lock") || lower.contains("keypad") || lower.contains("lockbox")
+    if lower.contains("self check-in")
+        || lower.contains("self checkin")
+        || lower.contains("keyless")
+        || lower.contains("smart lock")
+        || lower.contains("keypad")
+        || lower.contains("lockbox")
     {
         return "Self Check-in".to_string();
     }
@@ -246,7 +353,8 @@ pub(crate) fn normalize_amenity(amenity: &str) -> String {
     }
 
     // Default: Capitalize first letter of each word
-    amenity.split_whitespace()
+    amenity
+        .split_whitespace()
         .map(|word| {
             let mut chars = word.chars();
             match chars.next() {
@@ -263,7 +371,10 @@ pub(crate) fn extract_amenities_from_source(html: &str) -> Vec<String> {
     use tracing::info;
     let mut amenities = Vec::new();
 
-    info!("[AMENITIES] Starting amenity extraction from page source ({} bytes)", html.len());
+    info!(
+        "[AMENITIES] Starting amenity extraction from page source ({} bytes)",
+        html.len()
+    );
 
     // Try to find amenities in the Airbnb JSON data
     if let Some(json_data) = extract_airbnb_json_data(html) {
@@ -271,7 +382,10 @@ pub(crate) fn extract_amenities_from_source(html: &str) -> Vec<String> {
         // Helper to extract amenity title from an amenity object
         fn extract_amenity_title(amenity: &serde_json::Value, amenities: &mut Vec<String>) {
             // Only add if available (or if available field doesn't exist)
-            let is_available = amenity.get("available").and_then(|v| v.as_bool()).unwrap_or(true);
+            let is_available = amenity
+                .get("available")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
             if !is_available {
                 return;
             }
@@ -305,7 +419,11 @@ pub(crate) fn extract_amenities_from_source(html: &str) -> Vec<String> {
         }
 
         // Helper to recursively find amenity-related data
-        fn find_amenities_in_json(value: &serde_json::Value, amenities: &mut Vec<String>, depth: usize) {
+        fn find_amenities_in_json(
+            value: &serde_json::Value,
+            amenities: &mut Vec<String>,
+            depth: usize,
+        ) {
             // Increased limits to capture all amenities
             if depth > 25 || amenities.len() > 200 {
                 return;
@@ -336,7 +454,9 @@ pub(crate) fn extract_amenities_from_source(html: &str) -> Vec<String> {
                     }
 
                     // Look for highlightedAmenities
-                    if let Some(highlighted) = map.get("highlightedAmenities").and_then(|h| h.as_array()) {
+                    if let Some(highlighted) =
+                        map.get("highlightedAmenities").and_then(|h| h.as_array())
+                    {
                         for amenity in highlighted {
                             extract_amenity_title(amenity, amenities);
                         }
@@ -344,9 +464,10 @@ pub(crate) fn extract_amenities_from_source(html: &str) -> Vec<String> {
 
                     // Look for amenity sections by title
                     if let Some(title) = map.get("title").and_then(|t| t.as_str()) {
-                        if title.to_lowercase().contains("amenities") ||
-                           title.to_lowercase().contains("offers") ||
-                           title.to_lowercase().contains("what this place") {
+                        if title.to_lowercase().contains("amenities")
+                            || title.to_lowercase().contains("offers")
+                            || title.to_lowercase().contains("what this place")
+                        {
                             if let Some(items) = map.get("items").and_then(|i| i.as_array()) {
                                 for item in items {
                                     extract_amenity_title(item, amenities);
@@ -372,17 +493,25 @@ pub(crate) fn extract_amenities_from_source(html: &str) -> Vec<String> {
                     }
 
                     // Check for Superhost flag
-                    if map.get("isSuperhost").and_then(|v| v.as_bool()).unwrap_or(false)
-                        && !amenities.contains(&"Superhost".to_string()) {
-                            amenities.push("Superhost".to_string());
-                        }
+                    if map
+                        .get("isSuperhost")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false)
+                        && !amenities.contains(&"Superhost".to_string())
+                    {
+                        amenities.push("Superhost".to_string());
+                    }
 
                     // Look for host badge/tier
                     if let Some(host) = map.get("host") {
-                        if host.get("isSuperhost").and_then(|v| v.as_bool()).unwrap_or(false)
-                            && !amenities.contains(&"Superhost".to_string()) {
-                                amenities.push("Superhost".to_string());
-                            }
+                        if host
+                            .get("isSuperhost")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false)
+                            && !amenities.contains(&"Superhost".to_string())
+                        {
+                            amenities.push("Superhost".to_string());
+                        }
                     }
 
                     // Look for Guest favorite / highly rated indicators
@@ -410,17 +539,24 @@ pub(crate) fn extract_amenities_from_source(html: &str) -> Vec<String> {
         find_amenities_in_json(&json_data, &mut amenities, 0);
 
         if !amenities.is_empty() {
-            info!("[AMENITIES] === RAW AMENITIES FROM JSON ({}) ===", amenities.len());
+            info!(
+                "[AMENITIES] === RAW AMENITIES FROM JSON ({}) ===",
+                amenities.len()
+            );
             for (i, amenity) in amenities.iter().enumerate() {
                 info!("[AMENITIES]   [{}] {:?}", i + 1, amenity);
             }
             // Normalize and deduplicate
-            let normalized: Vec<String> = amenities.iter()
+            let normalized: Vec<String> = amenities
+                .iter()
                 .map(|a| normalize_amenity(a))
                 .collect::<std::collections::HashSet<_>>()
                 .into_iter()
                 .collect();
-            info!("[AMENITIES] === NORMALIZED AMENITIES ({}) ===", normalized.len());
+            info!(
+                "[AMENITIES] === NORMALIZED AMENITIES ({}) ===",
+                normalized.len()
+            );
             for (i, amenity) in normalized.iter().enumerate() {
                 info!("[AMENITIES]   [{}] {}", i + 1, amenity);
             }
@@ -436,49 +572,167 @@ pub(crate) fn extract_amenities_from_source(html: &str) -> Vec<String> {
     info!("[AMENITIES] Falling back to regex-based amenity detection");
     let common_amenities = [
         // WiFi variations
-        "wifi", "Wi-Fi", "wi fi", "wireless", "internet", "broadband",
+        "wifi",
+        "Wi-Fi",
+        "wi fi",
+        "wireless",
+        "internet",
+        "broadband",
         // Kitchen variations
-        "kitchen", "kitchenette", "full kitchen", "cooking", "stove", "oven", "microwave",
+        "kitchen",
+        "kitchenette",
+        "full kitchen",
+        "cooking",
+        "stove",
+        "oven",
+        "microwave",
         // Parking variations
-        "parking", "Free parking", "garage", "carport", "driveway", "car park",
+        "parking",
+        "Free parking",
+        "garage",
+        "carport",
+        "driveway",
+        "car park",
         // Laundry variations
-        "washer", "washing machine", "laundry", "clothes washer",
-        "dryer", "tumble dryer", "clothes dryer",
+        "washer",
+        "washing machine",
+        "laundry",
+        "clothes washer",
+        "dryer",
+        "tumble dryer",
+        "clothes dryer",
         // Climate control
-        "air conditioning", "AC", "A/C", "aircon", "climate control", "central air", "mini split",
-        "heating", "heater", "furnace", "radiant heat", "central heating", "heated",
+        "air conditioning",
+        "AC",
+        "A/C",
+        "aircon",
+        "climate control",
+        "central air",
+        "mini split",
+        "heating",
+        "heater",
+        "furnace",
+        "radiant heat",
+        "central heating",
+        "heated",
         // Pool variations
-        "pool", "swimming", "indoor pool", "outdoor pool", "private pool", "shared pool", "infinity pool",
+        "pool",
+        "swimming",
+        "indoor pool",
+        "outdoor pool",
+        "private pool",
+        "shared pool",
+        "infinity pool",
         // Hot tub/spa variations
-        "hot tub", "hottub", "jacuzzi", "jaccuzi", "whirlpool", "jetted tub", "jet tub",
-        "soaking tub", "spa tub", "hydrotherapy", "plunge pool", "spa",
+        "hot tub",
+        "hottub",
+        "jacuzzi",
+        "jaccuzi",
+        "whirlpool",
+        "jetted tub",
+        "jet tub",
+        "soaking tub",
+        "spa tub",
+        "hydrotherapy",
+        "plunge pool",
+        "spa",
         // Gym/fitness variations
-        "gym", "fitness", "exercise", "workout", "weights", "treadmill", "home gym",
+        "gym",
+        "fitness",
+        "exercise",
+        "workout",
+        "weights",
+        "treadmill",
+        "home gym",
         // TV/entertainment
-        "TV", "television", "smart tv", "cable", "netflix", "streaming", "home theater", "projector",
+        "TV",
+        "television",
+        "smart tv",
+        "cable",
+        "netflix",
+        "streaming",
+        "home theater",
+        "projector",
         // Workspace variations
-        "workspace", "dedicated workspace", "work space", "desk", "office", "work from home", "home office",
+        "workspace",
+        "dedicated workspace",
+        "work space",
+        "desk",
+        "office",
+        "work from home",
+        "home office",
         // Waterfront variations
-        "waterfront", "lakefront", "beachfront", "oceanfront", "riverfront", "seafront",
-        "lake view", "ocean view", "sea view", "water view", "beach view", "bay view",
+        "waterfront",
+        "lakefront",
+        "beachfront",
+        "oceanfront",
+        "riverfront",
+        "seafront",
+        "lake view",
+        "ocean view",
+        "sea view",
+        "water view",
+        "beach view",
+        "bay view",
         // Beach/water access
-        "beach access", "lake access", "private beach", "beach", "dock", "boat dock", "pier",
+        "beach access",
+        "lake access",
+        "private beach",
+        "beach",
+        "dock",
+        "boat dock",
+        "pier",
         // Fireplace variations
-        "fireplace", "fire place", "indoor fireplace", "wood burning", "gas fireplace", "fire pit",
+        "fireplace",
+        "fire place",
+        "indoor fireplace",
+        "wood burning",
+        "gas fireplace",
+        "fire pit",
         // BBQ/outdoor cooking
-        "bbq", "grill", "barbecue", "outdoor kitchen", "smoker",
+        "bbq",
+        "grill",
+        "barbecue",
+        "outdoor kitchen",
+        "smoker",
         // EV charging
-        "ev charger", "ev charging", "electric vehicle", "tesla charger", "charging station",
+        "ev charger",
+        "ev charging",
+        "electric vehicle",
+        "tesla charger",
+        "charging station",
         // Pets
-        "pet friendly", "pets allowed", "pets ok", "dog friendly", "cat friendly",
+        "pet friendly",
+        "pets allowed",
+        "pets ok",
+        "dog friendly",
+        "cat friendly",
         // Sauna/steam
-        "sauna", "steam room", "steam shower",
+        "sauna",
+        "steam room",
+        "steam shower",
         // Elevator/accessibility
-        "elevator", "lift", "wheelchair", "accessible",
+        "elevator",
+        "lift",
+        "wheelchair",
+        "accessible",
         // Security
-        "security", "alarm", "safe", "lockbox", "doorman", "concierge", "gated",
+        "security",
+        "alarm",
+        "safe",
+        "lockbox",
+        "doorman",
+        "concierge",
+        "gated",
         // Outdoor space
-        "balcony", "patio", "deck", "terrace", "garden", "yard", "outdoor space", "porch",
+        "balcony",
+        "patio",
+        "deck",
+        "terrace",
+        "garden",
+        "yard",
+        "outdoor space",
+        "porch",
     ];
 
     let html_lower = html.to_lowercase();
@@ -513,11 +767,12 @@ pub(crate) fn extract_amenities_from_source(html: &str) -> Vec<String> {
                 let badge = badge_text.as_str().trim().to_string();
                 // Only add if it looks like a badge (contains known badge keywords)
                 let badge_lower = badge.to_lowercase();
-                if (badge_lower.contains("superhost") ||
-                    badge_lower.contains("guest fav") ||
-                    badge_lower.contains("rare find") ||
-                    badge_lower.contains("highly rated")) &&
-                   !amenities.contains(&badge) {
+                if (badge_lower.contains("superhost")
+                    || badge_lower.contains("guest fav")
+                    || badge_lower.contains("rare find")
+                    || badge_lower.contains("highly rated"))
+                    && !amenities.contains(&badge)
+                {
                     tracing::info!("[BADGE] Found badge: '{}'", badge);
                     amenities.push(badge);
                 }
@@ -525,7 +780,10 @@ pub(crate) fn extract_amenities_from_source(html: &str) -> Vec<String> {
         }
     }
 
-    info!("[AMENITIES] === REGEX FALLBACK AMENITIES ({}) ===", amenities.len());
+    info!(
+        "[AMENITIES] === REGEX FALLBACK AMENITIES ({}) ===",
+        amenities.len()
+    );
     for (i, amenity) in amenities.iter().enumerate() {
         info!("[AMENITIES]   [{}] {}", i + 1, amenity);
     }
@@ -541,7 +799,11 @@ pub(crate) fn extract_house_details_from_source(html: &str) -> Vec<String> {
     // Try Airbnb JSON data first
     if let Some(json_data) = extract_airbnb_json_data(html) {
         // Helper to find house details in JSON
-        fn find_house_details_in_json(value: &serde_json::Value, details: &mut Vec<String>, depth: usize) {
+        fn find_house_details_in_json(
+            value: &serde_json::Value,
+            details: &mut Vec<String>,
+            depth: usize,
+        ) {
             if depth > 15 || details.len() > 20 {
                 return;
             }
@@ -550,7 +812,9 @@ pub(crate) fn extract_house_details_from_source(html: &str) -> Vec<String> {
                 serde_json::Value::Object(map) => {
                     // Look for sharingConfig which contains room type info
                     if let Some(sharing) = map.get("sharingConfig") {
-                        if let Some(property_type) = sharing.get("propertyType").and_then(|t| t.as_str()) {
+                        if let Some(property_type) =
+                            sharing.get("propertyType").and_then(|t| t.as_str())
+                        {
                             if !details.contains(&property_type.to_string()) {
                                 details.push(property_type.to_string());
                             }
@@ -558,7 +822,9 @@ pub(crate) fn extract_house_details_from_source(html: &str) -> Vec<String> {
                     }
 
                     // Look for overview section with room counts
-                    if let Some(overview_items) = map.get("overviewItems").and_then(|o| o.as_array()) {
+                    if let Some(overview_items) =
+                        map.get("overviewItems").and_then(|o| o.as_array())
+                    {
                         for item in overview_items {
                             if let Some(title) = item.get("title").and_then(|t| t.as_str()) {
                                 if !details.contains(&title.to_string()) {
@@ -569,11 +835,14 @@ pub(crate) fn extract_house_details_from_source(html: &str) -> Vec<String> {
                     }
 
                     // Look for listing details section
-                    if let Some(section_type) = map.get("sectionComponentType").and_then(|t| t.as_str()) {
+                    if let Some(section_type) =
+                        map.get("sectionComponentType").and_then(|t| t.as_str())
+                    {
                         if section_type.contains("OVERVIEW") || section_type.contains("ROOM") {
                             if let Some(items) = map.get("items").and_then(|i| i.as_array()) {
                                 for item in items {
-                                    if let Some(title) = item.get("title").and_then(|t| t.as_str()) {
+                                    if let Some(title) = item.get("title").and_then(|t| t.as_str())
+                                    {
                                         if !details.contains(&title.to_string()) {
                                             details.push(title.to_string());
                                         }
@@ -585,7 +854,8 @@ pub(crate) fn extract_house_details_from_source(html: &str) -> Vec<String> {
 
                     // Look for structuredContent with property info
                     if let Some(content) = map.get("structuredContent") {
-                        if let Some(primary) = content.get("primaryLine").and_then(|p| p.as_array()) {
+                        if let Some(primary) = content.get("primaryLine").and_then(|p| p.as_array())
+                        {
                             for line in primary {
                                 if let Some(body) = line.get("body").and_then(|b| b.as_str()) {
                                     if !details.contains(&body.to_string()) {
@@ -594,7 +864,9 @@ pub(crate) fn extract_house_details_from_source(html: &str) -> Vec<String> {
                                 }
                             }
                         }
-                        if let Some(secondary) = content.get("secondaryLine").and_then(|s| s.as_array()) {
+                        if let Some(secondary) =
+                            content.get("secondaryLine").and_then(|s| s.as_array())
+                        {
                             for line in secondary {
                                 if let Some(body) = line.get("body").and_then(|b| b.as_str()) {
                                     if !details.contains(&body.to_string()) {
@@ -606,15 +878,22 @@ pub(crate) fn extract_house_details_from_source(html: &str) -> Vec<String> {
                     }
 
                     // Look for previewAmenityGroups which sometimes contains room info
-                    if let Some(preview_groups) = map.get("previewAmenityGroups").and_then(|g| g.as_array()) {
+                    if let Some(preview_groups) =
+                        map.get("previewAmenityGroups").and_then(|g| g.as_array())
+                    {
                         for group in preview_groups {
                             if let Some(group_title) = group.get("title").and_then(|t| t.as_str()) {
-                                if group_title.to_lowercase().contains("bedroom") ||
-                                   group_title.to_lowercase().contains("bathroom") ||
-                                   group_title.to_lowercase().contains("space") {
-                                    if let Some(amenities) = group.get("amenities").and_then(|a| a.as_array()) {
+                                if group_title.to_lowercase().contains("bedroom")
+                                    || group_title.to_lowercase().contains("bathroom")
+                                    || group_title.to_lowercase().contains("space")
+                                {
+                                    if let Some(amenities) =
+                                        group.get("amenities").and_then(|a| a.as_array())
+                                    {
                                         for amenity in amenities {
-                                            if let Some(title) = amenity.get("title").and_then(|t| t.as_str()) {
+                                            if let Some(title) =
+                                                amenity.get("title").and_then(|t| t.as_str())
+                                            {
                                                 if !details.contains(&title.to_string()) {
                                                     details.push(title.to_string());
                                                 }
@@ -710,9 +989,19 @@ mod amenity_tests {
     #[test]
     fn hot_tub_variants_and_misspellings() {
         for input in [
-            "Hot tub", "hottub", "hot-tub", "Jacuzzi", "jaccuzi", "jacuzi",
-            "Whirlpool bath", "jetted tub", "jet tub", "soaking tub",
-            "spa tub", "bubble tub", "hydrotherapy pool",
+            "Hot tub",
+            "hottub",
+            "hot-tub",
+            "Jacuzzi",
+            "jaccuzi",
+            "jacuzi",
+            "Whirlpool bath",
+            "jetted tub",
+            "jet tub",
+            "soaking tub",
+            "spa tub",
+            "bubble tub",
+            "hydrotherapy pool",
         ] {
             assert_eq!(normalize_amenity(input), "Hot Tub", "input: {input}");
         }
@@ -805,7 +1094,13 @@ mod amenity_tests {
     fn normalization_is_idempotent() {
         // Output must be stable when fed back in, or repeated normalisation
         // passes (e.g. the Go-side migration) would drift.
-        for input in ["Hot tub", "Swimming pool", "Free wifi", "Beachfront", "piano lounge"] {
+        for input in [
+            "Hot tub",
+            "Swimming pool",
+            "Free wifi",
+            "Beachfront",
+            "piano lounge",
+        ] {
             let once = normalize_amenity(input);
             let twice = normalize_amenity(&once);
             assert_eq!(once, twice, "not idempotent for {input}: {once} -> {twice}");

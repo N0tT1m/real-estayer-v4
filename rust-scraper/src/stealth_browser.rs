@@ -131,7 +131,8 @@ impl StealthBrowser {
         info!("[STEALTH] Using Chrome binary: {}", chrome_path);
 
         // Create a unique user data directory to avoid profile conflicts
-        let user_data_dir = std::env::temp_dir().join(format!("chrome_scraper_{}", std::process::id()));
+        let user_data_dir =
+            std::env::temp_dir().join(format!("chrome_scraper_{}", std::process::id()));
         let user_data_arg = format!("--user-data-dir={}", user_data_dir.display());
         info!("[STEALTH] Using temp profile: {}", user_data_dir.display());
 
@@ -172,13 +173,14 @@ impl StealthBrowser {
             .map_err(|e| anyhow::anyhow!("Failed to launch browser: {}", e))?;
 
         // Spawn handler task (silently consume handler events - errors are non-fatal CDP parsing issues)
-        let handler_task = tokio::spawn(async move {
-            while handler.next().await.is_some() {}
-        });
+        let handler_task = tokio::spawn(async move { while handler.next().await.is_some() {} });
 
         info!("[STEALTH] Browser launched successfully");
 
-        Ok(Self { browser, handler_task })
+        Ok(Self {
+            browser,
+            handler_task,
+        })
     }
 
     /// Find Chrome binary path
@@ -217,11 +219,15 @@ impl StealthBrowser {
     pub async fn new_stealth_page(&self) -> Result<Page> {
         info!("[STEALTH] Creating new stealth page...");
 
-        let page = self.browser.new_page("about:blank").await
+        let page = self
+            .browser
+            .new_page("about:blank")
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to create new page: {}", e))?;
 
         // Inject stealth JavaScript before any navigation
-        page.evaluate(STEALTH_JS).await
+        page.evaluate(STEALTH_JS)
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to inject stealth JS: {}", e))?;
 
         info!("[STEALTH] Stealth page created and configured");
@@ -234,13 +240,14 @@ impl StealthBrowser {
         const MAX_RETRIES: u32 = 3;
 
         for attempt in 1..=MAX_RETRIES {
-            info!("[STEALTH] Navigating to: {} (attempt {}/{})", url, attempt, MAX_RETRIES);
+            info!(
+                "[STEALTH] Navigating to: {} (attempt {}/{})",
+                url, attempt, MAX_RETRIES
+            );
 
             // Navigate to the URL with a 90 second timeout
-            let nav_result = tokio::time::timeout(
-                tokio::time::Duration::from_secs(90),
-                page.goto(url)
-            ).await;
+            let nav_result =
+                tokio::time::timeout(tokio::time::Duration::from_secs(90), page.goto(url)).await;
 
             match nav_result {
                 Ok(Ok(_)) => {
@@ -252,37 +259,48 @@ impl StealthBrowser {
 
                     info!("[STEALTH] Navigation complete");
                     return Ok(());
-                },
+                }
                 Ok(Err(e)) => {
                     if attempt == MAX_RETRIES {
                         return Err(anyhow::anyhow!("Failed to navigate to {}: {}", url, e));
                     }
                     info!("[STEALTH] Navigation failed, retrying in 5s: {}", e);
                     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                },
+                }
                 Err(_) => {
                     if attempt == MAX_RETRIES {
-                        return Err(anyhow::anyhow!("Navigation to {} timed out after {} attempts", url, MAX_RETRIES));
+                        return Err(anyhow::anyhow!(
+                            "Navigation to {} timed out after {} attempts",
+                            url,
+                            MAX_RETRIES
+                        ));
                     }
                     info!("[STEALTH] Navigation timed out, retrying in 5s...");
                     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                },
+                }
             }
         }
 
-        Err(anyhow::anyhow!("Navigation failed after {} attempts", MAX_RETRIES))
+        Err(anyhow::anyhow!(
+            "Navigation failed after {} attempts",
+            MAX_RETRIES
+        ))
     }
 
     /// Get page content
     pub async fn get_content(&self, page: &Page) -> Result<String> {
-        let content = page.content().await
+        let content = page
+            .content()
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to get page content: {}", e))?;
         Ok(content)
     }
 
     /// Get current URL
     pub async fn current_url(&self, page: &Page) -> Result<String> {
-        let url = page.url().await
+        let url = page
+            .url()
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to get current URL: {}", e))?
             .unwrap_or_default();
         Ok(url.to_string())
@@ -290,21 +308,35 @@ impl StealthBrowser {
 
     /// Execute JavaScript on the page
     pub async fn execute_js(&self, page: &Page, script: &str) -> Result<serde_json::Value> {
-        let result = page.evaluate(script).await
+        let result = page
+            .evaluate(script)
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to execute JS: {}", e))?;
         Ok(result.into_value()?)
     }
 
     /// Find elements by CSS selector
-    pub async fn find_elements(&self, page: &Page, selector: &str) -> Result<Vec<chromiumoxide::element::Element>> {
-        let elements = page.find_elements(selector).await
+    pub async fn find_elements(
+        &self,
+        page: &Page,
+        selector: &str,
+    ) -> Result<Vec<chromiumoxide::element::Element>> {
+        let elements = page
+            .find_elements(selector)
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to find elements: {}", e))?;
         Ok(elements)
     }
 
     /// Find single element by CSS selector
-    pub async fn find_element(&self, page: &Page, selector: &str) -> Result<chromiumoxide::element::Element> {
-        let element = page.find_element(selector).await
+    pub async fn find_element(
+        &self,
+        page: &Page,
+        selector: &str,
+    ) -> Result<chromiumoxide::element::Element> {
+        let element = page
+            .find_element(selector)
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to find element: {}", e))?;
         Ok(element)
     }
@@ -312,14 +344,17 @@ impl StealthBrowser {
     /// Click an element
     pub async fn click(&self, page: &Page, selector: &str) -> Result<()> {
         let element = self.find_element(page, selector).await?;
-        element.click().await
+        element
+            .click()
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to click element: {}", e))?;
         Ok(())
     }
 
     /// Scroll the page
     pub async fn scroll(&self, page: &Page, pixels: i32) -> Result<()> {
-        page.evaluate(format!("window.scrollBy(0, {});", pixels)).await
+        page.evaluate(format!("window.scrollBy(0, {});", pixels))
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to scroll: {}", e))?;
         Ok(())
     }
@@ -397,7 +432,10 @@ impl StealthDriver {
         }
     }
 
-    pub async fn find_elements_by_css(&self, selector: &str) -> Result<Vec<chromiumoxide::element::Element>> {
+    pub async fn find_elements_by_css(
+        &self,
+        selector: &str,
+    ) -> Result<Vec<chromiumoxide::element::Element>> {
         let page_guard = self.page.lock().await;
         if let Some(page) = page_guard.as_ref() {
             self.browser.find_elements(page, selector).await

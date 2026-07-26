@@ -1,6 +1,6 @@
+use axum::http::HeaderValue;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
-use axum::http::HeaderValue;
 
 use rust_scraper::{build_app, ApiKey};
 
@@ -20,14 +20,10 @@ pub fn setup_logging() {
     }
 
     // Filter: Show only our app logs, completely suppress all library noise
-    let file_filter = EnvFilter::new(
-        "off,rust_scraper=debug"
-    );
+    let file_filter = EnvFilter::new("off,rust_scraper=debug");
 
     // Console filter: Only show our app logs, nothing else
-    let console_filter = EnvFilter::new(
-        "off,rust_scraper=info"
-    );
+    let console_filter = EnvFilter::new("off,rust_scraper=info");
 
     // File appender for detailed logs
     let file_appender = RollingFileAppender::builder()
@@ -48,7 +44,7 @@ pub fn setup_logging() {
                 .with_ansi(false)
                 .with_target(true)
                 .with_level(true)
-                .with_filter(file_filter)
+                .with_filter(file_filter),
         )
         .with(
             fmt::Layer::new()
@@ -58,7 +54,7 @@ pub fn setup_logging() {
                 .with_target(false)
                 .with_ansi(true)
                 .compact()
-                .with_filter(console_filter)
+                .with_filter(console_filter),
         );
 
     if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
@@ -102,7 +98,12 @@ async fn main() {
         .into_iter()
         .rev()
         .collect();
-    tracing::info!("SCRAPER_API_KEY loaded: len={} head={} tail={}", api_key.len(), head, tail);
+    tracing::info!(
+        "SCRAPER_API_KEY loaded: len={} head={} tail={}",
+        api_key.len(),
+        head,
+        tail
+    );
 
     let allowed_origins: Vec<HeaderValue> = std::env::var("ALLOWED_ORIGINS")
         .unwrap_or_default()
@@ -123,8 +124,7 @@ async fn main() {
     };
     tracing::info!("Server listening on {}", listener.local_addr().unwrap());
 
-    let server = axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal());
+    let server = axum::serve(listener, app).with_graceful_shutdown(shutdown_signal());
 
     if let Err(e) = server.await {
         tracing::error!("Server error: {}", e);
