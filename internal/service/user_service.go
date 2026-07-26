@@ -28,6 +28,12 @@ func isDiscordWebhook(u string) bool {
 // ErrInvalidDiscordWebhook lets callers recognize the validation failure.
 func ErrInvalidDiscordWebhook() error { return errInvalidDiscordWebhook }
 
+// IsDiscordWebhook exposes the host check to callers that are about to POST to
+// a stored webhook. Validating on save is not sufficient on its own: a value
+// written before the check existed, or edited directly in the database, would
+// otherwise turn this app into an SSRF conduit. Re-check at send time.
+func IsDiscordWebhook(u string) bool { return isDiscordWebhook(u) }
+
 // UserService handles user-related business logic
 type UserService struct {
 	userRepo *repository.UserRepository
