@@ -1,2 +1,8 @@
-[build]
-rustflags = ["-Z", "threads=16"]
+# `-Z threads=16` parallelises the rustc frontend and speeds up builds of this
+# crate, but it is nightly-only: with it enabled, every cargo command on a
+# stable toolchain fails before it compiles anything. It is a pure build-speed
+# knob with no effect on the produced binary, so it stays opt-in — uncomment it
+# if you are on nightly.
+#
+# [build]
+# rustflags = ["-Z", "threads=16"]

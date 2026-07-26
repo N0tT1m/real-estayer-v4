@@ -57,3 +57,10 @@ logs/
 
 # Air live reload
 tmp/
+
+# ChromeDriver is fetched per-platform by rust-scraper/fetch-chromedriver.sh,
+# never committed: it is a ~15MB platform-specific binary that must match the
+# locally installed Chrome major version.
+rust-scraper/chromedriver
+rust-scraper/chromedriver.exe
+rust-scraper/src/chromedriver
