@@ -31,6 +31,11 @@ vendor/
 .env.local
 .env.*.local
 rust-scraper/.env
+# Backups and per-host variants. `.env` was ignored but `.env.bak` was not,
+# so a routine `cp .env .env.bak` left a file holding a live webhook sitting
+# untracked-but-committable. Ignore the whole family, keep the example.
+.env.*
+!.env.example
 
 # OS files
 .DS_Store
