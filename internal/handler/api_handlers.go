@@ -184,6 +184,15 @@ func (h *Handler) parseListingParams(r *http.Request) models.ListingSearchParams
 	if features := r.URL.Query().Get("features"); features != "" {
 		params.Features = strings.Split(features, ",")
 	}
+	if amenities := r.URL.Query().Get("amenities"); amenities != "" {
+		params.Amenities = strings.Split(amenities, ",")
+	}
+	if v := r.URL.Query().Get("min_bedrooms"); v != "" {
+		params.MinBedrooms, _ = strconv.Atoi(v)
+	}
+	if v := r.URL.Query().Get("min_sleeps"); v != "" {
+		params.MinSleeps, _ = strconv.Atoi(v)
+	}
 	if page := r.URL.Query().Get("page"); page != "" {
 		params.Page, _ = strconv.Atoi(page)
 	}

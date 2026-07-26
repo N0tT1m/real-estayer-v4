@@ -29,13 +29,26 @@ type Listing struct {
 	Location      string             `bson:"location" json:"location"`
 	Coordinates   *Coordinates       `bson:"coordinates,omitempty" json:"coordinates,omitempty"`
 	Features      []string           `bson:"features" json:"features"`
-	HouseDetails  []string           `bson:"house_details" json:"house_details"`
-	Host          *Host              `bson:"host,omitempty" json:"host,omitempty"`
-	Region        string             `bson:"region,omitempty" json:"region,omitempty"`
-	Country       string             `bson:"country,omitempty" json:"country,omitempty"`
-	PropertyType  string             `bson:"property_type,omitempty" json:"property_type,omitempty"`
-	CreatedAt     time.Time          `bson:"created_at,omitempty" json:"created_at,omitempty"`
-	ScrapedAt     time.Time          `bson:"scraped_at,omitempty" json:"scraped_at,omitempty"`
+	// Amenities is the canonical, filterable facet set derived from Features.
+	// Features stays as scraped: re-deriving needs the source strings, and the
+	// previous in-place normalisation destroyed them.
+	Amenities []string `bson:"amenities,omitempty" json:"amenities,omitempty"`
+	// Badges are marketing labels (Superhost, Guest Favorite), not properties
+	// of the place, so they are kept out of the amenity facets.
+	Badges []string `bson:"badges,omitempty" json:"badges,omitempty"`
+	// Structured room facts recovered from Features and Description. Zero means
+	// unknown, never "none".
+	Bedrooms     int       `bson:"bedrooms,omitempty" json:"bedrooms,omitempty"`
+	Bathrooms    float64   `bson:"bathrooms,omitempty" json:"bathrooms,omitempty"`
+	Beds         int       `bson:"beds,omitempty" json:"beds,omitempty"`
+	Sleeps       int       `bson:"sleeps,omitempty" json:"sleeps,omitempty"`
+	HouseDetails []string  `bson:"house_details" json:"house_details"`
+	Host         *Host     `bson:"host,omitempty" json:"host,omitempty"`
+	Region       string    `bson:"region,omitempty" json:"region,omitempty"`
+	Country      string    `bson:"country,omitempty" json:"country,omitempty"`
+	PropertyType string    `bson:"property_type,omitempty" json:"property_type,omitempty"`
+	CreatedAt    time.Time `bson:"created_at,omitempty" json:"created_at,omitempty"`
+	ScrapedAt    time.Time `bson:"scraped_at,omitempty" json:"scraped_at,omitempty"`
 }
 
 // Coordinates represents geographic coordinates
@@ -54,11 +67,16 @@ type ListingSearchParams struct {
 	// location string — set by the /listings location-type toggle ("city"
 	// mode). Region covers state/province since both live in the same bson
 	// field; the toggle just constrains which values the dropdown offers.
-	City         string   `json:"city"`
-	MinPrice     float64  `json:"min_price"`
-	MaxPrice     float64  `json:"max_price"`
-	MinRating    float64  `json:"min_rating"`
-	Features     []string `json:"features"`
+	City      string   `json:"city"`
+	MinPrice  float64  `json:"min_price"`
+	MaxPrice  float64  `json:"max_price"`
+	MinRating float64  `json:"min_rating"`
+	Features  []string `json:"features"`
+	// Amenities filters on the canonical facet set; Features remains for
+	// backwards compatibility with existing saved searches.
+	Amenities    []string `json:"amenities"`
+	MinBedrooms  int      `json:"min_bedrooms"`
+	MinSleeps    int      `json:"min_sleeps"`
 	PropertyType string   `json:"property_type"`
 	SortBy       string   `json:"sort_by"` // price_asc, price_desc, rating_desc, newest
 	Page         int      `json:"page"`

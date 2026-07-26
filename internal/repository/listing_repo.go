@@ -329,6 +329,22 @@ func buildListingFilter(params models.ListingSearchParams) bson.M {
 		filter["features"] = bson.M{"$all": params.Features}
 	}
 
+	// Amenity facets are the canonical, filterable set; conjunctive like
+	// features so "hot tub AND pool" narrows rather than widens.
+	if len(params.Amenities) > 0 {
+		filter["amenities"] = bson.M{"$all": params.Amenities}
+	}
+
+	// Room facts. These are stored only where extraction succeeded, so a
+	// filter necessarily excludes listings whose count is unknown — that is
+	// the correct behaviour for a minimum-size requirement.
+	if params.MinBedrooms > 0 {
+		filter["bedrooms"] = bson.M{"$gte": params.MinBedrooms}
+	}
+	if params.MinSleeps > 0 {
+		filter["sleeps"] = bson.M{"$gte": params.MinSleeps}
+	}
+
 	// Property type filter
 	if params.PropertyType != "" {
 		filter["property_type"] = params.PropertyType
