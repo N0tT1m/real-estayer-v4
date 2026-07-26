@@ -33,7 +33,7 @@ func (h *Handler) UpdateNotifications(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	user, err := h.userService.UpdateNotifications(r.Context(), h.getUserID(r), prefs)
+	user, err := h.Core.User.UpdateNotifications(r.Context(), h.getUserID(r), prefs)
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidDiscordWebhook()) {
 			h.jsonError(w, http.StatusBadRequest, err.Error())
@@ -54,7 +54,7 @@ func (h *Handler) TestDiscordWebhook(w http.ResponseWriter, r *http.Request) {
 		webhook = user.Preferences.Notifications.DiscordWebhook
 	}
 	if webhook == "" {
-		webhook = h.config.DiscordWebhookURL
+		webhook = h.Config.DiscordWebhookURL
 	}
 	if webhook == "" {
 		h.jsonError(w, http.StatusServiceUnavailable, "No Discord webhook configured. Add one in your profile.")

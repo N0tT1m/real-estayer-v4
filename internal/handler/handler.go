@@ -19,155 +19,97 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-// Handler holds all dependencies for HTTP handlers
+// Handler holds every dependency the HTTP handlers need. Dependencies are
+// grouped by domain rather than listed flat: with ~45 services a single flat
+// struct had to be edited in three places (the struct, the deps bag, and the
+// copy block in NewHandler) every time a service was added. Now HandlerDeps is
+// embedded directly, so adding a service means adding one field to one group.
 type Handler struct {
-	config             *config.Config
-	authService        *service.AuthService
-	resetService       *service.PasswordResetService
-	userService        *service.UserService
-	listingService     *service.ListingService
-	scraperService     *service.ScraperService
-	tripService        *service.TripService
-	watchlistService   *service.WatchlistService
-	savedSearchSvc     *service.SavedSearchService
-	priceHistorySvc    *service.PriceHistoryService
-	commentService     *service.TripCommentService
-	expenseService     *service.TripExpenseService
-	journalService     *service.TripJournalService
-	reviewService      *service.TripReviewService
-	weatherService     *service.WeatherService
-	currencyService    *service.CurrencyService
-	placesService      *service.OverpassService
-	eventsService      *service.EventsService
-	aiItineraryService *service.AIItineraryService
-	countryService     *service.CountryService
-	sunService         *service.SunService
-	airService         *service.AirQualityService
-	routingService     *service.RoutingService
-	geocodingService   *service.GeocodingService
-	advisoryService    *service.AdvisoryService
-	carbonService      *service.CarbonService
-	statsService       *service.TravelStatsService
-	affiliateService   *service.AffiliateService
-	unsplashService    *service.UnsplashService
-	airportService     *service.AirportService
-	flightStatusSvc    *service.FlightStatusService
-	wikidataService    *service.WikidataService
-	natureService      *service.NatureService
-	emailParser        *service.EmailParserService
-	conflictChecker    *service.ConflictChecker
-	visaService        *service.VisaService
-	notifyWorker       *service.NotificationWorker
-	photoStorage       service.PhotoStorage
-	transitService     *service.TransitService
-	pollService        *service.PollService
-	receiptOCR         *service.ReceiptOCRService
-	auditService       *service.AuditService
-	users              *repository.UserRepository
-	collections        *repository.CollectionRepository
-	flightService      *booking.FlightService
-	templates          map[string]*template.Template // Map of page name to template
+	HandlerDeps
+	templates map[string]*template.Template // Map of page name to template
 }
 
-// HandlerDeps is the dependency bag for NewHandler. New fields are added here
-// rather than expanding the positional constructor.
+// CoreDeps covers identity, credentials, and cross-cutting infrastructure that
+// is not specific to any one feature area.
+type CoreDeps struct {
+	Auth   *service.AuthService
+	Reset  *service.PasswordResetService
+	User   *service.UserService
+	Users  *repository.UserRepository
+	Audit  *service.AuditService
+	Photos service.PhotoStorage
+}
+
+// ListingDeps covers property search, scraping, and price tracking — the
+// "find a place" half of the app.
+type ListingDeps struct {
+	Listing      *service.ListingService
+	Scraper      *service.ScraperService
+	Watchlist    *service.WatchlistService
+	SavedSearch  *service.SavedSearchService
+	PriceHistory *service.PriceHistoryService
+	Collections  *repository.CollectionRepository
+}
+
+// TripDeps covers trip planning plus everything that hangs off a trip:
+// collaboration, expenses, journals, reviews, polls, and the AI/parsing
+// helpers that only ever operate on trip data.
+type TripDeps struct {
+	Trip        *service.TripService
+	Comment     *service.TripCommentService
+	Expense     *service.TripExpenseService
+	Journal     *service.TripJournalService
+	Review      *service.TripReviewService
+	Poll        *service.PollService
+	Stats       *service.TravelStatsService
+	Conflict    *service.ConflictChecker
+	Notify      *service.NotificationWorker
+	EmailParser *service.EmailParserService
+	ReceiptOCR  *service.ReceiptOCRService
+	AIItinerary *service.AIItineraryService
+}
+
+// EnrichDeps covers read-only third-party lookups. These share a shape:
+// stateless, cacheable, and degrading to an empty result when the upstream key
+// is unset — so they are the group most likely to grow, and the one where a
+// new member needs the least thought.
+type EnrichDeps struct {
+	Weather      *service.WeatherService
+	Currency     *service.CurrencyService
+	Places       *service.OverpassService
+	Events       *service.EventsService
+	Country      *service.CountryService
+	Sun          *service.SunService
+	Air          *service.AirQualityService
+	Routing      *service.RoutingService
+	Geocoding    *service.GeocodingService
+	Advisory     *service.AdvisoryService
+	Carbon       *service.CarbonService
+	Affiliate    *service.AffiliateService
+	Unsplash     *service.UnsplashService
+	Airport      *service.AirportService
+	FlightStatus *service.FlightStatusService
+	Wikidata     *service.WikidataService
+	Nature       *service.NatureService
+	Visa         *service.VisaService
+	Transit      *service.TransitService
+}
+
+// HandlerDeps is the dependency bag for NewHandler, and is embedded in Handler
+// verbatim. New dependencies go into whichever group they belong to; only add a
+// top-level field for something that genuinely fits no group.
 type HandlerDeps struct {
-	Config         *config.Config
-	AuthService    *service.AuthService
-	ResetService   *service.PasswordResetService
-	UserService    *service.UserService
-	ListingService *service.ListingService
-	ScraperService *service.ScraperService
-	TripService    *service.TripService
-	Watchlist      *service.WatchlistService
-	SavedSearch    *service.SavedSearchService
-	PriceHistory   *service.PriceHistoryService
-	TripComment    *service.TripCommentService
-	TripExpense    *service.TripExpenseService
-	TripJournal    *service.TripJournalService
-	TripReview     *service.TripReviewService
-	Weather        *service.WeatherService
-	Currency       *service.CurrencyService
-	Places         *service.OverpassService
-	Events         *service.EventsService
-	AIItinerary    *service.AIItineraryService
-	Country        *service.CountryService
-	Sun            *service.SunService
-	Air            *service.AirQualityService
-	Routing        *service.RoutingService
-	Geocoding      *service.GeocodingService
-	Advisory       *service.AdvisoryService
-	Carbon         *service.CarbonService
-	Stats          *service.TravelStatsService
-	Affiliate      *service.AffiliateService
-	Unsplash       *service.UnsplashService
-	Airport        *service.AirportService
-	FlightStatus   *service.FlightStatusService
-	Wikidata       *service.WikidataService
-	Nature         *service.NatureService
-	EmailParser    *service.EmailParserService
-	Conflict       *service.ConflictChecker
-	Visa           *service.VisaService
-	Notify         *service.NotificationWorker
-	Photos         service.PhotoStorage
-	Transit        *service.TransitService
-	Poll           *service.PollService
-	ReceiptOCR     *service.ReceiptOCRService
-	Audit          *service.AuditService
-	Users          *repository.UserRepository
-	Collections    *repository.CollectionRepository
-	Flight         *booking.FlightService
+	Config   *config.Config
+	Core     CoreDeps
+	Listings ListingDeps
+	Trips    TripDeps
+	Enrich   EnrichDeps
+	Flight   *booking.FlightService
 }
 
 // NewHandler creates a new handler from a dependency bag.
 func NewHandler(d HandlerDeps) *Handler {
-	h := &Handler{
-		config:             d.Config,
-		authService:        d.AuthService,
-		resetService:       d.ResetService,
-		userService:        d.UserService,
-		listingService:     d.ListingService,
-		scraperService:     d.ScraperService,
-		tripService:        d.TripService,
-		watchlistService:   d.Watchlist,
-		savedSearchSvc:     d.SavedSearch,
-		priceHistorySvc:    d.PriceHistory,
-		commentService:     d.TripComment,
-		expenseService:     d.TripExpense,
-		journalService:     d.TripJournal,
-		reviewService:      d.TripReview,
-		weatherService:     d.Weather,
-		currencyService:    d.Currency,
-		placesService:      d.Places,
-		eventsService:      d.Events,
-		aiItineraryService: d.AIItinerary,
-		countryService:     d.Country,
-		sunService:         d.Sun,
-		airService:         d.Air,
-		routingService:     d.Routing,
-		geocodingService:   d.Geocoding,
-		advisoryService:    d.Advisory,
-		carbonService:      d.Carbon,
-		statsService:       d.Stats,
-		affiliateService:   d.Affiliate,
-		unsplashService:    d.Unsplash,
-		airportService:     d.Airport,
-		flightStatusSvc:    d.FlightStatus,
-		wikidataService:    d.Wikidata,
-		natureService:      d.Nature,
-		emailParser:        d.EmailParser,
-		conflictChecker:    d.Conflict,
-		visaService:        d.Visa,
-		notifyWorker:       d.Notify,
-		photoStorage:       d.Photos,
-		transitService:     d.Transit,
-		pollService:        d.Poll,
-		receiptOCR:         d.ReceiptOCR,
-		auditService:       d.Audit,
-		users:              d.Users,
-		collections:        d.Collections,
-		flightService:      d.Flight,
-	}
+	h := &Handler{HandlerDeps: d}
 	h.loadTemplates()
 	return h
 }
@@ -447,8 +389,8 @@ func (h *Handler) Templates() *TemplateRenderer {
 // Streets when a key is set; falls back to CARTO's free Voyager basemap (no
 // key required but intended only for low-traffic / dev use).
 func (h *Handler) mapStyleURL() string {
-	if h.config != nil && h.config.MapTilerKey != "" {
-		return "https://api.maptiler.com/maps/streets-v2/style.json?key=" + h.config.MapTilerKey
+	if h.Config != nil && h.Config.MapTilerKey != "" {
+		return "https://api.maptiler.com/maps/streets-v2/style.json?key=" + h.Config.MapTilerKey
 	}
 	return "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json"
 }

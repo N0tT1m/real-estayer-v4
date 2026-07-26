@@ -18,9 +18,9 @@ func (h *Handler) AdminPage(w http.ResponseWriter, r *http.Request) {
 
 // AdminDashboard returns admin dashboard stats
 func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
-	userStats, _ := h.userService.GetStats(r.Context())
-	listingStats, _ := h.listingService.GetStats(r.Context())
-	scraperStatus, _ := h.scraperService.GetStatus(r.Context())
+	userStats, _ := h.Core.User.GetStats(r.Context())
+	listingStats, _ := h.Listings.Listing.GetStats(r.Context())
+	scraperStatus, _ := h.Listings.Scraper.GetStatus(r.Context())
 
 	h.jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"users":    userStats,
@@ -31,7 +31,7 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 
 // AdminListUsers returns paginated users
 func (h *Handler) AdminListUsers(w http.ResponseWriter, r *http.Request) {
-	users, total, err := h.userService.List(r.Context(), 1, 50)
+	users, total, err := h.Core.User.List(r.Context(), 1, 50)
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -45,7 +45,7 @@ func (h *Handler) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 
 // ScrapingStatus returns the scraper status
 func (h *Handler) ScrapingStatus(w http.ResponseWriter, r *http.Request) {
-	status, err := h.scraperService.GetStatus(r.Context())
+	status, err := h.Listings.Scraper.GetStatus(r.Context())
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -116,9 +116,9 @@ func (h *Handler) TriggerScraping(w http.ResponseWriter, r *http.Request) {
 			Pool:       pool,
 			Waterfront: waterfront,
 		}
-		result, err = h.scraperService.ScrapeCity(r.Context(), params)
+		result, err = h.Listings.Scraper.ScrapeCity(r.Context(), params)
 	} else {
-		result, err = h.scraperService.ScrapeNorthAmerica(r.Context())
+		result, err = h.Listings.Scraper.ScrapeNorthAmerica(r.Context())
 	}
 
 	if err != nil {
@@ -173,7 +173,7 @@ func (h *Handler) TriggerRegionScrape(w http.ResponseWriter, r *http.Request) {
 		params.Pets = p
 	}
 
-	result, err := h.scraperService.ScrapeEverything(r.Context(), params)
+	result, err := h.Listings.Scraper.ScrapeEverything(r.Context(), params)
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -190,7 +190,7 @@ func (h *Handler) AdminDeleteListing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.listingService.Delete(r.Context(), id)
+	err := h.Listings.Listing.Delete(r.Context(), id)
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -220,7 +220,7 @@ func (h *Handler) AdminUpdateUserRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.userService.UpdateRole(r.Context(), id, req.Role)
+	err := h.Core.User.UpdateRole(r.Context(), id, req.Role)
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return

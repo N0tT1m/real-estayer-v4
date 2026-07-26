@@ -24,7 +24,7 @@ func (h *Handler) BookFlight(w http.ResponseWriter, r *http.Request) {
 		provider = "duffel"
 	}
 
-	booking, err := h.flightService.Book(r.Context(), h.getUserID(r), req, provider)
+	booking, err := h.Flight.Book(r.Context(), h.getUserID(r), req, provider)
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -57,7 +57,7 @@ func (h *Handler) GetBooking(w http.ResponseWriter, r *http.Request) {
 
 // GetTrips returns user's trips
 func (h *Handler) GetTrips(w http.ResponseWriter, r *http.Request) {
-	trips, total, err := h.tripService.GetUserTrips(r.Context(), h.getUserID(r), 1, 20)
+	trips, total, err := h.Trips.Trip.GetUserTrips(r.Context(), h.getUserID(r), 1, 20)
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -77,7 +77,7 @@ func (h *Handler) CreateTrip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	trip, err := h.tripService.Create(r.Context(), h.getUserID(r), req)
+	trip, err := h.Trips.Trip.Create(r.Context(), h.getUserID(r), req)
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -90,7 +90,7 @@ func (h *Handler) CreateTrip(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetTrip(w http.ResponseWriter, r *http.Request) {
 	tripID := chi.URLParam(r, "id")
 
-	trip, err := h.tripService.GetByID(r.Context(), h.getUserID(r), tripID)
+	trip, err := h.Trips.Trip.GetByID(r.Context(), h.getUserID(r), tripID)
 	if err != nil {
 		h.jsonError(w, http.StatusNotFound, "Trip not found")
 		return
@@ -109,7 +109,7 @@ func (h *Handler) UpdateTrip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	trip, err := h.tripService.Update(r.Context(), h.getUserID(r), tripID, req)
+	trip, err := h.Trips.Trip.Update(r.Context(), h.getUserID(r), tripID, req)
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -122,7 +122,7 @@ func (h *Handler) UpdateTrip(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteTrip(w http.ResponseWriter, r *http.Request) {
 	tripID := chi.URLParam(r, "id")
 
-	if err := h.tripService.Delete(r.Context(), h.getUserID(r), tripID); err != nil {
+	if err := h.Trips.Trip.Delete(r.Context(), h.getUserID(r), tripID); err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -140,7 +140,7 @@ func (h *Handler) AddTripItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	trip, err := h.tripService.AddItem(r.Context(), h.getUserID(r), tripID, req)
+	trip, err := h.Trips.Trip.AddItem(r.Context(), h.getUserID(r), tripID, req)
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -154,7 +154,7 @@ func (h *Handler) RemoveTripItem(w http.ResponseWriter, r *http.Request) {
 	tripID := chi.URLParam(r, "id")
 	itemID := chi.URLParam(r, "itemId")
 
-	if err := h.tripService.RemoveItem(r.Context(), h.getUserID(r), tripID, itemID); err != nil {
+	if err := h.Trips.Trip.RemoveItem(r.Context(), h.getUserID(r), tripID, itemID); err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -164,7 +164,7 @@ func (h *Handler) RemoveTripItem(w http.ResponseWriter, r *http.Request) {
 
 // GetWatchlist returns user's watchlist
 func (h *Handler) GetWatchlist(w http.ResponseWriter, r *http.Request) {
-	items, err := h.watchlistService.GetWithListings(r.Context(), h.getUserID(r))
+	items, err := h.Listings.Watchlist.GetWithListings(r.Context(), h.getUserID(r))
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -181,7 +181,7 @@ func (h *Handler) AddToWatchlist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item, err := h.watchlistService.Add(r.Context(), h.getUserID(r), req)
+	item, err := h.Listings.Watchlist.Add(r.Context(), h.getUserID(r), req)
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -194,7 +194,7 @@ func (h *Handler) AddToWatchlist(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) RemoveFromWatchlist(w http.ResponseWriter, r *http.Request) {
 	itemID := chi.URLParam(r, "id")
 
-	if err := h.watchlistService.Remove(r.Context(), h.getUserID(r), itemID); err != nil {
+	if err := h.Listings.Watchlist.Remove(r.Context(), h.getUserID(r), itemID); err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -216,7 +216,7 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.userService.Update(r.Context(), h.getUserID(r), req)
+	user, err := h.Core.User.Update(r.Context(), h.getUserID(r), req)
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -233,7 +233,7 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.authService.ChangePassword(r.Context(), h.getUserID(r), req.CurrentPassword, req.NewPassword); err != nil {
+	if err := h.Core.Auth.ChangePassword(r.Context(), h.getUserID(r), req.CurrentPassword, req.NewPassword); err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidCredentials):
 			h.jsonError(w, http.StatusUnauthorized, "Current password is incorrect")
@@ -245,6 +245,6 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.auditService.Record(r.Context(), h.getUserOID(r), r, models.AuditActionPasswordChanged, nil)
+	h.Core.Audit.Record(r.Context(), h.getUserOID(r), r, models.AuditActionPasswordChanged, nil)
 	h.jsonResponse(w, http.StatusOK, map[string]string{"message": "Password changed"})
 }

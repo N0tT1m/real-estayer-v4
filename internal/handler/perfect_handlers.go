@@ -25,7 +25,7 @@ func (h *Handler) ImportEmail(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	out, err := h.emailParser.Parse(r.Context(), req.Email)
+	out, err := h.Trips.EmailParser.Parse(r.Context(), req.Email)
 	if err != nil {
 		h.jsonError(w, http.StatusUnprocessableEntity, err.Error())
 		return
@@ -36,12 +36,12 @@ func (h *Handler) ImportEmail(w http.ResponseWriter, r *http.Request) {
 // ---- Itinerary conflict check ----
 
 func (h *Handler) TripConflicts(w http.ResponseWriter, r *http.Request) {
-	trip, err := h.tripService.GetByID(r.Context(), h.getUserID(r), chi.URLParam(r, "id"))
+	trip, err := h.Trips.Trip.GetByID(r.Context(), h.getUserID(r), chi.URLParam(r, "id"))
 	if err != nil {
 		h.jsonError(w, http.StatusNotFound, "not found")
 		return
 	}
-	warnings := h.conflictChecker.Check(trip)
+	warnings := h.Trips.Conflict.Check(trip)
 	h.jsonResponse(w, http.StatusOK, map[string]interface{}{"warnings": warnings})
 }
 
@@ -50,7 +50,7 @@ func (h *Handler) TripConflicts(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) VisaCheck(w http.ResponseWriter, r *http.Request) {
 	c := r.URL.Query().Get("citizenship")
 	d := chi.URLParam(r, "destination")
-	h.jsonResponse(w, http.StatusOK, h.visaService.Check(r.Context(), c, d))
+	h.jsonResponse(w, http.StatusOK, h.Enrich.Visa.Check(r.Context(), c, d))
 }
 
 // ---- Traveler identity ----
@@ -65,14 +65,14 @@ func (h *Handler) UpdateTravelerIdentity(w http.ResponseWriter, r *http.Request)
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	user, err := h.userService.UpdateIdentity(r.Context(), h.getUserID(r), id)
+	user, err := h.Core.User.UpdateIdentity(r.Context(), h.getUserID(r), id)
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	// Intentionally record only which fields were touched, not their values —
 	// the audit log must stay free of PII.
-	h.auditService.Record(r.Context(), h.getUserOID(r), r, models.AuditActionIdentityUpdated, map[string]any{
+	h.Core.Audit.Record(r.Context(), h.getUserOID(r), r, models.AuditActionIdentityUpdated, map[string]any{
 		"fields_set": identityFieldsTouched(id),
 	})
 	h.jsonResponse(w, http.StatusOK, user.Identity)
@@ -180,12 +180,12 @@ func (h *Handler) UploadPhoto(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, http.StatusInternalServerError, "could not rewind upload")
 		return
 	}
-	url, err := h.photoStorage.Save(r.Context(), h.getUserID(r), header.Filename, file, detected)
+	url, err := h.Core.Photos.Save(r.Context(), h.getUserID(r), header.Filename, file, detected)
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	h.jsonResponse(w, http.StatusCreated, map[string]string{"url": url, "kind": h.photoStorage.Kind()})
+	h.jsonResponse(w, http.StatusCreated, map[string]string{"url": url, "kind": h.Core.Photos.Kind()})
 }
 
 // ---- Transit routing ----
@@ -202,7 +202,7 @@ func (h *Handler) Transit(w http.ResponseWriter, r *http.Request) {
 			dep = t
 		}
 	}
-	out, err := h.transitService.Route(r.Context(), fLat, fLng, tLat, tLng, dep)
+	out, err := h.Enrich.Transit.Route(r.Context(), fLat, fLng, tLat, tLng, dep)
 	if err != nil {
 		h.jsonError(w, http.StatusBadGateway, err.Error())
 		return
@@ -226,7 +226,7 @@ func (h *Handler) CreatePoll(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	poll, err := h.pollService.Create(r.Context(), h.getUserID(r), service.CreatePollInput{
+	poll, err := h.Trips.Poll.Create(r.Context(), h.getUserID(r), service.CreatePollInput{
 		Title: req.Title, Description: req.Description, TripID: req.TripID,
 		Options: req.Options, ClosesAt: req.ClosesAt,
 	})
@@ -238,7 +238,7 @@ func (h *Handler) CreatePoll(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListUserPolls(w http.ResponseWriter, r *http.Request) {
-	out, err := h.pollService.ListForUser(r.Context(), h.getUserID(r))
+	out, err := h.Trips.Poll.ListForUser(r.Context(), h.getUserID(r))
 	if err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
@@ -247,7 +247,7 @@ func (h *Handler) ListUserPolls(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeletePoll(w http.ResponseWriter, r *http.Request) {
-	if err := h.pollService.Delete(r.Context(), h.getUserID(r), chi.URLParam(r, "id")); err != nil {
+	if err := h.Trips.Poll.Delete(r.Context(), h.getUserID(r), chi.URLParam(r, "id")); err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -264,7 +264,7 @@ type voteReq struct {
 // PublicPollPage shows a poll to anyone who has the slug (no auth).
 func (h *Handler) PublicPollPage(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
-	poll, err := h.pollService.GetBySlug(r.Context(), slug)
+	poll, err := h.Trips.Poll.GetBySlug(r.Context(), slug)
 	if err != nil {
 		http.Error(w, "Not found", http.StatusNotFound)
 		return
@@ -272,7 +272,7 @@ func (h *Handler) PublicPollPage(w http.ResponseWriter, r *http.Request) {
 	h.render(w, r, "poll.html", map[string]interface{}{
 		"Title":   poll.Title,
 		"Poll":    poll,
-		"Summary": h.pollService.Summarize(poll),
+		"Summary": h.Trips.Poll.Summarize(poll),
 	})
 }
 
@@ -285,7 +285,7 @@ func (h *Handler) PublicPollVote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID := h.getUserID(r) // may be empty — public endpoint
-	updated, err := h.pollService.Vote(r.Context(), slug, service.VoteInput{
+	updated, err := h.Trips.Poll.Vote(r.Context(), slug, service.VoteInput{
 		DisplayName: req.DisplayName, Email: req.Email, UserID: userID,
 		OptionVotes: req.OptionVotes, Note: req.Note,
 	})
@@ -295,7 +295,7 @@ func (h *Handler) PublicPollVote(w http.ResponseWriter, r *http.Request) {
 	}
 	h.jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"poll":    updated,
-		"summary": h.pollService.Summarize(updated),
+		"summary": h.Trips.Poll.Summarize(updated),
 	})
 }
 
@@ -316,7 +316,7 @@ func (h *Handler) ReceiptOCRUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = file.Close() }()
-	out, err := h.receiptOCR.FromImageBytes(r.Context(), io.LimitReader(file, 6<<20), header.Header.Get("Content-Type"))
+	out, err := h.Trips.ReceiptOCR.FromImageBytes(r.Context(), io.LimitReader(file, 6<<20), header.Header.Get("Content-Type"))
 	if err != nil {
 		if errors.Is(err, service.ErrReceiptOCRNotConfigured) {
 			h.jsonError(w, http.StatusServiceUnavailable, "OCR not configured")
@@ -341,7 +341,7 @@ func (h *Handler) AIItineraryRefine(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	out, err := h.aiItineraryService.Refine(r.Context(), service.RefinementTurn{
+	out, err := h.Trips.AIItinerary.Refine(r.Context(), service.RefinementTurn{
 		Prior: req.Prior, Feedback: req.Feedback,
 	})
 	if err != nil {

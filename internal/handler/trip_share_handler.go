@@ -10,12 +10,12 @@ import (
 // CreateTripShare enables public sharing for a trip and returns the slug/URL.
 func (h *Handler) CreateTripShare(w http.ResponseWriter, r *http.Request) {
 	tripID := chi.URLParam(r, "id")
-	slug, err := h.tripService.EnableSharing(r.Context(), h.getUserID(r), tripID)
+	slug, err := h.Trips.Trip.EnableSharing(r.Context(), h.getUserID(r), tripID)
 	if err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	h.auditService.Record(r.Context(), h.getUserOID(r), r, models.AuditActionTripShareEnabled, map[string]any{
+	h.Core.Audit.Record(r.Context(), h.getUserOID(r), r, models.AuditActionTripShareEnabled, map[string]any{
 		"trip_id": tripID,
 	})
 	h.jsonResponse(w, http.StatusOK, map[string]string{
@@ -27,11 +27,11 @@ func (h *Handler) CreateTripShare(w http.ResponseWriter, r *http.Request) {
 // RevokeTripShare disables public sharing for a trip.
 func (h *Handler) RevokeTripShare(w http.ResponseWriter, r *http.Request) {
 	tripID := chi.URLParam(r, "id")
-	if err := h.tripService.DisableSharing(r.Context(), h.getUserID(r), tripID); err != nil {
+	if err := h.Trips.Trip.DisableSharing(r.Context(), h.getUserID(r), tripID); err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	h.auditService.Record(r.Context(), h.getUserOID(r), r, models.AuditActionTripShareRevoked, map[string]any{
+	h.Core.Audit.Record(r.Context(), h.getUserOID(r), r, models.AuditActionTripShareRevoked, map[string]any{
 		"trip_id": tripID,
 	})
 	h.jsonResponse(w, http.StatusOK, map[string]string{"message": "sharing disabled"})
@@ -41,7 +41,7 @@ func (h *Handler) RevokeTripShare(w http.ResponseWriter, r *http.Request) {
 // the slug is the authorisation.
 func (h *Handler) SharedTripPage(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
-	trip, err := h.tripService.GetBySlug(r.Context(), slug)
+	trip, err := h.Trips.Trip.GetBySlug(r.Context(), slug)
 	if err != nil {
 		h.NotFound(w, r)
 		return
