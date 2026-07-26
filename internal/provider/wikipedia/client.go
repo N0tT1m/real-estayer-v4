@@ -3,11 +3,13 @@ package wikipedia
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -113,13 +115,46 @@ func parseRetryAfter(h string) time.Duration {
 	return fallback
 }
 
+// isDisambiguation trusts the REST API's own page type, falling back to the
+// stock lead-sentence phrasing. The phrasing check is not redundant: pages
+// that list places without carrying the disambiguation template (Queenstown's
+// "is the name of several human settlements around the world") are typed
+// "standard" yet are just as useless as a description.
+func isDisambiguation(s summaryResponse) bool {
+	if s.Type == "disambiguation" {
+		return true
+	}
+	lead := strings.ToLower(s.Extract)
+	if len(lead) > 200 {
+		lead = lead[:200]
+	}
+	for _, phrase := range []string{
+		"may refer to", "most often refers to", "can refer to",
+		"is the name of several", "usually refers to",
+	} {
+		if strings.Contains(lead, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
 // CityInfo holds the data Wikipedia returns for a city page.
 type CityInfo struct {
 	Description string
 	ImageURL    string
 }
 
+// ErrDisambiguation means the title matched Wikipedia's "X may refer to:"
+// index page rather than an article. The extract on such a page is a list of
+// other places, so storing it as a city description is always wrong — a bare
+// "Cartagena" or "Queenstown" lands here. Callers should retry with a
+// qualified title such as "Cartagena, Colombia".
+var ErrDisambiguation = errors.New("wikipedia: title is a disambiguation page")
+
 type summaryResponse struct {
+	// Type is "standard", "disambiguation", "no-extract", ...
+	Type      string `json:"type"`
 	Extract   string `json:"extract"`
 	Thumbnail *struct {
 		Source string `json:"source"`
@@ -157,6 +192,10 @@ func (c *Client) GetCitySummary(ctx context.Context, cityName string) (*CityInfo
 	var s summaryResponse
 	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
 		return nil, fmt.Errorf("failed to decode wikipedia response: %w", err)
+	}
+
+	if isDisambiguation(s) {
+		return nil, fmt.Errorf("%w: %s", ErrDisambiguation, cityName)
 	}
 
 	info := &CityInfo{

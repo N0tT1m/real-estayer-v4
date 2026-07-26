@@ -2,6 +2,7 @@ package wikipedia
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -213,5 +214,52 @@ func TestContextCancellationIsRespected(t *testing.T) {
 	defer cancel()
 	if _, err := c.GetCitySummary(ctx, "Paris"); err == nil {
 		t.Error("expected a context deadline error")
+	}
+}
+
+// A disambiguation page must never be stored as a city description. Three of
+// the 97 seeded destinations (San Jose, Cartagena, Queenstown) shipped with
+// "X may refer to:" text because the bare title indexes several places.
+func TestGetCitySummaryRejectsDisambiguation(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"typed", `{"type":"disambiguation","extract":"Cartagena or Carthagena may refer to:"}`},
+		// Queenstown is typed "standard" but is still an index of places.
+		{"untyped list", `{"type":"standard","extract":"Queenstown is the name of several human settlements around the world, nearly all in countries that are part of the Commonwealth."}`},
+		{"most often refers", `{"type":"standard","extract":"San José or San Jose most often refers to:San Jose, California, United States"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+
+			if _, err := newClientForTest(srv.URL).GetCitySummary(context.Background(), "Whatever"); !errors.Is(err, ErrDisambiguation) {
+				t.Fatalf("want ErrDisambiguation, got %v", err)
+			}
+		})
+	}
+}
+
+// A real article must still come back cleanly — the phrase check is a prefix
+// scan, so an article merely containing "may refer to" later on is unaffected.
+func TestGetCitySummaryAcceptsRealArticle(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"type":"standard","extract":"Cartagena, known since the imperial era as Cartagena de Indias, is a city on the Caribbean coast of Colombia.","thumbnail":{"source":"https://example.org/c.jpg","width":320}}`))
+	}))
+	defer srv.Close()
+
+	info, err := newClientForTest(srv.URL).GetCitySummary(context.Background(), "Cartagena, Colombia")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.HasPrefix(info.Description, "Cartagena, known since") {
+		t.Errorf("description = %q", info.Description)
+	}
+	if info.ImageURL != "https://example.org/c.jpg" {
+		t.Errorf("image = %q", info.ImageURL)
 	}
 }
