@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/realestayer/v4/internal/middleware"
 	"github.com/realestayer/v4/internal/models"
 	"github.com/realestayer/v4/internal/service"
 )
@@ -287,21 +289,38 @@ func (h *Handler) PublicTriggerScrape(w http.ResponseWriter, r *http.Request) {
 // discordClient is used for outbound webhook posts. The bare http.Post helper
 // uses http.DefaultClient, which has no timeout — a hung Discord endpoint would
 // pin the goroutine past the caller's own deadline.
-var discordClient = &http.Client{Timeout: 10 * time.Second}
+var discordClient = &http.Client{
+	Timeout: 10 * time.Second,
+	// Refuse redirects. The webhook host is pinned to discord.com on save and
+	// re-checked before sending, but the default client would happily follow a
+	// 302 to an internal address — which would defeat both checks. A webhook
+	// POST has no legitimate reason to be redirected.
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return fmt.Errorf("discord webhook: refusing redirect to %s", req.URL.Host)
+	},
+}
 
 // postDiscordWebhook delivers payload to webhookURL, bound to ctx so a
 // cancelled request doesn't leave the call in flight.
 func postDiscordWebhook(ctx context.Context, webhookURL string, payload any) error {
+	// Belt-and-braces: callers already validate, but this is the single choke
+	// point where an outbound POST happens, so enforce the host here too.
+	if !service.IsDiscordWebhook(webhookURL) {
+		return fmt.Errorf("refusing to POST to a non-Discord host")
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshal payload: %w", err)
 	}
+	// #nosec G704 -- webhookURL is host-pinned to the discord.com family by
+	// service.IsDiscordWebhook above, and discordClient refuses redirects.
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	// #nosec G704 -- see the host check and CheckRedirect guard above.
 	resp, err := discordClient.Do(req)
 	if err != nil {
 		return err
@@ -313,44 +332,136 @@ func postDiscordWebhook(ctx context.Context, webhookURL string, payload any) err
 	return nil
 }
 
-// SendToDiscord sends a listing URL to Discord via webhook
-func (h *Handler) SendToDiscord(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		URL string `json:"url"`
+// discordEmbedColour is the accent stripe on the embed (a warm coral).
+const discordEmbedColour = 0xFF5A5F
+
+// listingEmbed renders a listing as a Discord embed: a titled card linking to
+// the real Airbnb page, with the photo, price, rating and location. Discord
+// renders `url` as a clickable title, which is what makes this useful over
+// pasting a bare link.
+func listingEmbed(l *models.Listing) map[string]any {
+	title := strings.TrimSpace(l.Title)
+	if title == "" {
+		title = "Airbnb listing"
+	}
+	// Discord rejects embed titles over 256 chars and descriptions over 4096.
+	if len(title) > 240 {
+		title = title[:240] + "…"
 	}
 
+	var fields []map[string]any
+	addField := func(name, value string, inline bool) {
+		if strings.TrimSpace(value) == "" {
+			return
+		}
+		fields = append(fields, map[string]any{"name": name, "value": value, "inline": inline})
+	}
+	addField("Price", l.Price, true)
+
+	rating := l.Rating
+	if l.ReviewsCount > 0 && rating != "" {
+		rating = fmt.Sprintf("%s (%d reviews)", rating, l.ReviewsCount)
+	}
+	addField("Rating", rating, true)
+	addField("Location", l.Location, false)
+	if l.PropertyType != "" {
+		addField("Type", l.PropertyType, true)
+	}
+	if len(l.Features) > 0 {
+		feats := l.Features
+		if len(feats) > 8 {
+			feats = feats[:8]
+		}
+		addField("Features", strings.Join(feats, " · "), false)
+	}
+
+	embed := map[string]any{
+		"title":  title,
+		"url":    l.URL,
+		"color":  discordEmbedColour,
+		"fields": fields,
+		"footer": map[string]string{"text": "Real-Estayer"},
+	}
+	if d := strings.TrimSpace(l.Description); d != "" {
+		if len(d) > 400 {
+			d = d[:400] + "…"
+		}
+		embed["description"] = d
+	}
+	if l.PictureURL != "" {
+		embed["image"] = map[string]string{"url": l.PictureURL}
+	}
+	return embed
+}
+
+// resolveDiscordWebhook picks where to send: the caller's own webhook when
+// they've configured one, otherwise the operator-wide webhook. The host is
+// re-validated here rather than trusting what's stored — see
+// service.IsDiscordWebhook.
+func (h *Handler) resolveDiscordWebhook(r *http.Request) (string, error) {
+	if u := middleware.GetUser(r.Context()); u != nil {
+		if hook := strings.TrimSpace(u.Preferences.Notifications.DiscordWebhook); hook != "" {
+			if !service.IsDiscordWebhook(hook) {
+				return "", errors.New("your saved Discord webhook is not a valid discord.com webhook URL")
+			}
+			return hook, nil
+		}
+	}
+	if hook := strings.TrimSpace(h.config.DiscordWebhookURL); hook != "" {
+		return hook, nil
+	}
+	return "", errors.New("no Discord webhook configured — add one under Profile → Notifications")
+}
+
+// SendToDiscord posts a listing to Discord as a rich embed linking back to the
+// real Airbnb page. Accepts {"listing_id":"..."} to build the full card, or
+// {"url":"..."} to relay a bare link.
+func (h *Handler) SendToDiscord(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ListingID string `json:"listing_id"`
+		URL       string `json:"url"`
+	}
 	if err := h.parseJSON(r, &req); err != nil {
 		h.jsonError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-
-	if req.URL == "" {
-		h.jsonError(w, http.StatusBadRequest, "URL is required")
+	if req.ListingID == "" && req.URL == "" {
+		h.jsonError(w, http.StatusBadRequest, "listing_id or url is required")
 		return
 	}
 
-	webhookURL := h.config.DiscordWebhookURL
-	if webhookURL == "" {
-		h.jsonError(w, http.StatusServiceUnavailable, "Discord webhook not configured")
+	webhookURL, err := h.resolveDiscordWebhook(r)
+	if err != nil {
+		h.jsonError(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
 
-	// Create Discord message payload
-	payload := map[string]interface{}{
-		"username": "AirBnB Assistant",
-		"content":  fmt.Sprintf("Listing found from AirBnB: %s", req.URL),
+	payload := map[string]any{"username": "Real-Estayer"}
+	sentURL := req.URL
+
+	if req.ListingID != "" {
+		listing, err := h.listingService.GetByID(r.Context(), req.ListingID)
+		if err != nil {
+			h.jsonError(w, http.StatusNotFound, "Listing not found")
+			return
+		}
+		payload["embeds"] = []map[string]any{listingEmbed(listing)}
+		sentURL = listing.URL
+	} else {
+		// Bare-link relay. Discord will unfurl it itself.
+		payload["content"] = sentURL
 	}
 
 	if err := postDiscordWebhook(r.Context(), webhookURL, payload); err != nil {
 		slog.Error("failed to send to Discord", "error", err)
-		h.jsonError(w, http.StatusInternalServerError, "Failed to send to Discord")
+		h.jsonError(w, http.StatusBadGateway, "Failed to send to Discord")
 		return
 	}
 
-	slog.Info("sent listing to Discord", "url", req.URL)
-	h.jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"message": "Successfully sent to Discord",
-		"url":     req.URL,
+	slog.Info("sent listing to Discord", "listing_id", req.ListingID, "url", sentURL)
+	h.jsonResponse(w, http.StatusOK, map[string]any{
+		"message": "Sent to Discord",
+		"url":     sentURL,
 	})
 }
 

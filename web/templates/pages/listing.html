@@ -227,9 +227,30 @@
                         </div>
                     </div>
 
-                    <a href="{{.Listing.URL}}" target="_blank" rel="noopener" class="block w-full bg-primary-600 text-white text-center py-3 px-4 rounded-lg font-medium hover:bg-primary-700 transition">
+                    <a href="{{.Listing.URL}}" target="_blank" rel="noopener noreferrer" class="flex items-center justify-center w-full bg-primary-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-primary-700 transition">
+                        <svg class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
                         View on Airbnb
                     </a>
+
+                    {{if .User}}
+                    <div x-data="discordShare('{{.Listing.ID.Hex}}', '{{.CSRFToken}}')" class="w-full">
+                        <button type="button" @click="send()" :disabled="state === 'sending'"
+                                class="w-full border py-3 px-4 rounded-lg font-medium transition flex items-center justify-center disabled:opacity-60 disabled:cursor-not-allowed"
+                                :class="state === 'error'
+                                        ? 'border-red-400 text-red-600 hover:bg-red-50'
+                                        : 'border-indigo-500 text-indigo-600 hover:bg-indigo-50'">
+                            <svg class="h-5 w-5 mr-2" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                <path d="M20.317 4.369A19.79 19.79 0 0 0 16.558 3c-.164.293-.355.688-.487.995a18.28 18.28 0 0 0-4.14 0A12.6 12.6 0 0 0 11.44 3c-1.29.22-2.55.61-3.76 1.369C4.29 8.02 3.62 11.57 3.86 15.07a19.9 19.9 0 0 0 5.99 3.03c.48-.66.91-1.36 1.28-2.09-.7-.26-1.37-.59-2-.98.17-.12.33-.25.49-.38a14.2 14.2 0 0 0 12.1 0c.16.14.32.26.49.38-.63.39-1.3.72-2 .98.37.73.8 1.43 1.28 2.09a19.86 19.86 0 0 0 5.99-3.03c.28-4.06-.79-7.58-3.16-10.7ZM9.68 13.9c-1.18 0-2.15-1.08-2.15-2.4 0-1.32.95-2.4 2.15-2.4 1.2 0 2.17 1.08 2.15 2.4 0 1.32-.95 2.4-2.15 2.4Zm4.64 0c-1.18 0-2.15-1.08-2.15-2.4 0-1.32.95-2.4 2.15-2.4 1.2 0 2.17 1.08 2.15 2.4 0 1.32-.94 2.4-2.15 2.4Z"/>
+                            </svg>
+                            <span x-text="label"></span>
+                        </button>
+                        <p x-show="message" x-cloak class="mt-2 text-xs"
+                           :class="state === 'error' ? 'text-red-600' : 'text-gray-500'"
+                           x-text="message"></p>
+                    </div>
+                    {{end}}
 
                     <form action="/api/v1/watchlist" method="POST">
                         <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
@@ -271,6 +292,54 @@
 </div>
 
 <script>
+// Posts this listing to Discord as a rich embed. The server picks the webhook
+// (the signed-in user's own, falling back to the operator's), so nothing
+// sensitive is exposed to the page.
+function discordShare(listingId, csrfToken) {
+    return {
+        state: 'idle',          // idle | sending | sent | error
+        message: '',
+        get label() {
+            return {
+                idle:    'Send to Discord',
+                sending: 'Sending…',
+                sent:    'Sent to Discord',
+                error:   'Retry send',
+            }[this.state];
+        },
+        async send() {
+            if (this.state === 'sending') return;
+            this.state = 'sending';
+            this.message = '';
+            try {
+                const res = await fetch('/api/v1/send-to-discord', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': csrfToken,
+                    },
+                    body: JSON.stringify({ listing_id: listingId }),
+                });
+                const body = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    this.state = 'error';
+                    // The server explains *why* (no webhook configured, bad
+                    // URL, Discord rejected it) — surface that, not a generic
+                    // failure the user can't act on.
+                    this.message = body.error || `Failed (HTTP ${res.status})`;
+                    return;
+                }
+                this.state = 'sent';
+                this.message = 'Posted to your Discord channel.';
+                setTimeout(() => { if (this.state === 'sent') this.state = 'idle'; }, 4000);
+            } catch (e) {
+                this.state = 'error';
+                this.message = 'Network error — is the server reachable?';
+            }
+        },
+    };
+}
+
 function listingPage(listing) {
     return {
         listing: listing,
