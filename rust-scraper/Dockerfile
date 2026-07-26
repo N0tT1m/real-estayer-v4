@@ -22,8 +22,13 @@ COPY Cargo.toml Cargo.lock ./
 
 # Development stage
 FROM base as development
-# Create a dummy main.rs to build dependencies
-RUN mkdir src && echo "fn main() {}" > src/main.rs
+# Prime the dependency cache against stub sources. This crate has BOTH a bin
+# and a lib target, so stubbing only main.rs fails target resolution with
+# "can't find lib `rust_scraper` at path /app/src/lib.rs" before a single
+# dependency is compiled.
+RUN mkdir src \
+    && echo "fn main() {}" > src/main.rs \
+    && touch src/lib.rs
 RUN cargo build --release
 RUN rm -rf src
 
@@ -42,7 +47,10 @@ CMD ["cargo", "run"]
 
 # Production build stage
 FROM base as builder
-RUN mkdir src && echo "fn main() {}" > src/main.rs
+# Same stub-both-targets requirement as the development stage above.
+RUN mkdir src \
+    && echo "fn main() {}" > src/main.rs \
+    && touch src/lib.rs
 RUN cargo build --release
 RUN rm -rf src
 
