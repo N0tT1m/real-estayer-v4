@@ -147,10 +147,12 @@ async fn harvest_search_page_paged(
 /// Stops early on any page that contributes nothing new. That guard is what
 /// makes an ignored or changed cursor param degrade to single-page behaviour
 /// instead of re-harvesting page one `MAX_SEARCH_PAGES` times.
+/// Returns the listings plus how many pages Airbnb offered. That count is the
+/// caller's truncation signal — see `SearchHarvest::truncated`.
 pub(crate) async fn harvest_search_all_pages(
     driver: &StealthDriver,
     base_url: &str,
-) -> Vec<Listing> {
+) -> SearchHarvest {
     use tracing::info;
     let mut out: Vec<Listing> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
@@ -207,7 +209,36 @@ pub(crate) async fn harvest_search_all_pages(
             break;
         }
     }
-    out
+    SearchHarvest {
+        listings: out,
+        pages_offered: cursors.len(),
+    }
+}
+
+/// One tile's worth of harvest.
+pub(crate) struct SearchHarvest {
+    pub(crate) listings: Vec<Listing>,
+    /// Entries in `paginationInfo.pageCursors` on the first response.
+    pub(crate) pages_offered: usize,
+}
+
+impl SearchHarvest {
+    /// Whether Airbnb capped this result set, meaning listings inside the
+    /// bounding box were withheld and only a smaller box can reach them.
+    ///
+    /// Keyed on the page count rather than `listings.len()` because the walk
+    /// de-duplicates and discards unparseable entries: a genuinely saturated
+    /// tile yields ~230 listings against a 270 threshold, so counting
+    /// listings under-reports saturation and subdivision never fires.
+    pub(crate) fn truncated(&self) -> bool {
+        is_truncated(self.listings.len(), self.pages_offered)
+    }
+}
+
+/// Split out of `SearchHarvest::truncated` so the rule can be tested without
+/// constructing listings — the decision depends only on these two counts.
+pub(crate) fn is_truncated(listing_count: usize, pages_offered: usize) -> bool {
+    pages_offered >= AIRBNB_SEARCH_PAGE_CAP || listing_count >= TILE_SPLIT_THRESHOLD
 }
 
 /// Phase 3: recursively harvest a bounding box, splitting into quadrants whenever
@@ -229,7 +260,10 @@ pub(crate) async fn collect_listings_tiled(
 ) {
     use tracing::info;
     let url = build_map_search_url(location, &bbox, guests, amenity_filter);
-    let tile_listings = harvest_search_all_pages(driver, &url).await;
+    let harvest = harvest_search_all_pages(driver, &url).await;
+    let truncated = harvest.truncated();
+    let pages_offered = harvest.pages_offered;
+    let tile_listings = harvest.listings;
     let returned = tile_listings.len();
     let mut added = 0;
     for listing in tile_listings {
@@ -239,17 +273,19 @@ pub(crate) async fn collect_listings_tiled(
         }
     }
     info!(
-        "[TILE] depth={} returned={} new={} total={}",
+        "[TILE] depth={} returned={} new={} total={} pages={} truncated={}",
         depth,
         returned,
         added,
-        out.len()
+        out.len(),
+        pages_offered,
+        truncated
     );
 
-    if returned >= TILE_SPLIT_THRESHOLD && depth < MAX_TILE_DEPTH {
+    if truncated && depth < MAX_TILE_DEPTH {
         info!(
-            "[TILE] tile at depth {} looks truncated ({} results) - subdividing",
-            depth, returned
+            "[TILE] tile at depth {} truncated ({} results across {} pages) - subdividing",
+            depth, returned, pages_offered
         );
         for sub in bbox.quarters() {
             Box::pin(collect_listings_tiled(
@@ -439,7 +475,7 @@ pub async fn scrape_city_fast(
         &guests,
         amenity_filter.as_ref(),
     );
-    let mut base = harvest_search_all_pages(driver, &base_url).await;
+    let mut base = harvest_search_all_pages(driver, &base_url).await.listings;
     info!(
         "[FAST] Phase 1 harvested {} listings for {}",
         base.len(),
@@ -562,7 +598,10 @@ pub(crate) async fn tile_and_store(
     use tracing::{info, warn};
 
     let url = build_map_search_url(location, &bbox, guests, amenity_filter);
-    let tile_listings = harvest_search_all_pages(driver, &url).await;
+    let harvest = harvest_search_all_pages(driver, &url).await;
+    let truncated = harvest.truncated();
+    let pages_offered = harvest.pages_offered;
+    let tile_listings = harvest.listings;
     let returned = tile_listings.len();
     tiles_processed.fetch_add(1, AtomicOrdering::SeqCst);
 
@@ -588,16 +627,18 @@ pub(crate) async fn tile_and_store(
     }
 
     info!(
-        "[TILE] depth={} returned={} fresh={} | tiles={} inserted={}",
+        "[TILE] depth={} returned={} fresh={} pages={} truncated={} | tiles={} inserted={}",
         depth,
         returned,
         fresh_count,
+        pages_offered,
+        truncated,
         tiles_processed.load(AtomicOrdering::SeqCst),
         inserted_total.load(AtomicOrdering::SeqCst)
     );
 
     // If the tile looks truncated, subdivide to reach the hidden listings.
-    if returned >= TILE_SPLIT_THRESHOLD && depth < max_depth {
+    if truncated && depth < max_depth {
         for sub in bbox.quarters() {
             Box::pin(tile_and_store(
                 driver,
@@ -818,5 +859,40 @@ mod fast_path_tests {
             created_at: None,
             scraped_at: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod truncation_tests {
+    use super::*;
+
+    // The case that shipped broken: a genuinely saturated tile returns ~230
+    // listings after de-duplication, not the 270 the raw page maths implies.
+    // Judged on listing count alone it declines to split; judged on the page
+    // count Airbnb advertised, it splits correctly.
+    #[test]
+    fn saturated_tile_is_truncated_despite_being_under_the_listing_threshold() {
+        // 230 is what a real saturated tile measured, and it is below
+        // TILE_SPLIT_THRESHOLD (270) — that gap is the whole bug.
+        assert!(is_truncated(230, AIRBNB_SEARCH_PAGE_CAP));
+    }
+
+    #[test]
+    fn small_tile_is_not_truncated() {
+        assert!(!is_truncated(37, 3));
+    }
+
+    // A tile sitting exactly on the last uncapped page count must not split;
+    // otherwise every mid-sized area subdivides forever.
+    #[test]
+    fn one_page_below_the_cap_is_not_truncated() {
+        assert!(!is_truncated(250, AIRBNB_SEARCH_PAGE_CAP - 1));
+    }
+
+    // Backstop: if Airbnb ever stops advertising cursors, a tile that still
+    // returns a full result set is treated as truncated.
+    #[test]
+    fn listing_count_remains_a_backstop_when_no_cursors_are_offered() {
+        assert!(is_truncated(TILE_SPLIT_THRESHOLD, 0));
     }
 }

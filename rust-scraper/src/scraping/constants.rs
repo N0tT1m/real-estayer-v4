@@ -23,7 +23,18 @@ pub const VIEWPORT_SIZES: &[(u32, u32)] = &[
 
 /// Airbnb never returns more than ~270-300 results for one search query. When a
 /// tile returns this many listings we assume results are truncated and split it.
+///
+/// This is a BACKSTOP, not the primary signal — see AIRBNB_SEARCH_PAGE_CAP.
+/// A saturated tile yields 15 pages x 18 = 270 raw results, but the harvest
+/// de-duplicates across pages and drops entries that fail to parse, so a real
+/// saturated tile lands around 230. Keying subdivision on this number alone
+/// meant a full tile measured 230, compared 230 >= 270, and declined to split.
 pub(crate) const TILE_SPLIT_THRESHOLD: usize = 270;
+/// Pages Airbnb offers for a maxed-out search. `paginationInfo.pageCursors`
+/// carries exactly this many entries when results are capped, which is the
+/// authoritative truncation signal: it counts what Airbnb withheld rather than
+/// what we managed to keep.
+pub(crate) const AIRBNB_SEARCH_PAGE_CAP: usize = 15;
 /// Max recursion depth for bounding-box subdivision (4^6 = 4096 tiles worst case).
 pub(crate) const MAX_TILE_DEPTH: usize = 6;
 /// Pages to follow per search before giving up. A page holds ~18 results and
