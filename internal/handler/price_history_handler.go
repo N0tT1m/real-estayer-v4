@@ -40,5 +40,7 @@ func (h *Handler) WatchlistPriceHistorySVG(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "image/svg+xml")
 	w.Header().Set("Cache-Control", "private, max-age=60")
+	// #nosec G705 -- the SVG is built only from numeric price points via
+	// %.2f/%d formatting; no caller-controlled string is interpolated.
 	_, _ = w.Write([]byte(h.priceHistorySvc.RenderSparklineSVG(points)))
 }

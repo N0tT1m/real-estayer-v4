@@ -46,23 +46,23 @@ type Coordinates struct {
 
 // ListingSearchParams holds search/filter parameters
 type ListingSearchParams struct {
-	Query       string   `json:"query"`
-	Location    string   `json:"location"`
-	Region      string   `json:"region"`
-	Country     string   `json:"country"`
+	Query    string `json:"query"`
+	Location string `json:"location"`
+	Region   string `json:"region"`
+	Country  string `json:"country"`
 	// City matches the first comma-separated segment of the listing's raw
 	// location string — set by the /listings location-type toggle ("city"
 	// mode). Region covers state/province since both live in the same bson
 	// field; the toggle just constrains which values the dropdown offers.
-	City        string   `json:"city"`
-	MinPrice    float64  `json:"min_price"`
-	MaxPrice    float64  `json:"max_price"`
-	MinRating   float64  `json:"min_rating"`
-	Features    []string `json:"features"`
-	PropertyType string  `json:"property_type"`
-	SortBy      string   `json:"sort_by"` // price_asc, price_desc, rating_desc, newest
-	Page        int      `json:"page"`
-	Limit       int      `json:"limit"`
+	City         string   `json:"city"`
+	MinPrice     float64  `json:"min_price"`
+	MaxPrice     float64  `json:"max_price"`
+	MinRating    float64  `json:"min_rating"`
+	Features     []string `json:"features"`
+	PropertyType string   `json:"property_type"`
+	SortBy       string   `json:"sort_by"` // price_asc, price_desc, rating_desc, newest
+	Page         int      `json:"page"`
+	Limit        int      `json:"limit"`
 }
 
 // ListingSearchResult is paginated search results

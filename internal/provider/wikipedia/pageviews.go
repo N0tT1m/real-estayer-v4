@@ -45,7 +45,7 @@ func (c *Client) MonthlyViews(ctx context.Context, articleTitle string) (int64, 
 	if err != nil {
 		return 0, fmt.Errorf("pageviews request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return 0, nil

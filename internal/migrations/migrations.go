@@ -113,7 +113,7 @@ func loadApplied(ctx context.Context, coll *mongo.Collection) (map[int]bool, err
 	if err != nil {
 		return nil, err
 	}
-	defer cur.Close(ctx)
+	defer func() { _ = cur.Close(ctx) }()
 	out := map[int]bool{}
 	var rec migrationRecord
 	for cur.Next(ctx) {

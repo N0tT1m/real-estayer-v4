@@ -35,7 +35,7 @@ func (r *TripCommentRepository) ListForTrip(ctx context.Context, tripID primitiv
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 	var out []models.TripComment
 	if err := cursor.All(ctx, &out); err != nil {
 		return nil, err

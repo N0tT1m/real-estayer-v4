@@ -67,7 +67,7 @@ func (r *WatchlistRepository) FindByUserID(ctx context.Context, userID primitive
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var items []models.WatchlistItem
 	if err := cursor.All(ctx, &items); err != nil {
@@ -116,7 +116,7 @@ func (r *WatchlistRepository) FindWithListings(ctx context.Context, userID primi
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var items []models.WatchlistItemWithListing
 	if err := cursor.All(ctx, &items); err != nil {
@@ -214,7 +214,7 @@ func (r *WatchlistRepository) GetAllActive(ctx context.Context) ([]models.Watchl
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var items []models.WatchlistItem
 	if err := cursor.All(ctx, &items); err != nil {

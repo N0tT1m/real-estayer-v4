@@ -128,7 +128,7 @@ func (s *ScraperService) GetStatus(ctx context.Context) (*ScrapingStatus, error)
 			Message: "Scraper is not reachable: " + err.Error(),
 		}, nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return &ScrapingStatus{
@@ -203,7 +203,7 @@ func (s *ScraperService) ScrapeCity(ctx context.Context, p ScrapeParams) (*Scrap
 	if err != nil {
 		return nil, fmt.Errorf("failed to reach scraper: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var result ScrapingResult
 	if err := decodeScraperJSON(resp, "/scrape-city-data", &result); err != nil {
@@ -286,7 +286,7 @@ func (s *ScraperService) ScrapeEverything(ctx context.Context, p RegionScrapePar
 	if err != nil {
 		return nil, fmt.Errorf("failed to reach scraper: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var result map[string]interface{}
 	if err := decodeScraperJSON(resp, "/scrape-everything", &result); err != nil {
@@ -306,7 +306,7 @@ func (s *ScraperService) ScrapeNorthAmerica(ctx context.Context) (*ScrapingResul
 	if err != nil {
 		return nil, fmt.Errorf("failed to reach scraper: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var result ScrapingResult
 	if err := decodeScraperJSON(resp, "/scrape-north-america", &result); err != nil {
@@ -333,7 +333,7 @@ func (s *ScraperService) GetListings(ctx context.Context, location string, limit
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to get listings: status %d", resp.StatusCode)
@@ -358,7 +358,7 @@ func (s *ScraperService) TestEmail(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("email test failed: status %d", resp.StatusCode)

@@ -18,16 +18,16 @@ const (
 
 // Trip represents a user's travel itinerary
 type Trip struct {
-	ID           primitive.ObjectID   `bson:"_id,omitempty" json:"id"`
-	UserID       primitive.ObjectID   `bson:"user_id" json:"user_id"`
-	Name         string               `bson:"name" json:"name"`
-	Description  string               `bson:"description,omitempty" json:"description,omitempty"`
-	Status       TripStatus           `bson:"status" json:"status"`
-	StartDate    time.Time            `bson:"start_date" json:"start_date"`
-	EndDate      time.Time            `bson:"end_date" json:"end_date"`
-	Destinations []TripDestination    `bson:"destinations" json:"destinations"`
-	Items        []TripItem           `bson:"items" json:"items"`
-	TotalBudget  TripBudget           `bson:"total_budget" json:"total_budget"`
+	ID            primitive.ObjectID   `bson:"_id,omitempty" json:"id"`
+	UserID        primitive.ObjectID   `bson:"user_id" json:"user_id"`
+	Name          string               `bson:"name" json:"name"`
+	Description   string               `bson:"description,omitempty" json:"description,omitempty"`
+	Status        TripStatus           `bson:"status" json:"status"`
+	StartDate     time.Time            `bson:"start_date" json:"start_date"`
+	EndDate       time.Time            `bson:"end_date" json:"end_date"`
+	Destinations  []TripDestination    `bson:"destinations" json:"destinations"`
+	Items         []TripItem           `bson:"items" json:"items"`
+	TotalBudget   TripBudget           `bson:"total_budget" json:"total_budget"`
 	SharedWith    []primitive.ObjectID `bson:"shared_with,omitempty"  json:"shared_with,omitempty"` // legacy, still honored
 	Collaborators []TripCollaborator   `bson:"collaborators,omitempty" json:"collaborators,omitempty"`
 	ShareSlug     string               `bson:"share_slug,omitempty"   json:"share_slug,omitempty"` // set when public sharing enabled

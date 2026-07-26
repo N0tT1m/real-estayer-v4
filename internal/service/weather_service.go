@@ -25,25 +25,25 @@ type cachedForecast struct {
 
 // Forecast is a small view-model tailored to the trip-detail widget.
 type Forecast struct {
-	Latitude  float64         `json:"latitude"`
-	Longitude float64         `json:"longitude"`
-	Timezone  string          `json:"timezone"`
-	Daily     []ForecastDay   `json:"daily"`
-	FetchedAt time.Time       `json:"fetched_at"`
+	Latitude  float64       `json:"latitude"`
+	Longitude float64       `json:"longitude"`
+	Timezone  string        `json:"timezone"`
+	Daily     []ForecastDay `json:"daily"`
+	FetchedAt time.Time     `json:"fetched_at"`
 }
 
 // ForecastDay is one row in the daily forecast. WeatherCode follows the
 // WMO weather interpretation codes returned by Open-Meteo.
 type ForecastDay struct {
-	Date             string  `json:"date"`
-	TempMaxC         float64 `json:"temp_max_c"`
-	TempMinC         float64 `json:"temp_min_c"`
-	PrecipProb       int     `json:"precip_prob_pct"`
-	PrecipMM         float64 `json:"precip_mm"`
-	WindMaxKph       float64 `json:"wind_max_kph"`
-	WeatherCode      int     `json:"weather_code"`
-	WeatherLabel     string  `json:"weather_label"`
-	WeatherEmoji     string  `json:"weather_emoji"`
+	Date         string  `json:"date"`
+	TempMaxC     float64 `json:"temp_max_c"`
+	TempMinC     float64 `json:"temp_min_c"`
+	PrecipProb   int     `json:"precip_prob_pct"`
+	PrecipMM     float64 `json:"precip_mm"`
+	WindMaxKph   float64 `json:"wind_max_kph"`
+	WeatherCode  int     `json:"weather_code"`
+	WeatherLabel string  `json:"weather_label"`
+	WeatherEmoji string  `json:"weather_emoji"`
 }
 
 func NewWeatherService() *WeatherService {
@@ -86,7 +86,7 @@ func (s *WeatherService) Get(ctx context.Context, lat, lng float64, days int) (*
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("open-meteo: status %d", resp.StatusCode)
 	}
@@ -96,13 +96,13 @@ func (s *WeatherService) Get(ctx context.Context, lat, lng float64, days int) (*
 		Longitude float64 `json:"longitude"`
 		Timezone  string  `json:"timezone"`
 		Daily     struct {
-			Time          []string  `json:"time"`
-			TempMax       []float64 `json:"temperature_2m_max"`
-			TempMin       []float64 `json:"temperature_2m_min"`
-			PrecipProb    []int     `json:"precipitation_probability_max"`
-			PrecipSum     []float64 `json:"precipitation_sum"`
-			WindMax       []float64 `json:"wind_speed_10m_max"`
-			WeatherCode   []int     `json:"weather_code"`
+			Time        []string  `json:"time"`
+			TempMax     []float64 `json:"temperature_2m_max"`
+			TempMin     []float64 `json:"temperature_2m_min"`
+			PrecipProb  []int     `json:"precipitation_probability_max"`
+			PrecipSum   []float64 `json:"precipitation_sum"`
+			WindMax     []float64 `json:"wind_speed_10m_max"`
+			WeatherCode []int     `json:"weather_code"`
 		} `json:"daily"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
@@ -138,9 +138,24 @@ func (s *WeatherService) Get(ctx context.Context, lat, lng float64, days int) (*
 	return forecast, nil
 }
 
-func safeIndexStr(xs []string, i int) string  { if i < len(xs) { return xs[i] }; return "" }
-func safeIndexF(xs []float64, i int) float64  { if i < len(xs) { return xs[i] }; return 0 }
-func safeIndexI(xs []int, i int) int          { if i < len(xs) { return xs[i] }; return 0 }
+func safeIndexStr(xs []string, i int) string {
+	if i < len(xs) {
+		return xs[i]
+	}
+	return ""
+}
+func safeIndexF(xs []float64, i int) float64 {
+	if i < len(xs) {
+		return xs[i]
+	}
+	return 0
+}
+func safeIndexI(xs []int, i int) int {
+	if i < len(xs) {
+		return xs[i]
+	}
+	return 0
+}
 
 // weatherLabelForCode maps Open-Meteo's WMO codes to a human label + emoji.
 // See https://open-meteo.com/en/docs for the full table.

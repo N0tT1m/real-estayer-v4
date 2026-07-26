@@ -3,6 +3,8 @@ package database
 import (
 	"context"
 	"log/slog"
+	"net/url"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -17,8 +19,44 @@ type DB struct {
 	Database *mongo.Database
 }
 
-// Connect establishes a connection to MongoDB
-func Connect(uri string) (*DB, error) {
+// defaultDatabase is used when neither an explicit name nor a URI path
+// supplies one. It matches the historical hardcoded value so existing
+// deployments keep pointing at the same database.
+const defaultDatabase = "real_estayer"
+
+// databaseFromURI extracts the database name from a Mongo connection string
+// ("mongodb://host:27017/name" -> "name"). Returns "" when the URI carries no
+// path, which is valid — the caller then falls back.
+func databaseFromURI(uri string) string {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimPrefix(u.Path, "/")
+}
+
+// resolveDatabaseName applies the precedence explicit name > URI path >
+// defaultDatabase. Kept separate from Connect so the rule can be tested
+// without opening a connection — notably without a test having to connect to
+// the default (production) database just to observe the fallback.
+func resolveDatabaseName(uri, dbName string) string {
+	if dbName != "" {
+		return dbName
+	}
+	if fromURI := databaseFromURI(uri); fromURI != "" {
+		return fromURI
+	}
+	return defaultDatabase
+}
+
+// Connect establishes a connection to MongoDB and selects a database.
+//
+// Resolution order: explicit dbName, then the URI path, then defaultDatabase.
+// Before dbName existed the database was hardcoded, so MONGODB_DATABASE was
+// silently ignored and every deployment wrote to "real_estayer" whatever the
+// config said. Defaults are unchanged — both the default config value and the
+// default URI path resolve to the same name as before.
+func Connect(uri, dbName string) (*DB, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -43,8 +81,7 @@ func Connect(uri string) (*DB, error) {
 
 	slog.Info("connected to MongoDB")
 
-	// Get database from URI or use default
-	database := client.Database("real_estayer")
+	database := client.Database(resolveDatabaseName(uri, dbName))
 
 	db := &DB{
 		Client:   client,

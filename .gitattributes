@@ -1,0 +1,27 @@
+# Normalise line endings to LF in the repository.
+#
+# This project is developed and run on Windows but built and linted on Linux in
+# CI. Without this, a Windows checkout can commit CRLF, and `gofmt -l` — which
+# emits LF and compares byte-for-byte — would then report every touched file as
+# unformatted, failing the format gate for a reason that has nothing to do with
+# the change. Shell scripts with CRLF also fail to execute on Linux.
+#
+# Working copies still get native endings; only what git stores is normalised.
+* text=auto eol=lf
+
+# Binary / already-compressed content must never be touched.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.pdf   binary
+*.zip   binary
+*.gz    binary
+*.exe   binary
+
+# Windows-only tooling for the scraper genuinely wants CRLF.
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.cmd   text eol=crlf

@@ -83,7 +83,7 @@ func (r *BookingRepository) FindByUserID(ctx context.Context, userID primitive.O
 	if err != nil {
 		return nil, 0, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var bookings []models.Booking
 	if err := cursor.All(ctx, &bookings); err != nil {
@@ -99,7 +99,7 @@ func (r *BookingRepository) FindByTripID(ctx context.Context, tripID primitive.O
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var bookings []models.Booking
 	if err := cursor.All(ctx, &bookings); err != nil {
@@ -149,7 +149,7 @@ func (r *BookingRepository) CountByType(ctx context.Context, userID primitive.Ob
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var results []struct {
 		ID    models.BookingType `bson:"_id"`
@@ -190,7 +190,7 @@ func (r *BookingRepository) GetStats(ctx context.Context) (map[string]interface{
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var typeResults []struct {
 		ID    string `bson:"_id"`

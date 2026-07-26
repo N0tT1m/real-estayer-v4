@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/realestayer/v4/internal/service"
@@ -113,63 +112,3 @@ func (h *Handler) NearbyBirds(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---- Partner stay search (Booking / Expedia) ----
-
-type partnerStaySearchReq struct {
-	Destination string    `json:"destination"`
-	CheckIn     time.Time `json:"check_in"`
-	CheckOut    time.Time `json:"check_out"`
-	Adults      int       `json:"adults"`
-	Children    int       `json:"children"`
-	Currency    string    `json:"currency"`
-}
-
-func (h *Handler) PartnerStays(w http.ResponseWriter, r *http.Request) {
-	var req partnerStaySearchReq
-	if err := h.parseJSON(r, &req); err != nil {
-		h.jsonError(w, http.StatusBadRequest, "invalid body")
-		return
-	}
-	if req.Destination == "" {
-		h.jsonError(w, http.StatusBadRequest, "destination required")
-		return
-	}
-	if req.Adults < 1 {
-		req.Adults = 2
-	}
-	ssr := service.StaySearchRequest{
-		Destination: req.Destination, CheckIn: req.CheckIn, CheckOut: req.CheckOut,
-		Adults: req.Adults, Children: req.Children, Currency: req.Currency,
-	}
-
-	// Fan out to whichever partners are configured. Errors from individual
-	// partners are logged per-result so a misconfigured secondary provider
-	// doesn't kill the primary.
-	results := []map[string]interface{}{}
-	if h.bookingPartner.Configured() {
-		offers, err := h.bookingPartner.Search(r.Context(), ssr)
-		results = append(results, map[string]interface{}{
-			"source": "booking", "offers": offers, "error": errString(err),
-		})
-	}
-	if h.expediaPartner.Configured() {
-		offers, err := h.expediaPartner.Search(r.Context(), ssr)
-		results = append(results, map[string]interface{}{
-			"source": "expedia", "offers": offers, "error": errString(err),
-		})
-	}
-	if len(results) == 0 {
-		h.jsonResponse(w, http.StatusOK, map[string]interface{}{
-			"results": []any{},
-			"note":    "No partner booking provider is configured. Use the affiliate quick-links instead.",
-		})
-		return
-	}
-	h.jsonResponse(w, http.StatusOK, map[string]interface{}{"results": results})
-}
-
-func errString(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
-}

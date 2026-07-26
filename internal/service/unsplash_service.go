@@ -31,12 +31,12 @@ type unsplashCacheEntry struct {
 
 // UnsplashPhoto is a trimmed photo record.
 type UnsplashPhoto struct {
-	URL         string `json:"url"`          // high-res
-	ThumbURL    string `json:"thumb_url"`
-	AltText     string `json:"alt_text,omitempty"`
+	URL          string `json:"url"` // high-res
+	ThumbURL     string `json:"thumb_url"`
+	AltText      string `json:"alt_text,omitempty"`
 	Photographer string `json:"photographer,omitempty"`
-	ProfileURL  string `json:"profile_url,omitempty"`
-	PageURL     string `json:"page_url,omitempty"`
+	ProfileURL   string `json:"profile_url,omitempty"`
+	PageURL      string `json:"page_url,omitempty"`
 }
 
 func NewUnsplashService(key string) *UnsplashService {
@@ -67,7 +67,7 @@ func (s *UnsplashService) ForQuery(ctx context.Context, q string) (*UnsplashPhot
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unsplash: status %d", resp.StatusCode)
 	}

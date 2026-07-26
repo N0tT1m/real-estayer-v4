@@ -74,7 +74,7 @@ func (h *DestinationHandler) ExplorePage(w http.ResponseWriter, r *http.Request)
 	}
 	// If the collection is empty we render the empty state; the background
 	// seed worker (main.go) and the admin `reseed` endpoint own population.
-	// Calling SeedFromAmadeus from the request path is never safe — a single
+	// Calling SeedDestinations from the request path is never safe — a single
 	// cold page load would hammer the upstream for dozens of cities, serially.
 
 	categories := []string{"beach", "city", "nature", "adventure", "cultural", "romantic", "luxury", "island"}
@@ -88,10 +88,8 @@ func (h *DestinationHandler) ExplorePage(w http.ResponseWriter, r *http.Request)
 		"Regions":      regions,
 	}
 
-	if user := getUserFromContext(ctx); user != nil {
-		data["User"] = user
-	}
-
+	// RenderWithRequest populates data["User"] from the request context itself,
+	// so there is nothing to set here.
 	h.tmpl.RenderWithRequest(w, r, "explore.html", data)
 }
 
@@ -108,7 +106,7 @@ func (h *DestinationHandler) DestinationPage(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	// Fetch live highlights from Amadeus if the destination has none stored.
+	// Fetch live highlights from Overpass if the destination has none stored.
 	if len(dest.Highlights) == 0 && dest.Latitude != 0 {
 		if highlights, hErr := h.destService.GetHighlights(ctx, dest.Latitude, dest.Longitude); hErr == nil {
 			dest.Highlights = highlights
@@ -135,10 +133,7 @@ func (h *DestinationHandler) DestinationPage(w http.ResponseWriter, r *http.Requ
 		"Similar":     similar,
 	}
 
-	if user := getUserFromContext(ctx); user != nil {
-		data["User"] = user
-	}
-
+	// See ExplorePage: RenderWithRequest owns data["User"].
 	h.tmpl.RenderWithRequest(w, r, "destination.html", data)
 }
 
@@ -160,7 +155,7 @@ func (h *DestinationHandler) FeaturedAPI(w http.ResponseWriter, r *http.Request)
 	respondJSON(w, http.StatusOK, map[string]interface{}{"destinations": destinations})
 }
 
-// AdminReseedDestinations re-seeds all destinations from Amadeus + Wikipedia.
+// AdminReseedDestinations re-seeds all destinations from the geocoder + Wikipedia.
 // POST /api/v1/admin/destinations/reseed
 func (h *DestinationHandler) AdminReseedDestinations(w http.ResponseWriter, r *http.Request) {
 	// Detach from the request context so the goroutine survives the response
@@ -168,14 +163,14 @@ func (h *DestinationHandler) AdminReseedDestinations(w http.ResponseWriter, r *h
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		defer cancel()
-		if err := h.destService.SeedFromAmadeus(ctx); err != nil {
+		if err := h.destService.SeedDestinations(ctx); err != nil {
 			slog.Warn("admin reseed failed", "error", err)
 		}
 	}()
 	respondJSON(w, http.StatusAccepted, map[string]string{"status": "reseed started in background"})
 }
 
-// AdminAddDestination adds any city to the destinations collection by calling Amadeus + Wikipedia.
+// AdminAddDestination adds any city to the destinations collection via the geocoder + Wikipedia.
 // POST /api/v1/admin/destinations  {"name":"Lisbon","country_code":"PT","region":"Europe"}
 func (h *DestinationHandler) AdminAddDestination(w http.ResponseWriter, r *http.Request) {
 	var body struct {

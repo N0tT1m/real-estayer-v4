@@ -2,13 +2,13 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -72,23 +72,6 @@ func (h *Handler) SearchAirports(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.jsonResponse(w, http.StatusOK, airports)
-}
-
-// SearchCities searches for cities
-func (h *Handler) SearchCities(w http.ResponseWriter, r *http.Request) {
-	keyword := r.URL.Query().Get("q")
-	if keyword == "" {
-		h.jsonError(w, http.StatusBadRequest, "Query parameter 'q' is required")
-		return
-	}
-
-	cities, err := h.hotelService.SearchCities(r.Context(), keyword)
-	if err != nil {
-		h.jsonError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	h.jsonResponse(w, http.StatusOK, cities)
 }
 
 // SearchFlights searches for flights
@@ -163,296 +146,11 @@ func (h *Handler) SearchFlights(w http.ResponseWriter, r *http.Request) {
 // GetFlightOffer retrieves a specific flight offer
 func (h *Handler) GetFlightOffer(w http.ResponseWriter, r *http.Request) {
 	offerID := chi.URLParam(r, "id")
+	// Empty means "use the registry default" — provider selection lives in
+	// cmd/server/main.go, not here.
 	provider := r.URL.Query().Get("provider")
-	if provider == "" {
-		provider = "amadeus"
-	}
 
 	offer, err := h.flightService.GetOffer(r.Context(), provider, offerID)
-	if err != nil {
-		h.jsonError(w, http.StatusNotFound, "Offer not found")
-		return
-	}
-
-	h.jsonResponse(w, http.StatusOK, offer)
-}
-
-// SearchHotels searches for hotels
-func (h *Handler) SearchHotels(w http.ResponseWriter, r *http.Request) {
-	req := models.HotelSearchRequest{
-		CityCode: r.URL.Query().Get("city_code"),
-		Adults:   2,
-		Rooms:    1,
-		Currency: r.URL.Query().Get("currency"),
-	}
-
-	if req.Currency == "" {
-		req.Currency = "USD"
-	}
-
-	// Parse check-in date
-	if checkIn := r.URL.Query().Get("check_in"); checkIn != "" {
-		t, err := time.Parse("2006-01-02", checkIn)
-		if err != nil {
-			h.jsonError(w, http.StatusBadRequest, "Invalid check-in date format")
-			return
-		}
-		req.CheckIn = t
-	} else {
-		h.jsonError(w, http.StatusBadRequest, "Check-in date is required")
-		return
-	}
-
-	// Parse check-out date
-	if checkOut := r.URL.Query().Get("check_out"); checkOut != "" {
-		t, err := time.Parse("2006-01-02", checkOut)
-		if err != nil {
-			h.jsonError(w, http.StatusBadRequest, "Invalid check-out date format")
-			return
-		}
-		req.CheckOut = t
-	} else {
-		h.jsonError(w, http.StatusBadRequest, "Check-out date is required")
-		return
-	}
-
-	if adults := r.URL.Query().Get("adults"); adults != "" {
-		n, _ := strconv.Atoi(adults)
-		if n > 0 {
-			req.Adults = n
-		}
-	}
-
-	if rooms := r.URL.Query().Get("rooms"); rooms != "" {
-		n, _ := strconv.Atoi(rooms)
-		if n > 0 {
-			req.Rooms = n
-		}
-	}
-
-	if radius := r.URL.Query().Get("radius"); radius != "" {
-		n, _ := strconv.Atoi(radius)
-		req.Radius = n
-	}
-
-	// Fan out in parallel to the legacy provider registry (Amadeus) AND to
-	// the partner services (Booking.com Demand + Expedia EPS). Partners
-	// speak a simpler shape than HotelProvider so we surface them in a
-	// separate `partner_offers` key rather than forcing model translation.
-	type result struct {
-		hotels   []models.HotelOffer
-		partners []map[string]interface{}
-		err      error
-	}
-	ctx := r.Context()
-
-	var (
-		wg      sync.WaitGroup
-		mu      sync.Mutex
-		hotels  []models.HotelOffer
-		partners []map[string]interface{}
-		firstErr error
-	)
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		offers, err := h.hotelService.Search(ctx, req)
-		mu.Lock()
-		defer mu.Unlock()
-		if err != nil {
-			if firstErr == nil {
-				firstErr = err
-			}
-			return
-		}
-		hotels = offers
-	}()
-
-	ssr := service.StaySearchRequest{
-		Destination: req.CityCode,
-		CheckIn:     req.CheckIn,
-		CheckOut:    req.CheckOut,
-		Adults:      req.Adults,
-		Currency:    req.Currency,
-	}
-	if h.bookingPartner != nil && h.bookingPartner.Configured() {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			offers, err := h.bookingPartner.Search(ctx, ssr)
-			mu.Lock()
-			partners = append(partners, map[string]interface{}{
-				"source": "booking", "offers": offers, "error": errString(err),
-			})
-			mu.Unlock()
-		}()
-	}
-	if h.expediaPartner != nil && h.expediaPartner.Configured() {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			offers, err := h.expediaPartner.Search(ctx, ssr)
-			mu.Lock()
-			partners = append(partners, map[string]interface{}{
-				"source": "expedia", "offers": offers, "error": errString(err),
-			})
-			mu.Unlock()
-		}()
-	}
-	wg.Wait()
-
-	// Only treat the request as failed when every source failed — partial
-	// results still render cleanly.
-	if len(hotels) == 0 && len(partners) == 0 && firstErr != nil {
-		h.jsonError(w, http.StatusInternalServerError, firstErr.Error())
-		return
-	}
-
-	h.jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"hotels":         hotels,
-		"count":          len(hotels),
-		"partner_offers": partners,
-	})
-}
-
-// GetHotelDetails retrieves hotel details
-func (h *Handler) GetHotelDetails(w http.ResponseWriter, r *http.Request) {
-	hotelID := chi.URLParam(r, "id")
-	provider := r.URL.Query().Get("provider")
-	if provider == "" {
-		provider = "amadeus"
-	}
-
-	details, err := h.hotelService.GetDetails(r.Context(), provider, hotelID)
-	if err != nil {
-		h.jsonError(w, http.StatusNotFound, "Hotel not found")
-		return
-	}
-
-	h.jsonResponse(w, http.StatusOK, details)
-}
-
-// GetRoomAvailability returns available rooms
-func (h *Handler) GetRoomAvailability(w http.ResponseWriter, r *http.Request) {
-	hotelID := chi.URLParam(r, "id")
-	checkIn := r.URL.Query().Get("check_in")
-	checkOut := r.URL.Query().Get("check_out")
-	guests, _ := strconv.Atoi(r.URL.Query().Get("guests"))
-	if guests == 0 {
-		guests = 2
-	}
-
-	rooms, err := h.hotelService.GetRoomAvailability(r.Context(), "amadeus", hotelID, checkIn, checkOut, guests)
-	if err != nil {
-		h.jsonError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	h.jsonResponse(w, http.StatusOK, rooms)
-}
-
-// SearchCars searches for rental cars
-func (h *Handler) SearchCars(w http.ResponseWriter, r *http.Request) {
-	req := models.CarSearchRequest{
-		PickupLocation:  r.URL.Query().Get("pickup_location"),
-		DropoffLocation: r.URL.Query().Get("dropoff_location"),
-		DriverAge:       25,
-		Currency:        r.URL.Query().Get("currency"),
-	}
-
-	if req.DropoffLocation == "" {
-		req.DropoffLocation = req.PickupLocation
-	}
-
-	if req.Currency == "" {
-		req.Currency = "USD"
-	}
-
-	// Parse pickup datetime
-	if pickup := r.URL.Query().Get("pickup_datetime"); pickup != "" {
-		t, err := time.Parse(time.RFC3339, pickup)
-		if err != nil {
-			// Try simpler format
-			t, err = time.Parse("2006-01-02T15:04", pickup)
-			if err != nil {
-				h.jsonError(w, http.StatusBadRequest, "Invalid pickup datetime format")
-				return
-			}
-		}
-		req.PickupDateTime = t
-	} else {
-		h.jsonError(w, http.StatusBadRequest, "Pickup datetime is required")
-		return
-	}
-
-	// Parse dropoff datetime
-	if dropoff := r.URL.Query().Get("dropoff_datetime"); dropoff != "" {
-		t, err := time.Parse(time.RFC3339, dropoff)
-		if err != nil {
-			t, err = time.Parse("2006-01-02T15:04", dropoff)
-			if err != nil {
-				h.jsonError(w, http.StatusBadRequest, "Invalid dropoff datetime format")
-				return
-			}
-		}
-		req.DropoffDateTime = t
-	} else {
-		h.jsonError(w, http.StatusBadRequest, "Dropoff datetime is required")
-		return
-	}
-
-	if age := r.URL.Query().Get("driver_age"); age != "" {
-		n, _ := strconv.Atoi(age)
-		if n > 0 {
-			req.DriverAge = n
-		}
-	}
-
-	if category := r.URL.Query().Get("category"); category != "" {
-		req.Category = models.CarCategory(category)
-	}
-
-	if transmission := r.URL.Query().Get("transmission"); transmission != "" {
-		req.TransmissionType = models.TransmissionType(transmission)
-	}
-
-	offers, err := h.carService.Search(r.Context(), req)
-	if err != nil {
-		// When the primary provider is dead we still hand back affiliate
-		// deep-links so the user can compare prices elsewhere rather than
-		// seeing a generic error. Logged so operations can spot provider
-		// outages.
-		slog.Warn("cars: primary provider failed, returning affiliate deep-links", "error", err)
-		offers = nil
-	}
-
-	var deepLinks []service.CarDeepLink
-	if h.carAffiliates != nil {
-		deepLinks = h.carAffiliates.Generate(r.Context(), service.CarSearchInput{
-			PickupLocation:  req.PickupLocation,
-			DropoffLocation: req.DropoffLocation,
-			PickupAt:        req.PickupDateTime,
-			DropoffAt:       req.DropoffDateTime,
-		})
-	}
-
-	h.jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"cars":       offers,
-		"count":      len(offers),
-		"affiliates": deepLinks,
-	})
-}
-
-// GetCarOffer retrieves a specific car offer
-func (h *Handler) GetCarOffer(w http.ResponseWriter, r *http.Request) {
-	offerID := chi.URLParam(r, "id")
-	provider := r.URL.Query().Get("provider")
-	if provider == "" {
-		provider = "amadeus"
-	}
-
-	offer, err := h.carService.GetOffer(r.Context(), provider, offerID)
 	if err != nil {
 		h.jsonError(w, http.StatusNotFound, "Offer not found")
 		return
@@ -586,6 +284,35 @@ func (h *Handler) PublicTriggerScrape(w http.ResponseWriter, r *http.Request) {
 	h.jsonResponse(w, http.StatusOK, result)
 }
 
+// discordClient is used for outbound webhook posts. The bare http.Post helper
+// uses http.DefaultClient, which has no timeout — a hung Discord endpoint would
+// pin the goroutine past the caller's own deadline.
+var discordClient = &http.Client{Timeout: 10 * time.Second}
+
+// postDiscordWebhook delivers payload to webhookURL, bound to ctx so a
+// cancelled request doesn't leave the call in flight.
+func postDiscordWebhook(ctx context.Context, webhookURL string, payload any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal payload: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := discordClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("discord webhook returned status %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // SendToDiscord sends a listing URL to Discord via webhook
 func (h *Handler) SendToDiscord(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -614,24 +341,9 @@ func (h *Handler) SendToDiscord(w http.ResponseWriter, r *http.Request) {
 		"content":  fmt.Sprintf("Listing found from AirBnB: %s", req.URL),
 	}
 
-	jsonPayload, err := json.Marshal(payload)
-	if err != nil {
-		h.jsonError(w, http.StatusInternalServerError, "Failed to create payload")
-		return
-	}
-
-	// Send to Discord webhook
-	resp, err := http.Post(webhookURL, "application/json", bytes.NewBuffer(jsonPayload))
-	if err != nil {
+	if err := postDiscordWebhook(r.Context(), webhookURL, payload); err != nil {
 		slog.Error("failed to send to Discord", "error", err)
 		h.jsonError(w, http.StatusInternalServerError, "Failed to send to Discord")
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		slog.Error("Discord webhook returned error", "status", resp.StatusCode)
-		h.jsonError(w, http.StatusInternalServerError, "Discord webhook error")
 		return
 	}
 
@@ -665,23 +377,9 @@ func (h *Handler) TestDiscord(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	jsonPayload, err := json.Marshal(payload)
-	if err != nil {
-		h.jsonError(w, http.StatusInternalServerError, "Failed to create payload")
-		return
-	}
-
-	resp, err := http.Post(webhookURL, "application/json", bytes.NewBuffer(jsonPayload))
-	if err != nil {
+	if err := postDiscordWebhook(r.Context(), webhookURL, payload); err != nil {
 		slog.Error("failed to send test to Discord", "error", err)
 		h.jsonError(w, http.StatusInternalServerError, "Failed to send to Discord")
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		slog.Error("Discord webhook returned error", "status", resp.StatusCode)
-		h.jsonError(w, http.StatusInternalServerError, "Discord webhook error")
 		return
 	}
 

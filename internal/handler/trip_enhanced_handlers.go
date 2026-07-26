@@ -23,8 +23,12 @@ func (h *Handler) TripICS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.ics"`, tripID))
-	_, _ = w.Write([]byte(service.RenderTripICS(trip)))
+	// Build the filename from the trip's own ID rather than the raw URL
+	// parameter. Today GetByID rejects anything that isn't a valid ObjectID,
+	// so tripID is already safe hex — but relying on an upstream check to keep
+	// quotes out of a quoted header value is fragile.
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.ics"`, trip.ID.Hex()))
+	_, _ = w.Write([]byte(service.RenderTripICS(trip))) // #nosec G705 -- text/calendar attachment, not rendered as HTML
 }
 
 // ===== Reorder =====
@@ -385,9 +389,9 @@ func (h *Handler) ConvertCurrency(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"amount":   req.Amount,
-		"from":     req.From,
-		"to":       req.To,
+		"amount":    req.Amount,
+		"from":      req.From,
+		"to":        req.To,
 		"converted": out,
 	})
 }
@@ -566,4 +570,3 @@ func parseIntParam(s string) (int, error) {
 	_, err := fmt.Sscanf(s, "%d", &n)
 	return n, err
 }
-

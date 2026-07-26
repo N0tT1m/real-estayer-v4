@@ -55,11 +55,11 @@ func NewRateLimiter(redisURL, keyPrefix string, ratePerMinute, burst int) RateLi
 // We use a minimal RESP2 client (dependency-free) rather than pulling the
 // full go-redis module — INCR and EXPIRE are the only commands we need.
 type RedisRateLimiter struct {
-	client    *redisClient
-	prefix    string
-	rate      int // per minute
-	burst     int
-	fallback  *InMemoryRateLimiter // used when Redis is unreachable
+	client   *redisClient
+	prefix   string
+	rate     int // per minute
+	burst    int
+	fallback *InMemoryRateLimiter // used when Redis is unreachable
 }
 
 func NewRedisRateLimiter(redisURL, prefix string, ratePerMinute, burst int) *RedisRateLimiter {
@@ -198,9 +198,9 @@ func (c *redisClient) incrWithExpire(key string, ttlSeconds int) (int64, error) 
 // nil (interface{}(nil)), or error.
 func (c *redisClient) cmd(args ...string) (any, error) {
 	// Wire up RESP2 inline array.
-	fmt.Fprintf(c.rw, "*%d\r\n", len(args))
+	_, _ = fmt.Fprintf(c.rw, "*%d\r\n", len(args))
 	for _, a := range args {
-		fmt.Fprintf(c.rw, "$%d\r\n%s\r\n", len(a), a)
+		_, _ = fmt.Fprintf(c.rw, "$%d\r\n%s\r\n", len(a), a)
 	}
 	if err := c.rw.Flush(); err != nil {
 		return nil, err

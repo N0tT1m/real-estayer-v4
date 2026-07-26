@@ -21,7 +21,6 @@ import (
 	authMiddleware "github.com/realestayer/v4/internal/middleware"
 	"github.com/realestayer/v4/internal/migrations"
 	"github.com/realestayer/v4/internal/provider"
-	"github.com/realestayer/v4/internal/provider/amadeus"
 	"github.com/realestayer/v4/internal/provider/duffel"
 	"github.com/realestayer/v4/internal/provider/wikipedia"
 	"github.com/realestayer/v4/internal/repository"
@@ -42,7 +41,7 @@ func main() {
 	}
 	cfg.LogFeatureSummary()
 
-	db, err := database.Connect(cfg.MongoURI)
+	db, err := database.Connect(cfg.MongoURI, cfg.MongoDatabase)
 	if err != nil {
 		slog.Error("failed to connect to database", "error", err)
 		os.Exit(1)
@@ -71,17 +70,11 @@ func main() {
 
 	providerRegistry := provider.NewRegistry()
 
-	amadeusClient := amadeus.NewClient(cfg.Amadeus.ClientID, cfg.Amadeus.ClientSecret, cfg.Amadeus.BaseURL)
-	providerRegistry.RegisterHotel("amadeus", amadeusClient)
-	providerRegistry.RegisterCar("amadeus", amadeusClient)
-
-	// Duffel is the primary flight provider. When no token is set the client
-	// returns ErrNotConfigured for every call; we still register it so
-	// `/api/v1/providers` and future fallback logic can see it. Amadeus is
-	// kept as a secondary flight provider during the migration window.
+	// Duffel is the flight provider. When no token is set the client returns
+	// ErrNotConfigured for every call; we still register it so
+	// `/api/v1/providers` and future fallback logic can see it.
 	duffelClient := duffel.NewClient(cfg.Duffel.AccessToken, cfg.Duffel.BaseURL)
 	providerRegistry.RegisterFlight("duffel", duffelClient)
-	providerRegistry.RegisterFlight("amadeus", amadeusClient)
 
 	destRepo := repository.NewDestinationRepository(db.Database)
 
@@ -107,7 +100,6 @@ func main() {
 	scraperService := service.NewScraperService(cfg.ScraperURL, cfg.ScraperAPIKey)
 	tripService := service.NewTripService(repos.Trip)
 	watchlistService := service.NewWatchlistService(repos.Watchlist)
-	destService := service.NewDestinationService(destRepo, amadeusClient)
 	priceHistoryService := service.NewPriceHistoryService(repos.PriceHistory)
 	savedSearchService := service.NewSavedSearchService(repos.SavedSearch, listingService, repos.User, cfg.DiscordWebhookURL)
 	commentService := service.NewTripCommentService(tripService, repos.TripComment, repos.User)
@@ -130,11 +122,10 @@ func main() {
 	affiliateService := service.NewAffiliateService(cfg.AffiliateTag)
 	unsplashService := service.NewUnsplashService(cfg.UnsplashKey)
 	airportService := service.NewAirportService()
+	destService := service.NewDestinationService(destRepo, geocodingService, airportService)
 	flightStatusService := service.NewFlightStatusService(cfg.AviationStackAPIKey)
 	wikidataService := service.NewWikidataService()
 	natureService := service.NewNatureService(cfg.EBirdAPIKey)
-	bookingPartner := service.NewBookingPartnerService(cfg.BookingAffiliateID, cfg.BookingDemandKey)
-	expediaPartner := service.NewExpediaPartnerService(cfg.ExpediaAPIKey, cfg.ExpediaSharedSecret)
 	emailParser := service.NewEmailParserService(aiItineraryService)
 	conflictChecker := service.NewConflictChecker()
 	visaService := service.NewVisaService()
@@ -143,11 +134,6 @@ func main() {
 	pollService := service.NewPollService(repos.Poll, repos.User)
 	receiptOCR := service.NewReceiptOCRService(aiItineraryService)
 	auditService := service.NewAuditService(repos.Audit)
-	carAffiliates := service.NewCarAffiliateService(
-		cfg.RentalcarsAffiliateID,
-		cfg.PricelineAffiliateID,
-		cfg.KayakAffiliateID,
-	)
 
 	// Public URL used in notification emails — strip trailing slash once.
 	appBase := cfg.AppBaseURL
@@ -160,8 +146,6 @@ func main() {
 	)
 
 	flightService := booking.NewFlightService(providerRegistry, repos.Booking)
-	hotelService := booking.NewHotelService(providerRegistry, repos.Booking)
-	carService := booking.NewCarService(providerRegistry, repos.Booking)
 
 	h := handler.NewHandler(handler.HandlerDeps{
 		Config:         cfg,
@@ -197,8 +181,6 @@ func main() {
 		FlightStatus:   flightStatusService,
 		Wikidata:       wikidataService,
 		Nature:         natureService,
-		BookingPartner: bookingPartner,
-		ExpediaPartner: expediaPartner,
 		EmailParser:    emailParser,
 		Conflict:       conflictChecker,
 		Visa:           visaService,
@@ -207,13 +189,10 @@ func main() {
 		Transit:        transitService,
 		Poll:           pollService,
 		ReceiptOCR:     receiptOCR,
-		CarAffiliates:  carAffiliates,
 		Audit:          auditService,
 		Users:          repos.User,
 		Collections:    repos.Collection,
 		Flight:         flightService,
-		Hotel:          hotelService,
-		Car:            carService,
 	})
 
 	discoveryService := service.NewDestinationDiscoveryService(destRepo, wikidataService, wikipedia.NewClient())
@@ -248,7 +227,7 @@ func main() {
 	r.Use(authMiddleware.CSRF(cfg.SessionSecret, cfg.IsProduction()))
 
 	// Static files: resolve once to a clean root to prevent directory traversal.
-	staticRoot, err := filepath.Abs("web/static")
+	staticRoot, err := filepath.Abs(filepath.Join(handler.AssetRoot(), "web", "static"))
 	if err != nil {
 		slog.Error("failed to resolve static root", "error", err)
 		os.Exit(1)
@@ -299,8 +278,6 @@ func main() {
 		r.Get("/listings", h.ListingsPage)
 		r.Get("/listings/{id}", h.ListingDetailPage)
 		r.Get("/flights", h.FlightsPage)
-		r.Get("/hotels", h.HotelsPage)
-		r.Get("/cars", h.CarsPage)
 		r.Get("/scrape", h.ScrapePage)
 
 		r.Get("/explore", destHandler.ExplorePage)
@@ -322,7 +299,6 @@ func main() {
 		r.Get("/listings/search", h.SearchListings)
 
 		r.Get("/locations/airports", h.SearchAirports)
-		r.Get("/locations/cities", h.SearchCities)
 
 		r.Get("/destinations", destHandler.SearchAPI)
 		r.Get("/destinations/featured", destHandler.FeaturedAPI)
@@ -362,21 +338,17 @@ func main() {
 		// Transit routing (public; Google key, if any, is held server-side)
 		r.Get("/transit", h.Transit)
 
-		r.Post("/send-to-discord", h.SendToDiscord)
-		r.Post("/test-discord", h.TestDiscord)
-
 		r.Get("/flights/search", h.SearchFlights)
 		r.Get("/flights/offers/{id}", h.GetFlightOffer)
 
-		r.Get("/hotels/search", h.SearchHotels)
-		r.Get("/hotels/{id}", h.GetHotelDetails)
-		r.Get("/hotels/{id}/rooms", h.GetRoomAvailability)
-
-		r.Get("/cars/search", h.SearchCars)
-		r.Get("/cars/offers/{id}", h.GetCarOffer)
-
 		r.Group(func(r chi.Router) {
 			r.Use(authMiddleware.RequireAuth(authService))
+
+			// Discord relays: these spend a shared, operator-owned webhook, so
+			// they require a session and carry the auth limiter to keep an
+			// authenticated client from flooding the channel.
+			r.With(authLimiter).Post("/send-to-discord", h.SendToDiscord)
+			r.With(authLimiter).Post("/test-discord", h.TestDiscord)
 
 			r.Get("/users/me", h.GetCurrentUser)
 			r.Put("/users/me", h.UpdateUser)
@@ -390,8 +362,6 @@ func main() {
 			r.Post("/users/me/totp/disable", h.DisableTOTP)
 
 			r.Post("/flights/book", h.BookFlight)
-			r.Post("/hotels/book", h.BookHotel)
-			r.Post("/cars/book", h.BookCar)
 			r.Get("/bookings", h.GetUserBookings)
 			r.Get("/bookings/{id}", h.GetBooking)
 
@@ -443,9 +413,6 @@ func main() {
 			r.Get("/trips/{id}/carbon", h.TripCarbon)
 			r.Get("/me/travel-stats", h.UserTravelStats)
 			r.Get("/me/travel-profile", h.UserTravelProfile)
-
-			// Partner stay search (gated — most users have no partner creds).
-			r.Post("/partners/stays", h.PartnerStays)
 
 			// Email confirmation parser
 			r.Post("/trips/{id}/import-email", h.ImportEmail)
@@ -502,8 +469,6 @@ func main() {
 		r.Get("/profile/security", h.SecurityPage)
 		r.Get("/bookings", h.BookingsPage)
 		r.Get("/flights/book", h.FlightBookingPage)
-		r.Get("/hotels/book", h.HotelBookingPage)
-		r.Get("/cars/book", h.CarBookingPage)
 		r.Get("/bookings/confirmation", h.BookingConfirmationPage)
 	})
 
@@ -527,13 +492,13 @@ func main() {
 	defer cancelBG()
 
 	go func() {
-		// The seed pulls a catalog of destinations from Amadeus once at boot.
+		// The seed pulls a catalog of destinations once at boot.
 		// Cap it so a stuck upstream can't keep this goroutine alive through
 		// shutdown — bgCtx cancel covers the happy exit path, but a hung
 		// TLS handshake without a deadline would ignore it.
 		seedCtx, cancel := context.WithTimeout(bgCtx, 10*time.Minute)
 		defer cancel()
-		if err := destService.SeedFromAmadeus(seedCtx); err != nil {
+		if err := destService.SeedDestinations(seedCtx); err != nil {
 			slog.Warn("destination seed failed", "error", err)
 		}
 	}()

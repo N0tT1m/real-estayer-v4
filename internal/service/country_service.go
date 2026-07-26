@@ -19,9 +19,9 @@ import (
 // Both upstream APIs are free and keyless. We cache everything in-process for
 // 24 h — country facts almost never change between releases.
 type CountryService struct {
-	client *http.Client
-	mu     sync.RWMutex
-	basics map[string]*CountryBasics // keyed by ISO-3166-1 alpha-2, uppercase
+	client       *http.Client
+	mu           sync.RWMutex
+	basics       map[string]*CountryBasics // keyed by ISO-3166-1 alpha-2, uppercase
 	holidayCache map[string]holidayCacheEntry
 }
 
@@ -33,31 +33,31 @@ type holidayCacheEntry struct {
 // CountryBasics bundles the fields pulled from REST Countries + our static
 // extras into one serializable blob the UI can render directly.
 type CountryBasics struct {
-	Code          string   `json:"code"`
-	Name          string   `json:"name"`
-	OfficialName  string   `json:"official_name,omitempty"`
-	Capital       string   `json:"capital,omitempty"`
-	Region        string   `json:"region,omitempty"`
-	Subregion     string   `json:"subregion,omitempty"`
-	Continent     string   `json:"continent,omitempty"`
-	Languages     []string `json:"languages,omitempty"`
-	Currencies    []string `json:"currencies,omitempty"`
-	CallingCodes  []string `json:"calling_codes,omitempty"`
-	Timezones     []string `json:"timezones,omitempty"`
-	FlagEmoji     string   `json:"flag_emoji,omitempty"`
-	FlagImageURL  string   `json:"flag_image_url,omitempty"`
-	MapURL        string   `json:"map_url,omitempty"`
-	DrivesOn      string   `json:"drives_on,omitempty"`
+	Code         string   `json:"code"`
+	Name         string   `json:"name"`
+	OfficialName string   `json:"official_name,omitempty"`
+	Capital      string   `json:"capital,omitempty"`
+	Region       string   `json:"region,omitempty"`
+	Subregion    string   `json:"subregion,omitempty"`
+	Continent    string   `json:"continent,omitempty"`
+	Languages    []string `json:"languages,omitempty"`
+	Currencies   []string `json:"currencies,omitempty"`
+	CallingCodes []string `json:"calling_codes,omitempty"`
+	Timezones    []string `json:"timezones,omitempty"`
+	FlagEmoji    string   `json:"flag_emoji,omitempty"`
+	FlagImageURL string   `json:"flag_image_url,omitempty"`
+	MapURL       string   `json:"map_url,omitempty"`
+	DrivesOn     string   `json:"drives_on,omitempty"`
 
 	// Static extras — curated below.
-	PlugTypes       []string          `json:"plug_types,omitempty"`
-	Voltage         string            `json:"voltage,omitempty"`
-	Frequency       string            `json:"frequency,omitempty"`
-	Tipping         string            `json:"tipping,omitempty"`
-	Emergency       map[string]string `json:"emergency,omitempty"`
-	KeyPhrases      map[string]string `json:"key_phrases,omitempty"`
-	WaterSafe       string            `json:"water_safe,omitempty"`
-	CardsAccepted   string            `json:"cards_accepted,omitempty"`
+	PlugTypes     []string          `json:"plug_types,omitempty"`
+	Voltage       string            `json:"voltage,omitempty"`
+	Frequency     string            `json:"frequency,omitempty"`
+	Tipping       string            `json:"tipping,omitempty"`
+	Emergency     map[string]string `json:"emergency,omitempty"`
+	KeyPhrases    map[string]string `json:"key_phrases,omitempty"`
+	WaterSafe     string            `json:"water_safe,omitempty"`
+	CardsAccepted string            `json:"cards_accepted,omitempty"`
 }
 
 // PublicHoliday is a single national holiday returned by Nager.Date.
@@ -131,7 +131,7 @@ func (s *CountryService) fetchBasics(ctx context.Context, code string) (*Country
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("restcountries: status %d", resp.StatusCode)
 	}
@@ -141,11 +141,11 @@ func (s *CountryService) fetchBasics(ctx context.Context, code string) (*Country
 			Common   string `json:"common"`
 			Official string `json:"official"`
 		} `json:"name"`
-		CCA2       string   `json:"cca2"`
-		Capital    []string `json:"capital"`
-		Region     string   `json:"region"`
-		Subregion  string   `json:"subregion"`
-		Continents []string `json:"continents"`
+		CCA2       string            `json:"cca2"`
+		Capital    []string          `json:"capital"`
+		Region     string            `json:"region"`
+		Subregion  string            `json:"subregion"`
+		Continents []string          `json:"continents"`
 		Languages  map[string]string `json:"languages"`
 		Currencies map[string]struct {
 			Name   string `json:"name"`
@@ -227,7 +227,7 @@ func (s *CountryService) Holidays(ctx context.Context, code string, year int) ([
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
 		s.mu.Lock()
 		s.holidayCache[key] = holidayCacheEntry{value: nil, expiresAt: time.Now().Add(24 * time.Hour)}
@@ -303,7 +303,7 @@ type staticExtras struct {
 var staticCountryExtras = map[string]staticExtras{
 	"US": {
 		PlugTypes: []string{"A", "B"}, Voltage: "120V", Frequency: "60Hz",
-		Tipping: "Expected: 18–22% at restaurants; $1–2/bag for porters; $2–5/night for housekeeping.",
+		Tipping:   "Expected: 18–22% at restaurants; $1–2/bag for porters; $2–5/night for housekeeping.",
 		Emergency: map[string]string{"all": "911"},
 		Phrases:   map[string]string{"hello": "Hello", "thank you": "Thank you", "please": "Please"},
 		WaterSafe: "Tap water is safe virtually everywhere.",
@@ -311,7 +311,7 @@ var staticCountryExtras = map[string]staticExtras{
 	},
 	"GB": {
 		PlugTypes: []string{"G"}, Voltage: "230V", Frequency: "50Hz",
-		Tipping: "Optional. 10–12.5% at sit-down restaurants if service charge isn't included.",
+		Tipping:   "Optional. 10–12.5% at sit-down restaurants if service charge isn't included.",
 		Emergency: map[string]string{"all": "999", "non-urgent": "101"},
 		Phrases:   map[string]string{"hello": "Hello", "thank you": "Thank you", "please": "Please"},
 		WaterSafe: "Tap water is safe.",
@@ -319,7 +319,7 @@ var staticCountryExtras = map[string]staticExtras{
 	},
 	"FR": {
 		PlugTypes: []string{"C", "E"}, Voltage: "230V", Frequency: "50Hz",
-		Tipping: "Service compris — rounding up or leaving a euro or two is generous.",
+		Tipping:   "Service compris — rounding up or leaving a euro or two is generous.",
 		Emergency: map[string]string{"all": "112", "police": "17", "medical": "15", "fire": "18"},
 		Phrases:   map[string]string{"hello": "Bonjour", "thank you": "Merci", "please": "S'il vous plaît", "excuse me": "Pardon"},
 		WaterSafe: "Tap water is safe.",
@@ -327,7 +327,7 @@ var staticCountryExtras = map[string]staticExtras{
 	},
 	"IT": {
 		PlugTypes: []string{"C", "F", "L"}, Voltage: "230V", Frequency: "50Hz",
-		Tipping: "Not expected; round up the bill. A 'coperto' is often added.",
+		Tipping:   "Not expected; round up the bill. A 'coperto' is often added.",
 		Emergency: map[string]string{"all": "112"},
 		Phrases:   map[string]string{"hello": "Ciao", "thank you": "Grazie", "please": "Per favore"},
 		WaterSafe: "Tap water is safe; 'acqua non potabile' means not drinkable.",
@@ -335,7 +335,7 @@ var staticCountryExtras = map[string]staticExtras{
 	},
 	"ES": {
 		PlugTypes: []string{"C", "F"}, Voltage: "230V", Frequency: "50Hz",
-		Tipping: "Rounding up is enough; 5–10% for exceptional service.",
+		Tipping:   "Rounding up is enough; 5–10% for exceptional service.",
 		Emergency: map[string]string{"all": "112"},
 		Phrases:   map[string]string{"hello": "Hola", "thank you": "Gracias", "please": "Por favor"},
 		WaterSafe: "Tap water is safe almost everywhere.",
@@ -343,7 +343,7 @@ var staticCountryExtras = map[string]staticExtras{
 	},
 	"PT": {
 		PlugTypes: []string{"C", "F"}, Voltage: "230V", Frequency: "50Hz",
-		Tipping: "Not expected; round up or leave 5–10% for great service.",
+		Tipping:   "Not expected; round up or leave 5–10% for great service.",
 		Emergency: map[string]string{"all": "112"},
 		Phrases:   map[string]string{"hello": "Olá", "thank you": "Obrigado/Obrigada", "please": "Por favor"},
 		WaterSafe: "Tap water is safe.",
@@ -351,7 +351,7 @@ var staticCountryExtras = map[string]staticExtras{
 	},
 	"DE": {
 		PlugTypes: []string{"C", "F"}, Voltage: "230V", Frequency: "50Hz",
-		Tipping: "Round up or add 5–10%; say the total including tip as you pay.",
+		Tipping:   "Round up or add 5–10%; say the total including tip as you pay.",
 		Emergency: map[string]string{"all": "112", "police": "110"},
 		Phrases:   map[string]string{"hello": "Hallo", "thank you": "Danke", "please": "Bitte"},
 		WaterSafe: "Tap water is safe.",
@@ -359,7 +359,7 @@ var staticCountryExtras = map[string]staticExtras{
 	},
 	"NL": {
 		PlugTypes: []string{"C", "F"}, Voltage: "230V", Frequency: "50Hz",
-		Tipping: "Not expected; round up the bill.",
+		Tipping:   "Not expected; round up the bill.",
 		Emergency: map[string]string{"all": "112"},
 		Phrases:   map[string]string{"hello": "Hallo", "thank you": "Dank je", "please": "Alsjeblieft"},
 		WaterSafe: "Tap water is safe.",
@@ -367,7 +367,7 @@ var staticCountryExtras = map[string]staticExtras{
 	},
 	"JP": {
 		PlugTypes: []string{"A", "B"}, Voltage: "100V", Frequency: "50/60Hz",
-		Tipping: "Not customary; often refused. Excellent service is the default.",
+		Tipping:   "Not customary; often refused. Excellent service is the default.",
 		Emergency: map[string]string{"police": "110", "fire/medical": "119"},
 		Phrases:   map[string]string{"hello": "Konnichiwa", "thank you": "Arigatou gozaimasu", "excuse me": "Sumimasen"},
 		WaterSafe: "Tap water is safe.",
@@ -375,7 +375,7 @@ var staticCountryExtras = map[string]staticExtras{
 	},
 	"CN": {
 		PlugTypes: []string{"A", "C", "I"}, Voltage: "220V", Frequency: "50Hz",
-		Tipping: "Not expected; often refused.",
+		Tipping:   "Not expected; often refused.",
 		Emergency: map[string]string{"police": "110", "fire": "119", "medical": "120"},
 		Phrases:   map[string]string{"hello": "Nǐ hǎo", "thank you": "Xièxiè"},
 		WaterSafe: "Bottled water recommended.",
@@ -383,7 +383,7 @@ var staticCountryExtras = map[string]staticExtras{
 	},
 	"TH": {
 		PlugTypes: []string{"A", "B", "C"}, Voltage: "220V", Frequency: "50Hz",
-		Tipping: "Not required; 10% at nicer restaurants is generous.",
+		Tipping:   "Not required; 10% at nicer restaurants is generous.",
 		Emergency: map[string]string{"tourist police": "1155", "police": "191", "medical": "1669"},
 		Phrases:   map[string]string{"hello": "Sawatdi khrap/kha", "thank you": "Khop khun"},
 		WaterSafe: "Bottled water recommended.",
@@ -391,7 +391,7 @@ var staticCountryExtras = map[string]staticExtras{
 	},
 	"AU": {
 		PlugTypes: []string{"I"}, Voltage: "230V", Frequency: "50Hz",
-		Tipping: "Not expected; 10% for exceptional service.",
+		Tipping:   "Not expected; 10% for exceptional service.",
 		Emergency: map[string]string{"all": "000"},
 		Phrases:   map[string]string{"hello": "Hello / G'day", "thank you": "Thanks"},
 		WaterSafe: "Tap water is safe.",
@@ -399,7 +399,7 @@ var staticCountryExtras = map[string]staticExtras{
 	},
 	"NZ": {
 		PlugTypes: []string{"I"}, Voltage: "230V", Frequency: "50Hz",
-		Tipping: "Not expected.",
+		Tipping:   "Not expected.",
 		Emergency: map[string]string{"all": "111"},
 		Phrases:   map[string]string{"hello": "Kia ora", "thank you": "Thanks"},
 		WaterSafe: "Tap water is safe.",
@@ -407,7 +407,7 @@ var staticCountryExtras = map[string]staticExtras{
 	},
 	"MX": {
 		PlugTypes: []string{"A", "B"}, Voltage: "127V", Frequency: "60Hz",
-		Tipping: "10–15% at restaurants; $20 MXN per bag for porters.",
+		Tipping:   "10–15% at restaurants; $20 MXN per bag for porters.",
 		Emergency: map[string]string{"all": "911"},
 		Phrases:   map[string]string{"hello": "Hola", "thank you": "Gracias", "please": "Por favor"},
 		WaterSafe: "Bottled water recommended.",
@@ -415,7 +415,7 @@ var staticCountryExtras = map[string]staticExtras{
 	},
 	"CA": {
 		PlugTypes: []string{"A", "B"}, Voltage: "120V", Frequency: "60Hz",
-		Tipping: "Expected: 15–20% at restaurants; round up taxis.",
+		Tipping:   "Expected: 15–20% at restaurants; round up taxis.",
 		Emergency: map[string]string{"all": "911"},
 		Phrases:   map[string]string{"hello": "Hello / Bonjour", "thank you": "Thank you / Merci"},
 		WaterSafe: "Tap water is safe.",
@@ -423,7 +423,7 @@ var staticCountryExtras = map[string]staticExtras{
 	},
 	"BR": {
 		PlugTypes: []string{"C", "N"}, Voltage: "127/220V", Frequency: "60Hz",
-		Tipping: "10% often included; otherwise add one.",
+		Tipping:   "10% often included; otherwise add one.",
 		Emergency: map[string]string{"police": "190", "medical": "192", "fire": "193"},
 		Phrases:   map[string]string{"hello": "Olá", "thank you": "Obrigado/Obrigada"},
 		WaterSafe: "Bottled water recommended.",
@@ -431,7 +431,7 @@ var staticCountryExtras = map[string]staticExtras{
 	},
 	"IN": {
 		PlugTypes: []string{"C", "D", "M"}, Voltage: "230V", Frequency: "50Hz",
-		Tipping: "10% at restaurants; ₹50–100 for hotel porters.",
+		Tipping:   "10% at restaurants; ₹50–100 for hotel porters.",
 		Emergency: map[string]string{"all": "112"},
 		Phrases:   map[string]string{"hello": "Namaste", "thank you": "Dhanyavaad"},
 		WaterSafe: "Bottled/filtered water recommended.",
@@ -439,7 +439,7 @@ var staticCountryExtras = map[string]staticExtras{
 	},
 	"AE": {
 		PlugTypes: []string{"G"}, Voltage: "220V", Frequency: "50Hz",
-		Tipping: "10% often added; otherwise AED 10–20 per bill.",
+		Tipping:   "10% often added; otherwise AED 10–20 per bill.",
 		Emergency: map[string]string{"police": "999", "ambulance": "998", "fire": "997"},
 		Phrases:   map[string]string{"hello": "Marhaba", "thank you": "Shukran"},
 		WaterSafe: "Tap water is technically safe; bottled is the norm.",
@@ -447,7 +447,7 @@ var staticCountryExtras = map[string]staticExtras{
 	},
 	"ZA": {
 		PlugTypes: []string{"M", "N"}, Voltage: "230V", Frequency: "50Hz",
-		Tipping: "10–15% at restaurants; R10 per bag for porters.",
+		Tipping:   "10–15% at restaurants; R10 per bag for porters.",
 		Emergency: map[string]string{"all": "112", "police": "10111", "medical": "10177"},
 		Phrases:   map[string]string{"hello": "Hello / Sawubona", "thank you": "Thank you / Ngiyabonga"},
 		WaterSafe: "Tap water is safe in major cities.",

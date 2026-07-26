@@ -15,16 +15,47 @@ jobs:
   go:
     name: Go build + test
     runs-on: ubuntu-latest
+
+    # Integration tests (migrations, repository queries, database connect)
+    # need a real MongoDB — those code paths cannot be meaningfully faked.
+    # Without MONGODB_TEST_URI they skip, so this service is what makes them
+    # actually run in CI rather than only on a developer machine.
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping:1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      MONGODB_TEST_URI: mongodb://127.0.0.1:27017
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.25"
           cache: true
 
       - name: Download modules
         run: go mod download
+
+      # Formatting is a hard gate: the tree is gofmt-clean, so any drift is a
+      # new regression rather than pre-existing debt. Unlike the linters below
+      # there is no backlog to ratchet through.
+      - name: Format check
+        run: |
+          unformatted=$(gofmt -l . | grep -v '^rust-scraper/' || true)
+          if [ -n "$unformatted" ]; then
+            echo "::error::These files are not gofmt-formatted. Run: gofmt -w ."
+            echo "$unformatted"
+            exit 1
+          fi
 
       - name: Vet
         run: go vet ./...
@@ -37,18 +68,24 @@ jobs:
         # locally; it's cheap in CI and well worth it.
         run: go test -race -count=1 ./...
 
+      # The backlog is cleared (0 issues), so this is now a hard gate. gosec and
+      # govulncheck below stay advisory: gosec's remaining findings need
+      # case-by-case triage (e.g. crypto/sha1 is correct for TOTP), and
+      # govulncheck depends on an upstream DB that can fail the build for
+      # reasons unrelated to the change under review.
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
           args: --timeout=5m
-        continue-on-error: true  # ratchet gradually; don't fail PRs yet
 
+      # Now clean (0 findings): every prior finding was either fixed or
+      # annotated with a #nosec carrying its justification, so anything new
+      # here is a genuine regression rather than pre-existing noise.
       - name: Security scan (gosec)
         uses: securego/gosec@master
         with:
           args: -exclude-dir=rust-scraper -exclude-dir=web ./...
-        continue-on-error: true
 
       - name: Vulnerability check (govulncheck)
         run: |
@@ -71,15 +108,46 @@ jobs:
         with:
           workspaces: rust-scraper
 
-      - name: Clippy (warnings only — doesn't fail)
-        run: cargo clippy --no-deps -- -A warnings
-        continue-on-error: true
+      # Now clean (0 warnings, including test targets): every prior warning was
+      # either fixed or carries an #[allow] with its justification, so anything
+      # new here is a regression. -D warnings makes that a failure.
+      - name: Clippy
+        run: cargo clippy --no-deps --all-targets -- -D warnings
 
       - name: Build binary
         run: cargo build --bin rust-scraper
 
+      # `--test integration_tests` alone skips the unit tests compiled into the
+      # library — which is where the HTML/JSON extractor and amenity coverage
+      # lives. Run the whole suite.
+      - name: Unit tests
+        run: cargo test --lib
+
       - name: Integration tests
         run: cargo test --test integration_tests
+
+  # The app is deployed on Windows, so build and unit-test there too. The Linux
+  # job above stays the primary one (it has the Mongo service and the linters);
+  # this exists to catch path-separator, line-ending and platform-specific
+  # breakage before it reaches the machine that actually runs the thing.
+  windows:
+    name: Go build + test (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      # No MONGODB_TEST_URI here, so the integration tests skip by design and
+      # this job covers the pure/unit suites only.
+      - name: Test
+        run: go test ./...
 
   templates:
     name: Template parse check
@@ -89,7 +157,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.25"
           cache: true
 
       # Spot-check that every HTML template parses. Catches missing `{{end}}`

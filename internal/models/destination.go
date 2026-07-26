@@ -17,9 +17,9 @@ type Destination struct {
 	Images      []string           `bson:"images" json:"images"`
 
 	// Location
-	Latitude  float64 `bson:"latitude" json:"latitude"`
-	Longitude float64 `bson:"longitude" json:"longitude"`
-	AirportCode string `bson:"airport_code" json:"airport_code"`
+	Latitude    float64 `bson:"latitude" json:"latitude"`
+	Longitude   float64 `bson:"longitude" json:"longitude"`
+	AirportCode string  `bson:"airport_code" json:"airport_code"`
 
 	// Categorization
 	Tags       []string `bson:"tags" json:"tags"`
@@ -27,10 +27,10 @@ type Destination struct {
 	BestFor    []string `bson:"best_for" json:"best_for"`     // couples, families, solo, etc.
 
 	// Seasonal info
-	BestMonths    []int   `bson:"best_months" json:"best_months"` // 1-12
-	Climate       string  `bson:"climate" json:"climate"`
-	AvgTempHigh   float64 `bson:"avg_temp_high" json:"avg_temp_high"`
-	AvgTempLow    float64 `bson:"avg_temp_low" json:"avg_temp_low"`
+	BestMonths  []int   `bson:"best_months" json:"best_months"` // 1-12
+	Climate     string  `bson:"climate" json:"climate"`
+	AvgTempHigh float64 `bson:"avg_temp_high" json:"avg_temp_high"`
+	AvgTempLow  float64 `bson:"avg_temp_low" json:"avg_temp_low"`
 
 	// Popularity & pricing
 	PopularityScore int     `bson:"popularity_score" json:"popularity_score"`
@@ -58,16 +58,16 @@ type DestinationHighlight struct {
 }
 
 type DestinationFilter struct {
-	Category   string
-	Region     string
-	Country    string
-	BestFor    string
-	Month      int
-	MinBudget  float64
-	MaxBudget  float64
-	Featured   *bool
-	Search     string
-	SortBy     string // popularity, name, budget_asc, budget_desc
-	Limit      int
-	Offset     int
+	Category  string
+	Region    string
+	Country   string
+	BestFor   string
+	Month     int
+	MinBudget float64
+	MaxBudget float64
+	Featured  *bool
+	Search    string
+	SortBy    string // popularity, name, budget_asc, budget_desc
+	Limit     int
+	Offset    int
 }

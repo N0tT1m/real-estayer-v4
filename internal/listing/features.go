@@ -41,10 +41,16 @@ func NormalizeFeature(feature string) string {
 	if strings.Contains(lower, "kitchen") {
 		return "Kitchen"
 	}
-	if containsAny(lower, "washer", "washing machine", "laundry") {
+	// The dishwasher/hair-dryer guards matter: "dishwasher" contains "washer"
+	// and "hair dryer" contains "dryer", so without them a dishwasher is
+	// labelled laundry and a hair dryer a clothes dryer. Both then fall
+	// through to titleCase and keep their own names.
+	if containsAny(lower, "washer", "washing machine", "laundry") &&
+		!strings.Contains(lower, "dishwasher") {
 		return "Washer"
 	}
-	if strings.Contains(lower, "dryer") {
+	if strings.Contains(lower, "dryer") &&
+		!containsAny(lower, "hair dryer", "hairdryer", "blow dryer") {
 		return "Dryer"
 	}
 	if containsAny(lower, "workspace", "work space", "desk") {

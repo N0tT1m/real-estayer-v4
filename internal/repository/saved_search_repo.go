@@ -36,7 +36,7 @@ func (r *SavedSearchRepository) ListByUser(ctx context.Context, userID primitive
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 	var out []models.SavedSearch
 	if err := cursor.All(ctx, &out); err != nil {
 		return nil, err
@@ -59,7 +59,7 @@ func (r *SavedSearchRepository) ListDue(ctx context.Context, before time.Time, l
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 	var out []models.SavedSearch
 	if err := cursor.All(ctx, &out); err != nil {
 		return nil, err

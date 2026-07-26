@@ -79,7 +79,7 @@ func (s *EventsService) Nearby(ctx context.Context, lat, lng float64, radiusKm i
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("ticketmaster: status %d", resp.StatusCode)
 	}
@@ -97,7 +97,7 @@ func (s *EventsService) Nearby(ctx context.Context, lat, lng float64, radiusKm i
 				} `json:"images"`
 				Dates struct {
 					Start struct {
-						DateTime string `json:"dateTime"`
+						DateTime  string `json:"dateTime"`
 						LocalDate string `json:"localDate"`
 					} `json:"start"`
 				} `json:"dates"`

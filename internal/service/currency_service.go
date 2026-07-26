@@ -18,9 +18,9 @@ import (
 // The ECB feed is free, keyless, and has a stable XML schema dating back to
 // ~2006. No API key means no secret to manage.
 type CurrencyService struct {
-	client *http.Client
-	mu     sync.RWMutex
-	rates  map[string]float64 // ratesPerEUR[code]
+	client  *http.Client
+	mu      sync.RWMutex
+	rates   map[string]float64 // ratesPerEUR[code]
 	expires time.Time
 }
 
@@ -50,7 +50,7 @@ func (s *CurrencyService) ensureRates(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("ecb: status %d", resp.StatusCode)
 	}

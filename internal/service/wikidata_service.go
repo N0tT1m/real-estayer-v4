@@ -113,7 +113,7 @@ func (s *WikidataService) resolveQID(ctx context.Context, name string) (string, 
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("wikidata search: status %d", resp.StatusCode)
 	}
@@ -177,7 +177,7 @@ LIMIT 1
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("wikidata sparql: status %d", resp.StatusCode)
 	}
@@ -277,7 +277,7 @@ func (s *WikidataService) ResolveEntity(ctx context.Context, name string) (*Reso
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("wikidata search: status %d", resp.StatusCode)
 	}
@@ -315,16 +315,16 @@ func (s *WikidataService) ResolveEntity(ctx context.Context, name string) (*Reso
 // region. Pageview ranking and Wikipedia enrichment happen downstream in
 // DestinationDiscoveryService.
 type DiscoveredPlace struct {
-	QID            string   `json:"qid"`
-	Name           string   `json:"name"`
-	Description    string   `json:"description"` // short Wikidata gloss, not Wikipedia extract
-	CountryCode    string   `json:"country_code"`
-	Latitude       float64  `json:"latitude"`
-	Longitude      float64  `json:"longitude"`
-	ArticleTitle   string   `json:"article_title"` // en.wikipedia.org/wiki/<this>
-	WikipediaURL   string   `json:"wikipedia_url"`
-	SitelinkCount  int      `json:"sitelink_count"`
-	Types          []string `json:"types"` // e.g. ["city","tourist attraction"]
+	QID           string   `json:"qid"`
+	Name          string   `json:"name"`
+	Description   string   `json:"description"` // short Wikidata gloss, not Wikipedia extract
+	CountryCode   string   `json:"country_code"`
+	Latitude      float64  `json:"latitude"`
+	Longitude     float64  `json:"longitude"`
+	ArticleTitle  string   `json:"article_title"` // en.wikipedia.org/wiki/<this>
+	WikipediaURL  string   `json:"wikipedia_url"`
+	SitelinkCount int      `json:"sitelink_count"`
+	Types         []string `json:"types"` // e.g. ["city","tourist attraction"]
 }
 
 // DiscoverTourismPlaces returns tourism-relevant places located (transitively)
@@ -388,7 +388,7 @@ LIMIT 200
 	if err != nil {
 		return nil, fmt.Errorf("wikidata discover: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("wikidata discover: status %d", resp.StatusCode)
 	}

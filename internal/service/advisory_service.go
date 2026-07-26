@@ -17,12 +17,12 @@ func NewAdvisoryService() *AdvisoryService { return &AdvisoryService{} }
 
 // Advisory is the view-model.
 type Advisory struct {
-	Level        int    `json:"level"`        // 1 exercise normal precautions … 4 do not travel
-	LevelLabel   string `json:"level_label"`
-	Summary      string `json:"summary"`
-	Source       string `json:"source"`       // "curated" | "state.gov" | "fcdo"
-	SourceURL    string `json:"source_url,omitempty"`
-	UpdatedAt    string `json:"updated_at"`
+	Level      int    `json:"level"` // 1 exercise normal precautions … 4 do not travel
+	LevelLabel string `json:"level_label"`
+	Summary    string `json:"summary"`
+	Source     string `json:"source"` // "curated" | "state.gov" | "fcdo"
+	SourceURL  string `json:"source_url,omitempty"`
+	UpdatedAt  string `json:"updated_at"`
 }
 
 // ForCountry returns the best-known advisory. Always non-nil: unknown

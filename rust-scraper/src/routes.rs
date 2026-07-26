@@ -19,6 +19,7 @@ use anyhow::Result;
 use log::info;
 use once_cell::sync::Lazy;
 use std::sync::Mutex as StdMutex;
+use tokio::sync::Mutex as TokioMutex;
 
 // Global lock to prevent concurrent scrape requests from killing each other's Chrome
 static SCRAPE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
@@ -78,7 +79,7 @@ const US_STATES: [&str; 50] = [
 fn get_chrome_version() -> Result<String> {
     let output = if cfg!(target_os = "windows") {
         Command::new("reg")
-            .args(&["query", "HKEY_CURRENT_USER\\Software\\Google\\Chrome\\BLBeacon", "/v", "version"])
+            .args(["query", "HKEY_CURRENT_USER\\Software\\Google\\Chrome\\BLBeacon", "/v", "version"])
             .output()
             .ok()
     } else if cfg!(target_os = "macos") {
@@ -97,7 +98,7 @@ fn get_chrome_version() -> Result<String> {
         let version_str = String::from_utf8_lossy(&out.stdout);
         // Extract version number (e.g., "141.0.7390.55")
         if let Some(version) = version_str.split_whitespace()
-            .find(|s| s.chars().next().map_or(false, |c| c.is_numeric())) {
+            .find(|s| s.chars().next().is_some_and(|c| c.is_numeric())) {
             return Ok(version.to_string());
         }
     }
@@ -108,7 +109,7 @@ fn get_chrome_version() -> Result<String> {
 /// Helper function to start ChromeDriver
 async fn ensure_chromedriver_running() -> Result<()> {
     // Check if chromedriver is already running
-    if let Ok(_) = reqwest::get("http://localhost:9515/status").await {
+    if reqwest::get("http://localhost:9515/status").await.is_ok() {
         log::info!("ChromeDriver is already running");
         return Ok(());
     }
@@ -138,7 +139,7 @@ async fn ensure_chromedriver_running() -> Result<()> {
 
     // Wait for chromedriver to be ready
     for _ in 0..30 {
-        if let Ok(_) = reqwest::get("http://localhost:9515/status").await {
+        if reqwest::get("http://localhost:9515/status").await.is_ok() {
             log::info!("ChromeDriver is ready");
             return Ok(());
         }
@@ -187,9 +188,9 @@ pub async fn create_webdriver() -> Result<WebDriver> {
     match WebDriver::new("http://localhost:9515", caps).await {
         Ok(driver) => {
             log::info!("WebDriver created successfully with anti-detection settings");
-            return Ok(driver);
+            Ok(driver)
         }
-        Err(e) => return Err(anyhow::anyhow!("Failed to create WebDriver: {}", e)),
+        Err(e) => Err(anyhow::anyhow!("Failed to create WebDriver: {}", e)),
     }
 }
 
@@ -868,8 +869,13 @@ pub async fn test_stealth_browser() -> impl IntoResponse {
 // Global watchlist service instance (in production, this would be behind a proper state manager)
 use std::sync::Arc;
 
-static WATCHLIST_SERVICE: Lazy<Arc<StdMutex<AirbnbWatchlistService>>> =
-    Lazy::new(|| Arc::new(StdMutex::new(AirbnbWatchlistService::new())));
+// tokio's Mutex, not std's: every handler below holds this guard across an
+// `.await`. A std::sync::Mutex guard held across an await point parks the
+// executor thread for the duration and deadlocks outright if the awaited
+// future ever needs the same lock. tokio's Mutex is await-aware and yields
+// instead. It also cannot be poisoned, so there is no lock error to handle.
+static WATCHLIST_SERVICE: Lazy<Arc<TokioMutex<AirbnbWatchlistService>>> =
+    Lazy::new(|| Arc::new(TokioMutex::new(AirbnbWatchlistService::new())));
 
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct AddWatchlistRequest {
@@ -901,90 +907,67 @@ pub async fn add_to_watchlist(Json(req): Json<AddWatchlistRequest>) -> impl Into
         req.email,
     );
 
-    match WATCHLIST_SERVICE.lock() {
-        Ok(mut service) => {
-            match service.add_to_watchlist(item).await {
-                Ok(_) => Json(json!({
-                    "status": "success",
-                    "message": "Added to watchlist"
-                })).into_response(),
-                Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
-            }
-        }
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response()
+    let mut service = WATCHLIST_SERVICE.lock().await;
+    match service.add_to_watchlist(item).await {
+        Ok(_) => Json(json!({
+            "status": "success",
+            "message": "Added to watchlist"
+        })).into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
     }
 }
 
 pub async fn get_watchlist(Path(user_id): Path<String>) -> impl IntoResponse {
-    match WATCHLIST_SERVICE.lock() {
-        Ok(service) => {
-            let items = service.get_user_watchlist(&user_id).await;
-            Json(json!({
-                "status": "success",
-                "watchlist": items
-            })).into_response()
-        }
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response()
-    }
+    let service = WATCHLIST_SERVICE.lock().await;
+    let items = service.get_user_watchlist(&user_id).await;
+    Json(json!({
+        "status": "success",
+        "watchlist": items
+    })).into_response()
 }
 
 pub async fn remove_from_watchlist(Path((user_id, listing_id)): Path<(String, String)>) -> impl IntoResponse {
-    match WATCHLIST_SERVICE.lock() {
-        Ok(mut service) => {
-            match service.remove_from_watchlist(&user_id, &listing_id).await {
-                Ok(_) => Json(json!({
-                    "status": "success",
-                    "message": "Removed from watchlist"
-                })).into_response(),
-                Err(e) => Json(json!({
-                    "status": "error",
-                    "message": e.to_string()
-                })).into_response()
-            }
-        }
-        Err(_) => Json(json!({
+    let mut service = WATCHLIST_SERVICE.lock().await;
+    match service.remove_from_watchlist(&user_id, &listing_id).await {
+        Ok(_) => Json(json!({
+            "status": "success",
+            "message": "Removed from watchlist"
+        })).into_response(),
+        Err(e) => Json(json!({
             "status": "error",
-            "message": "Service unavailable"
+            "message": e.to_string()
         })).into_response()
     }
 }
 
 pub async fn check_price_updates() -> impl IntoResponse {
-    match WATCHLIST_SERVICE.lock() {
-        Ok(mut service) => {
-            match service.check_price_updates().await {
-                Ok(price_drops) => {
-                    // Send alerts for price drops
-                    for (item, drop_amount) in &price_drops {
-                        if let Err(e) = service.send_price_alert(item, *drop_amount).await {
-                            log::error!("Failed to send price alert: {}", e);
-                        }
-                    }
-
-                    Json(json!({
-                        "status": "success",
-                        "message": format!("Checked prices, found {} price drops", price_drops.len()),
-                        "price_drops": price_drops.len()
-                    })).into_response()
+    let mut service = WATCHLIST_SERVICE.lock().await;
+    match service.check_price_updates().await {
+        Ok(price_drops) => {
+            // Send alerts for price drops
+            for (item, drop_amount) in &price_drops {
+                if let Err(e) = service.send_price_alert(item, *drop_amount).await {
+                    log::error!("Failed to send price alert: {}", e);
                 }
-                Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
             }
+
+            Json(json!({
+                "status": "success",
+                "message": format!("Checked prices, found {} price drops", price_drops.len()),
+                "price_drops": price_drops.len()
+            })).into_response()
         }
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response()
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response()
     }
 }
 
 pub async fn get_price_history(Path(listing_id): Path<String>) -> impl IntoResponse {
-    match WATCHLIST_SERVICE.lock() {
-        Ok(service) => {
-            let history = service.get_price_history(&listing_id).await;
-            Json(json!({
-                "status": "success",
-                "price_history": history
-            })).into_response()
-        }
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response()
-    }
+    let service = WATCHLIST_SERVICE.lock().await;
+    let history = service.get_price_history(&listing_id).await;
+    Json(json!({
+        "status": "success",
+        "price_history": history
+    })).into_response()
 }
 
 pub async fn test_email() -> impl IntoResponse {

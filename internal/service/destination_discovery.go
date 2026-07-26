@@ -48,21 +48,21 @@ func NewDestinationDiscoveryService(
 // It includes everything the Confirm step needs so the client can echo the
 // chosen rows back without a round-trip through the SPARQL endpoint.
 type DiscoveryCandidate struct {
-	WikidataID      string   `json:"wikidata_id"`
-	Name            string   `json:"name"`
-	Description     string   `json:"description"`
-	ImageURL        string   `json:"image_url"`
-	WikipediaURL    string   `json:"wikipedia_url"`
-	ArticleTitle    string   `json:"article_title"`
-	Latitude        float64  `json:"latitude"`
-	Longitude       float64  `json:"longitude"`
-	CountryCode     string   `json:"country_code"`
-	Country         string   `json:"country"`
-	Region          string   `json:"region"`
-	Categories      []string `json:"categories"`
-	PageViewsYear   int64    `json:"page_views_year"`
-	SitelinkCount   int      `json:"sitelink_count"`
-	AlreadyExists   bool     `json:"already_exists"`
+	WikidataID    string   `json:"wikidata_id"`
+	Name          string   `json:"name"`
+	Description   string   `json:"description"`
+	ImageURL      string   `json:"image_url"`
+	WikipediaURL  string   `json:"wikipedia_url"`
+	ArticleTitle  string   `json:"article_title"`
+	Latitude      float64  `json:"latitude"`
+	Longitude     float64  `json:"longitude"`
+	CountryCode   string   `json:"country_code"`
+	Country       string   `json:"country"`
+	Region        string   `json:"region"`
+	Categories    []string `json:"categories"`
+	PageViewsYear int64    `json:"page_views_year"`
+	SitelinkCount int      `json:"sitelink_count"`
+	AlreadyExists bool     `json:"already_exists"`
 }
 
 // DiscoveryResult is the top-level response: info about what region we

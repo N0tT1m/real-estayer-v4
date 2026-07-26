@@ -139,19 +139,19 @@ type passengerInput struct {
 
 type offerRequestResponse struct {
 	Data struct {
-		ID     string        `json:"id"`
-		Offers []wireOffer   `json:"offers"`
+		ID     string      `json:"id"`
+		Offers []wireOffer `json:"offers"`
 	} `json:"data"`
 }
 
 type wireOffer struct {
-	ID               string       `json:"id"`
-	TotalAmount      string       `json:"total_amount"`
-	TotalCurrency    string       `json:"total_currency"`
-	BaseAmount       string       `json:"base_amount"`
-	TaxAmount        string       `json:"tax_amount"`
-	ExpiresAt        time.Time    `json:"expires_at"`
-	Slices           []wireSlice  `json:"slices"`
+	ID            string      `json:"id"`
+	TotalAmount   string      `json:"total_amount"`
+	TotalCurrency string      `json:"total_currency"`
+	BaseAmount    string      `json:"base_amount"`
+	TaxAmount     string      `json:"tax_amount"`
+	ExpiresAt     time.Time   `json:"expires_at"`
+	Slices        []wireSlice `json:"slices"`
 }
 
 type wireSlice struct {
@@ -160,16 +160,16 @@ type wireSlice struct {
 }
 
 type wireSegment struct {
-	ID              string    `json:"id"`
-	DepartingAt     time.Time `json:"departing_at"`
-	ArrivingAt      time.Time `json:"arriving_at"`
-	Duration        string    `json:"duration"`
-	Origin          wirePlace `json:"origin"`
-	Destination     wirePlace `json:"destination"`
-	MarketingCarrier carrier  `json:"marketing_carrier"`
-	OperatingCarrier *carrier `json:"operating_carrier,omitempty"`
-	Aircraft        *aircraft `json:"aircraft,omitempty"`
-	MarketingCarrierFlightNumber string `json:"marketing_carrier_flight_number"`
+	ID                           string    `json:"id"`
+	DepartingAt                  time.Time `json:"departing_at"`
+	ArrivingAt                   time.Time `json:"arriving_at"`
+	Duration                     string    `json:"duration"`
+	Origin                       wirePlace `json:"origin"`
+	Destination                  wirePlace `json:"destination"`
+	MarketingCarrier             carrier   `json:"marketing_carrier"`
+	OperatingCarrier             *carrier  `json:"operating_carrier,omitempty"`
+	Aircraft                     *aircraft `json:"aircraft,omitempty"`
+	MarketingCarrierFlightNumber string    `json:"marketing_carrier_flight_number"`
 }
 
 type wirePlace struct {
@@ -215,7 +215,7 @@ func (c *Client) SearchFlights(ctx context.Context, req models.FlightSearchReque
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		return nil, parseError(resp)
 	}
@@ -234,7 +234,7 @@ func (c *Client) GetFlightOffer(ctx context.Context, offerID string) (*models.Fl
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, fmt.Errorf("duffel: offer not found or expired: %s", offerID)
 	}
@@ -285,17 +285,17 @@ type passengerOut struct {
 }
 
 type paymentInput struct {
-	Type     string `json:"type"`     // "balance" in test, "arc_bsp_cash" in prod
+	Type     string `json:"type"` // "balance" in test, "arc_bsp_cash" in prod
 	Amount   string `json:"amount"`
 	Currency string `json:"currency"`
 }
 
 type orderResponse struct {
 	Data struct {
-		ID            string `json:"id"`
+		ID               string `json:"id"`
 		BookingReference string `json:"booking_reference"`
-		TotalAmount   string `json:"total_amount"`
-		TotalCurrency string `json:"total_currency"`
+		TotalAmount      string `json:"total_amount"`
+		TotalCurrency    string `json:"total_currency"`
 	} `json:"data"`
 }
 
@@ -340,7 +340,7 @@ func (c *Client) BookFlight(ctx context.Context, req models.FlightBookingRequest
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		return nil, parseError(resp)
 	}
@@ -368,7 +368,7 @@ func (c *Client) GetFlightStatus(ctx context.Context, bookingRef string) (*model
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, fmt.Errorf("duffel: booking not found: %s", bookingRef)
 	}
@@ -393,10 +393,10 @@ func (c *Client) GetFlightStatus(ctx context.Context, bookingRef string) (*model
 // --- Airport search ---
 
 type placeSuggestion struct {
-	Type     string `json:"type"` // "airport" | "city"
-	IATACode string `json:"iata_code"`
-	Name     string `json:"name"`
-	CityName string `json:"city_name"`
+	Type            string `json:"type"` // "airport" | "city"
+	IATACode        string `json:"iata_code"`
+	Name            string `json:"name"`
+	CityName        string `json:"city_name"`
 	IATACountryCode string `json:"iata_country_code"`
 }
 
@@ -410,7 +410,7 @@ func (c *Client) SearchAirports(ctx context.Context, keyword string) ([]models.A
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, parseError(resp)
 	}

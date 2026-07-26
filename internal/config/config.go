@@ -24,8 +24,8 @@ type Config struct {
 	AdminBootstrap []string // emails that should be promoted to admin on registration
 
 	// Database
-	MongoURI        string
-	MongoDatabase   string
+	MongoURI      string
+	MongoDatabase string
 
 	// Redis
 	RedisURL string
@@ -48,25 +48,15 @@ type Config struct {
 	AIModel         string
 
 	// Optional enrichment keys
-	OpenAQAPIKey   string
-	UnsplashKey    string
-	AffiliateTag   string // utm_source / partner id for outbound links
+	OpenAQAPIKey        string
+	UnsplashKey         string
+	AffiliateTag        string // utm_source / partner id for outbound links
 	AviationStackAPIKey string
 	EBirdAPIKey         string
-	BookingAffiliateID  string
-	BookingDemandKey    string
-	ExpediaAPIKey       string
-	ExpediaSharedSecret string
 
 	// Google Directions key enables the transit-routing widget; when empty
 	// the service gracefully falls back to OSRM driving.
 	GoogleDirectionsKey string
-
-	// Car-rental affiliate IDs. All three are optional — when empty the
-	// deep-link still renders, just without the tracking parameter.
-	RentalcarsAffiliateID string
-	PricelineAffiliateID  string
-	KayakAffiliateID      string
 
 	// Public URL of this deployment — used in email links. Falls back to
 	// http://localhost:<port> in dev.
@@ -81,20 +71,11 @@ type Config struct {
 	// empty, fields are stored plain-text and the profile UI shows a warning.
 	FieldEncryptionKey string
 
-	// Amadeus API (legacy — kept for backwards compat while we migrate off)
-	Amadeus AmadeusConfig
-
 	// Duffel API — flights replacement for Amadeus. Single access token.
 	Duffel DuffelConfig
 
 	// Email
 	Email EmailConfig
-}
-
-type AmadeusConfig struct {
-	ClientID     string
-	ClientSecret string
-	BaseURL      string
 }
 
 // DuffelConfig holds Duffel Air API credentials. BaseURL defaults to
@@ -118,47 +99,31 @@ type EmailConfig struct {
 // Load reads configuration from environment variables
 func Load() (*Config, error) {
 	cfg := &Config{
-		Env:               getEnv("APP_ENV", getEnv("ENV", "development")),
-		Port:              getEnv("PORT", "8347"),
-		SessionSecret:     os.Getenv("SESSION_SECRET"),
-		AllowedOrigins:    splitCSV(getEnv("ALLOWED_ORIGINS", "http://localhost:8347")),
-		ScraperAPIKey:     strings.TrimSpace(os.Getenv("SCRAPER_API_KEY")),
-		AdminBootstrap:    splitCSV(os.Getenv("ADMIN_BOOTSTRAP_EMAILS")),
-		MongoURI:          getEnv("MONGODB_URI", "mongodb://localhost:27017/real_estayer"),
-		MongoDatabase:     getEnv("MONGODB_DATABASE", "real_estayer"),
-		RedisURL:          getEnv("REDIS_URL", "redis://localhost:6379"),
-		ScraperURL:        getEnv("RUST_SCRAPER_URL", "http://localhost:3001"),
-		DiscordWebhookURL: os.Getenv("DISCORD_WEBHOOK_URL"),
-		MapTilerKey:        os.Getenv("MAPTILER_KEY"),
-		TicketmasterAPIKey: os.Getenv("TICKETMASTER_API_KEY"),
-		AnthropicAPIKey:    os.Getenv("ANTHROPIC_API_KEY"),
-		AIModel:            getEnv("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
-		OpenAQAPIKey:       os.Getenv("OPENAQ_API_KEY"),
-		UnsplashKey:        os.Getenv("UNSPLASH_ACCESS_KEY"),
-		AffiliateTag:       getEnv("AFFILIATE_TAG", "realestayer"),
+		Env:                 getEnv("APP_ENV", getEnv("ENV", "development")),
+		Port:                getEnv("PORT", "8347"),
+		SessionSecret:       os.Getenv("SESSION_SECRET"),
+		AllowedOrigins:      splitCSV(getEnv("ALLOWED_ORIGINS", "http://localhost:8347")),
+		ScraperAPIKey:       strings.TrimSpace(os.Getenv("SCRAPER_API_KEY")),
+		AdminBootstrap:      splitCSV(os.Getenv("ADMIN_BOOTSTRAP_EMAILS")),
+		MongoURI:            getEnv("MONGODB_URI", "mongodb://localhost:27017/real_estayer"),
+		MongoDatabase:       getEnv("MONGODB_DATABASE", "real_estayer"),
+		RedisURL:            getEnv("REDIS_URL", "redis://localhost:6379"),
+		ScraperURL:          getEnv("RUST_SCRAPER_URL", "http://localhost:3001"),
+		DiscordWebhookURL:   os.Getenv("DISCORD_WEBHOOK_URL"),
+		MapTilerKey:         os.Getenv("MAPTILER_KEY"),
+		TicketmasterAPIKey:  os.Getenv("TICKETMASTER_API_KEY"),
+		AnthropicAPIKey:     os.Getenv("ANTHROPIC_API_KEY"),
+		AIModel:             getEnv("ANTHROPIC_MODEL", "claude-opus-5"),
+		OpenAQAPIKey:        os.Getenv("OPENAQ_API_KEY"),
+		UnsplashKey:         os.Getenv("UNSPLASH_ACCESS_KEY"),
+		AffiliateTag:        getEnv("AFFILIATE_TAG", "realestayer"),
 		AviationStackAPIKey: os.Getenv("AVIATIONSTACK_API_KEY"),
-		EBirdAPIKey:        os.Getenv("EBIRD_API_KEY"),
-		BookingAffiliateID: os.Getenv("BOOKING_AFFILIATE_ID"),
-		BookingDemandKey:   os.Getenv("BOOKING_DEMAND_KEY"),
-		ExpediaAPIKey:      os.Getenv("EPS_API_KEY"),
-		ExpediaSharedSecret: os.Getenv("EPS_SHARED_SECRET"),
-		GoogleDirectionsKey:   os.Getenv("GOOGLE_DIRECTIONS_KEY"),
-		RentalcarsAffiliateID: os.Getenv("RENTALCARS_AFFILIATE_ID"),
-		PricelineAffiliateID:  os.Getenv("PRICELINE_AFFILIATE_ID"),
-		KayakAffiliateID:      os.Getenv("KAYAK_AFFILIATE_ID"),
-		AppBaseURL:         os.Getenv("APP_BASE_URL"),
-		ErrorWebhookURL:    os.Getenv("ERROR_WEBHOOK_URL"),
-		MetricsEnabled:     getEnvBool("METRICS_ENABLED", false),
-		FieldEncryptionKey: os.Getenv("FIELD_ENCRYPTION_KEY"),
-		Amadeus: AmadeusConfig{
-			ClientID:     getEnv("AMADEUS_API_KEY", os.Getenv("AMADEUS_CLIENT_ID")),
-			ClientSecret: getEnv("AMADEUS_API_SECRET", os.Getenv("AMADEUS_CLIENT_SECRET")),
-			// Default to the production host. Test mode (https://test.api.amadeus.com)
-			// must be opted into explicitly — AMADEUS_ENV=test or AMADEUS_API_BASE_URL
-			// override — so we don't silently route real bookings through the
-			// sandbox because an env var got missed.
-			BaseURL: ensureHTTPS(resolveAmadeusBaseURL()),
-		},
+		EBirdAPIKey:         os.Getenv("EBIRD_API_KEY"),
+		GoogleDirectionsKey: os.Getenv("GOOGLE_DIRECTIONS_KEY"),
+		AppBaseURL:          os.Getenv("APP_BASE_URL"),
+		ErrorWebhookURL:     os.Getenv("ERROR_WEBHOOK_URL"),
+		MetricsEnabled:      getEnvBool("METRICS_ENABLED", false),
+		FieldEncryptionKey:  os.Getenv("FIELD_ENCRYPTION_KEY"),
 		Duffel: DuffelConfig{
 			AccessToken: os.Getenv("DUFFEL_ACCESS_TOKEN"),
 			BaseURL:     getEnv("DUFFEL_BASE_URL", "https://api.duffel.com"),
@@ -244,8 +209,6 @@ func (c *Config) LogFeatureSummary() {
 
 	feature("duffel", c.Duffel.AccessToken != "",
 		"flights (new primary provider)")
-	feature("amadeus", c.Amadeus.ClientID != "" && c.Amadeus.ClientSecret != "",
-		"legacy flights/hotels/cars — being decommissioned")
 	feature("email_smtp", c.Email.SMTPHost != "",
 		"password reset + notification emails")
 	feature("redis", c.RedisURL != "" && !strings.HasPrefix(c.RedisURL, "redis://localhost"),
@@ -263,10 +226,6 @@ func (c *Config) LogFeatureSummary() {
 	feature("ebird", c.EBirdAPIKey != "", "nature/birding content")
 	feature("unsplash", c.UnsplashKey != "", "destination hero images")
 	feature("google_directions", c.GoogleDirectionsKey != "", "transit routing (falls back to OSRM)")
-	feature("booking_affiliate", c.BookingAffiliateID != "", "Booking.com affiliate links")
-	feature("car_affiliates", c.RentalcarsAffiliateID != "" || c.PricelineAffiliateID != "" || c.KayakAffiliateID != "",
-		"/cars deep-link tracking (at least one of rentalcars/priceline/kayak)")
-	feature("expedia", c.ExpediaAPIKey != "" && c.ExpediaSharedSecret != "", "Expedia partner search")
 	feature("metrics", c.MetricsEnabled, "/metrics endpoint")
 	feature("error_webhook", c.ErrorWebhookURL != "", "panic reporting")
 }
@@ -289,30 +248,6 @@ func (c *Config) IsAdminBootstrapEmail(email string) bool {
 		}
 	}
 	return false
-}
-
-func ensureHTTPS(u string) string {
-	if u != "" && !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
-		return "https://" + u
-	}
-	return u
-}
-
-// resolveAmadeusBaseURL returns the Amadeus API host to talk to. An explicit
-// AMADEUS_API_BASE_URL / AMADEUS_BASE_URL wins; otherwise AMADEUS_ENV=test
-// opts into the sandbox; otherwise we default to the production host so a
-// misconfigured deployment never quietly routes real bookings through test.
-func resolveAmadeusBaseURL() string {
-	if v := os.Getenv("AMADEUS_API_BASE_URL"); v != "" {
-		return v
-	}
-	if v := os.Getenv("AMADEUS_BASE_URL"); v != "" {
-		return v
-	}
-	if strings.EqualFold(os.Getenv("AMADEUS_ENV"), "test") {
-		return "https://test.api.amadeus.com"
-	}
-	return "https://api.amadeus.com"
 }
 
 func getEnv(key, defaultValue string) string {

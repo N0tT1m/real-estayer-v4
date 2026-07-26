@@ -2,12 +2,12 @@ package handler
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -54,8 +54,6 @@ type Handler struct {
 	flightStatusSvc    *service.FlightStatusService
 	wikidataService    *service.WikidataService
 	natureService      *service.NatureService
-	bookingPartner     *service.BookingPartnerService
-	expediaPartner     *service.ExpediaPartnerService
 	emailParser        *service.EmailParserService
 	conflictChecker    *service.ConflictChecker
 	visaService        *service.VisaService
@@ -64,13 +62,10 @@ type Handler struct {
 	transitService     *service.TransitService
 	pollService        *service.PollService
 	receiptOCR         *service.ReceiptOCRService
-	carAffiliates      *service.CarAffiliateService
 	auditService       *service.AuditService
 	users              *repository.UserRepository
 	collections        *repository.CollectionRepository
 	flightService      *booking.FlightService
-	hotelService       *booking.HotelService
-	carService         *booking.CarService
 	templates          map[string]*template.Template // Map of page name to template
 }
 
@@ -110,8 +105,6 @@ type HandlerDeps struct {
 	FlightStatus   *service.FlightStatusService
 	Wikidata       *service.WikidataService
 	Nature         *service.NatureService
-	BookingPartner *service.BookingPartnerService
-	ExpediaPartner *service.ExpediaPartnerService
 	EmailParser    *service.EmailParserService
 	Conflict       *service.ConflictChecker
 	Visa           *service.VisaService
@@ -120,13 +113,10 @@ type HandlerDeps struct {
 	Transit        *service.TransitService
 	Poll           *service.PollService
 	ReceiptOCR     *service.ReceiptOCRService
-	CarAffiliates  *service.CarAffiliateService
 	Audit          *service.AuditService
 	Users          *repository.UserRepository
 	Collections    *repository.CollectionRepository
 	Flight         *booking.FlightService
-	Hotel          *booking.HotelService
-	Car            *booking.CarService
 }
 
 // NewHandler creates a new handler from a dependency bag.
@@ -165,8 +155,6 @@ func NewHandler(d HandlerDeps) *Handler {
 		flightStatusSvc:    d.FlightStatus,
 		wikidataService:    d.Wikidata,
 		natureService:      d.Nature,
-		bookingPartner:     d.BookingPartner,
-		expediaPartner:     d.ExpediaPartner,
 		emailParser:        d.EmailParser,
 		conflictChecker:    d.Conflict,
 		visaService:        d.Visa,
@@ -175,13 +163,10 @@ func NewHandler(d HandlerDeps) *Handler {
 		transitService:     d.Transit,
 		pollService:        d.Poll,
 		receiptOCR:         d.ReceiptOCR,
-		carAffiliates:      d.CarAffiliates,
 		auditService:       d.Audit,
 		users:              d.Users,
 		collections:        d.Collections,
 		flightService:      d.Flight,
-		hotelService:       d.Hotel,
-		carService:         d.Car,
 	}
 	h.loadTemplates()
 	return h
@@ -205,6 +190,8 @@ func templateFuncs() template.FuncMap {
 			b = bytes.ReplaceAll(b, []byte("&"), []byte(`\u0026`))
 			b = bytes.ReplaceAll(b, []byte("\u2028"), []byte(`\u2028`))
 			b = bytes.ReplaceAll(b, []byte("\u2029"), []byte(`\u2029`))
+			// #nosec G203 -- <, >, & and U+2028/9 are escaped above before the
+			// value is marked as JS; that escaping is the point of this helper.
 			return template.JS(b)
 		},
 		"hasPrefix": strings.HasPrefix,
@@ -290,9 +277,36 @@ func templateFuncs() template.FuncMap {
 	}
 }
 
+// AssetRoot returns the directory containing web/templates and web/static.
+//
+// Resolution order: ASSETS_DIR, then the working directory, then the directory
+// holding the executable. That last step matters on Windows, where the binary
+// is typically launched from wherever it happens to sit — there is no systemd
+// WorkingDirectory convention — and a wrong CWD would otherwise leave the
+// server running with zero templates, 500-ing every page.
+func AssetRoot() string {
+	if v := strings.TrimSpace(os.Getenv("ASSETS_DIR")); v != "" {
+		return v
+	}
+	if hasTemplateDir(".") {
+		return "."
+	}
+	if exe, err := os.Executable(); err == nil {
+		if dir := filepath.Dir(exe); hasTemplateDir(dir) {
+			return dir
+		}
+	}
+	return "."
+}
+
+func hasTemplateDir(root string) bool {
+	_, err := os.Stat(filepath.Join(root, "web", "templates", "layouts"))
+	return err == nil
+}
+
 // loadTemplates loads all HTML templates
 func (h *Handler) loadTemplates() {
-	templateDir := "web/templates"
+	templateDir := filepath.Join(AssetRoot(), "web", "templates")
 	h.templates = make(map[string]*template.Template)
 
 	// Get layout files
@@ -333,7 +347,17 @@ func (h *Handler) loadTemplates() {
 		slog.Debug("loaded template", "page", pageName)
 	}
 
-	slog.Info("loaded templates", "count", len(h.templates))
+	// Booting with zero templates yields a server that starts cleanly and then
+	// 500s on every page — the worst failure mode. Fail at startup instead,
+	// consistent with how config and database errors are handled in main.
+	if len(h.templates) == 0 {
+		slog.Error("no templates were loaded; every page would fail",
+			"template_dir", templateDir,
+			"hint", "run from the project root or set ASSETS_DIR to the directory containing web/")
+		os.Exit(1)
+	}
+
+	slog.Info("loaded templates", "count", len(h.templates), "dir", templateDir)
 }
 
 // render renders a template with data
@@ -482,10 +506,11 @@ func (tr *TemplateRenderer) RenderWithRequest(w http.ResponseWriter, r *http.Req
 func respondJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	_ = json.NewEncoder(w).Encode(data)
 }
 
-// getUserFromContext retrieves user from context
-func getUserFromContext(ctx context.Context) interface{} {
-	return middleware.GetUser(ctx)
-}
+// Note: there is deliberately no getUserFromContext helper returning
+// interface{} here. Boxing middleware.GetUser's *models.User into an
+// interface makes a nil user compare non-nil, so `user != nil` guards on the
+// result are always true. Call middleware.GetUser directly and compare the
+// typed pointer.

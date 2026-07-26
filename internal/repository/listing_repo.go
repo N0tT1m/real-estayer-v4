@@ -42,77 +42,8 @@ func (r *ListingRepository) FindByID(ctx context.Context, id primitive.ObjectID)
 
 // Search finds listings based on search parameters
 func (r *ListingRepository) Search(ctx context.Context, params models.ListingSearchParams) (*models.ListingSearchResult, error) {
-	// Set defaults
-	if params.Page < 1 {
-		params.Page = 1
-	}
-	// Limit of 0 or -1 means no limit (get all)
-	unlimited := params.Limit <= 0
-	if params.Limit < 1 {
-		params.Limit = 20 // Default for pagination display
-	}
-
-	// Build filter
-	filter := bson.M{}
-
-	// Text search across multiple fields
-	if params.Query != "" {
-		filter["$or"] = []bson.M{
-			{"title": bson.M{"$regex": params.Query, "$options": "i"}},
-			{"description": bson.M{"$regex": params.Query, "$options": "i"}},
-			{"location": bson.M{"$regex": params.Query, "$options": "i"}},
-		}
-	}
-
-	// Location filter
-	if params.Location != "" {
-		filter["location"] = bson.M{"$regex": params.Location, "$options": "i"}
-	}
-
-	// Region filter
-	if params.Region != "" {
-		filter["region"] = bson.M{"$regex": params.Region, "$options": "i"}
-	}
-
-	// Country filter
-	if params.Country != "" {
-		filter["country"] = bson.M{"$regex": params.Country, "$options": "i"}
-	}
-
-	// City filter: anchored to the start of `location` so "Port Huron" doesn't
-	// also match "Export Huron" (hypothetical) and ends at a comma so
-	// "Detroit" matches "Detroit, Michigan..." but not "Detroit Lakes, MN".
-	if params.City != "" {
-		escaped := regexp.QuoteMeta(params.City)
-		filter["location"] = bson.M{"$regex": "^" + escaped + "\\s*,", "$options": "i"}
-	}
-
-	// Price range filter
-	if params.MinPrice > 0 || params.MaxPrice > 0 {
-		priceFilter := bson.M{}
-		if params.MinPrice > 0 {
-			priceFilter["$gte"] = params.MinPrice
-		}
-		if params.MaxPrice > 0 {
-			priceFilter["$lte"] = params.MaxPrice
-		}
-		filter["price_numeric"] = priceFilter
-	}
-
-	// Rating filter
-	if params.MinRating > 0 {
-		filter["rating_numeric"] = bson.M{"$gte": params.MinRating}
-	}
-
-	// Features filter (must have all specified features)
-	if len(params.Features) > 0 {
-		filter["features"] = bson.M{"$all": params.Features}
-	}
-
-	// Property type filter
-	if params.PropertyType != "" {
-		filter["property_type"] = params.PropertyType
-	}
+	unlimited, skip := normalizeListingPaging(&params)
+	filter := buildListingFilter(params)
 
 	// Count total
 	total, err := r.collection.CountDocuments(ctx, filter)
@@ -120,22 +51,7 @@ func (r *ListingRepository) Search(ctx context.Context, params models.ListingSea
 		return nil, err
 	}
 
-	// Build sort
-	sort := bson.M{"created_at": -1} // default: newest first
-	switch params.SortBy {
-	case "price_asc":
-		sort = bson.M{"price_numeric": 1}
-	case "price_desc":
-		sort = bson.M{"price_numeric": -1}
-	case "rating_desc":
-		sort = bson.M{"rating_numeric": -1}
-	case "newest":
-		sort = bson.M{"created_at": -1}
-	}
-
-	// Execute query
-	skip := (params.Page - 1) * params.Limit
-	opts := options.Find().SetSort(sort)
+	opts := options.Find().SetSort(buildListingSort(params.SortBy))
 	if !unlimited {
 		opts.SetSkip(int64(skip)).SetLimit(int64(params.Limit))
 	}
@@ -144,7 +60,7 @@ func (r *ListingRepository) Search(ctx context.Context, params models.ListingSea
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var listings []models.Listing
 	if err := cursor.All(ctx, &listings); err != nil {
@@ -190,7 +106,7 @@ func (r *ListingRepository) GetFeatures(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var results []struct {
 		ID string `bson:"_id"`
@@ -309,7 +225,7 @@ func (r *ListingRepository) GetCities(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 	var rows []struct {
 		ID string `bson:"_id"`
 	}
@@ -338,6 +254,105 @@ func (r *ListingRepository) Delete(ctx context.Context, id primitive.ObjectID) e
 }
 
 // parsePrice extracts numeric value from price string like "$199"
+// normalizeListingPaging clamps page/limit to their defaults and reports both
+// whether the caller asked for every row and the resulting skip offset.
+// A Limit of 0 or -1 means "no limit"; Limit is still defaulted to 20 so the
+// pagination display has a sane page size to render.
+func normalizeListingPaging(params *models.ListingSearchParams) (unlimited bool, skip int) {
+	if params.Page < 1 {
+		params.Page = 1
+	}
+	unlimited = params.Limit <= 0
+	if params.Limit < 1 {
+		params.Limit = 20
+	}
+	return unlimited, (params.Page - 1) * params.Limit
+}
+
+// buildListingFilter turns search params into the Mongo query document. Split
+// out of Search so the filter semantics can be tested without a live database.
+func buildListingFilter(params models.ListingSearchParams) bson.M {
+	filter := bson.M{}
+
+	// Text search across multiple fields
+	if params.Query != "" {
+		filter["$or"] = []bson.M{
+			{"title": bson.M{"$regex": params.Query, "$options": "i"}},
+			{"description": bson.M{"$regex": params.Query, "$options": "i"}},
+			{"location": bson.M{"$regex": params.Query, "$options": "i"}},
+		}
+	}
+
+	// Location filter
+	if params.Location != "" {
+		filter["location"] = bson.M{"$regex": params.Location, "$options": "i"}
+	}
+
+	// Region filter
+	if params.Region != "" {
+		filter["region"] = bson.M{"$regex": params.Region, "$options": "i"}
+	}
+
+	// Country filter
+	if params.Country != "" {
+		filter["country"] = bson.M{"$regex": params.Country, "$options": "i"}
+	}
+
+	// City filter: anchored to the start of `location` so "Port Huron" doesn't
+	// also match "Export Huron" (hypothetical) and ends at a comma so
+	// "Detroit" matches "Detroit, Michigan..." but not "Detroit Lakes, MN".
+	// Note this deliberately overwrites any Location filter set above.
+	if params.City != "" {
+		escaped := regexp.QuoteMeta(params.City)
+		filter["location"] = bson.M{"$regex": "^" + escaped + "\\s*,", "$options": "i"}
+	}
+
+	// Price range filter
+	if params.MinPrice > 0 || params.MaxPrice > 0 {
+		priceFilter := bson.M{}
+		if params.MinPrice > 0 {
+			priceFilter["$gte"] = params.MinPrice
+		}
+		if params.MaxPrice > 0 {
+			priceFilter["$lte"] = params.MaxPrice
+		}
+		filter["price_numeric"] = priceFilter
+	}
+
+	// Rating filter
+	if params.MinRating > 0 {
+		filter["rating_numeric"] = bson.M{"$gte": params.MinRating}
+	}
+
+	// Features filter (must have all specified features)
+	if len(params.Features) > 0 {
+		filter["features"] = bson.M{"$all": params.Features}
+	}
+
+	// Property type filter
+	if params.PropertyType != "" {
+		filter["property_type"] = params.PropertyType
+	}
+
+	return filter
+}
+
+// buildListingSort maps the public sort keys to Mongo sort documents,
+// defaulting to newest-first for empty or unrecognised values.
+func buildListingSort(sortBy string) bson.M {
+	switch sortBy {
+	case "price_asc":
+		return bson.M{"price_numeric": 1}
+	case "price_desc":
+		return bson.M{"price_numeric": -1}
+	case "rating_desc":
+		return bson.M{"rating_numeric": -1}
+	case "newest":
+		return bson.M{"created_at": -1}
+	}
+	return bson.M{"created_at": -1}
+}
+
 func parsePrice(price string) float64 {
 	// Remove currency symbols and non-numeric characters
 	re := regexp.MustCompile(`[\d.]+`)

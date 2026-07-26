@@ -76,17 +76,17 @@ func (s *OverpassService) Nearby(ctx context.Context, category string, lat, lng 
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("overpass: status %d", resp.StatusCode)
 	}
 
 	var raw struct {
 		Elements []struct {
-			Type   string             `json:"type"`
-			ID     int64              `json:"id"`
-			Lat    float64            `json:"lat"`
-			Lon    float64            `json:"lon"`
+			Type   string  `json:"type"`
+			ID     int64   `json:"id"`
+			Lat    float64 `json:"lat"`
+			Lon    float64 `json:"lon"`
 			Center *struct {
 				Lat float64 `json:"lat"`
 				Lon float64 `json:"lon"`
@@ -105,8 +105,8 @@ func (s *OverpassService) Nearby(ctx context.Context, category string, lat, lng 
 			continue
 		}
 		p := Place{
-			ID:      fmt.Sprintf("%s/%d", e.Type, e.ID),
-			Name:    name,
+			ID:       fmt.Sprintf("%s/%d", e.Type, e.ID),
+			Name:     name,
 			Category: category,
 			Subtype:  firstNonEmpty(e.Tags["amenity"], e.Tags["tourism"], e.Tags["shop"], e.Tags["leisure"]),
 			Address:  joinNonEmpty(", ", e.Tags["addr:housenumber"]+" "+e.Tags["addr:street"], e.Tags["addr:city"]),

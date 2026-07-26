@@ -10,8 +10,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-// BookFlight handles flight booking. Duffel is the default provider; Amadeus
-// stays reachable with ?provider=amadeus during the migration window.
+// BookFlight handles flight booking. ?provider= selects a specific backend;
+// omitting it uses the registry default (Duffel).
 func (h *Handler) BookFlight(w http.ResponseWriter, r *http.Request) {
 	var req models.FlightBookingRequest
 	if err := h.parseJSON(r, &req); err != nil {
@@ -25,50 +25,6 @@ func (h *Handler) BookFlight(w http.ResponseWriter, r *http.Request) {
 	}
 
 	booking, err := h.flightService.Book(r.Context(), h.getUserID(r), req, provider)
-	if err != nil {
-		h.jsonError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	h.jsonResponse(w, http.StatusCreated, booking)
-}
-
-// BookHotel handles hotel booking
-func (h *Handler) BookHotel(w http.ResponseWriter, r *http.Request) {
-	var req models.HotelBookingRequest
-	if err := h.parseJSON(r, &req); err != nil {
-		h.jsonError(w, http.StatusBadRequest, "Invalid request body")
-		return
-	}
-
-	provider := r.URL.Query().Get("provider")
-	if provider == "" {
-		provider = "amadeus"
-	}
-
-	booking, err := h.hotelService.Book(r.Context(), h.getUserID(r), req, provider)
-	if err != nil {
-		h.jsonError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	h.jsonResponse(w, http.StatusCreated, booking)
-}
-
-// BookCar handles car rental booking
-func (h *Handler) BookCar(w http.ResponseWriter, r *http.Request) {
-	var req models.CarBookingRequest
-	if err := h.parseJSON(r, &req); err != nil {
-		h.jsonError(w, http.StatusBadRequest, "Invalid request body")
-		return
-	}
-
-	provider := r.URL.Query().Get("provider")
-	if provider == "" {
-		provider = "amadeus"
-	}
-
-	booking, err := h.carService.Book(r.Context(), h.getUserID(r), req, provider)
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return

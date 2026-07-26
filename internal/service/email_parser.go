@@ -17,11 +17,11 @@ import (
 // EmailParserService turns a forwarded / pasted booking confirmation into one
 // or more structured TripItems. Two paths:
 //
-//   1. Rule-based parsers for the common templates (Airbnb, Booking.com,
-//      generic airlines, generic hotels, car rentals). Fast, zero cost,
-//      deterministic.
-//   2. Claude fallback if no rule matches. Expensive but catches the long
-//      tail.
+//  1. Rule-based parsers for the common templates (Airbnb, Booking.com,
+//     generic airlines, generic hotels, car rentals). Fast, zero cost,
+//     deterministic.
+//  2. Claude fallback if no rule matches. Expensive but catches the long
+//     tail.
 //
 // We never mutate the trip — the returned items are "draft" suggestions for
 // the user to confirm in the UI.
@@ -37,9 +37,9 @@ func NewEmailParserService(ai *AIItineraryService) *EmailParserService {
 // an optional low-level confidence reason so the UI can surface "we're not
 // sure, please double-check".
 type ParsedImport struct {
-	Source string `json:"source"`
+	Source string                      `json:"source"`
 	Items  []models.AddTripItemRequest `json:"items"`
-	Notes  string `json:"notes,omitempty"`
+	Notes  string                      `json:"notes,omitempty"`
 }
 
 // Parse runs the rule-based parsers first; when none match and an Anthropic
@@ -188,7 +188,7 @@ func parseGenericCar(text string) []models.AddTripItemRequest {
 	}
 	title := "Car rental"
 	if provider != "" {
-		title = strings.Title(provider) + " rental"
+		title = titleWords(provider) + " rental"
 	}
 	item := models.AddTripItemRequest{
 		Type:      models.TripItemTypeCar,
@@ -224,8 +224,9 @@ Respond ONLY with a JSON object of the form {"items":[ ... ]} where each item ha
 If the email isn't a travel booking, respond with {"items":[]}.`
 
 	body := map[string]any{
+		// Headroom for thinking tokens, which share this budget on current models.
 		"model":      s.ai.model,
-		"max_tokens": 1500,
+		"max_tokens": 4000,
 		"system": []map[string]any{{
 			"type": "text", "text": systemPrompt,
 			"cache_control": map[string]string{"type": "ephemeral"},
@@ -246,7 +247,7 @@ If the email isn't a travel booking, respond with {"items":[]}.`
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("anthropic: status %d", resp.StatusCode)
 	}
@@ -272,13 +273,13 @@ If the email isn't a travel booking, respond with {"items":[]}.`
 	// the Mongo store gets proper timestamps.
 	var wire struct {
 		Items []struct {
-			Type        string            `json:"type"`
-			Title       string            `json:"title"`
-			Provider    string            `json:"provider"`
-			ReferenceID string            `json:"reference_id"`
-			StartTime   string            `json:"start_time"`
-			EndTime     string            `json:"end_time"`
-			Details     map[string]any    `json:"details"`
+			Type        string                `json:"type"`
+			Title       string                `json:"title"`
+			Provider    string                `json:"provider"`
+			ReferenceID string                `json:"reference_id"`
+			StartTime   string                `json:"start_time"`
+			EndTime     string                `json:"end_time"`
+			Details     map[string]any        `json:"details"`
 			Price       *models.TripItemPrice `json:"price"`
 		} `json:"items"`
 	}
@@ -368,7 +369,7 @@ func findPrice(text string) float64 {
 		return 0
 	}
 	var f float64
-	fmt.Sscanf(strings.ReplaceAll(m[2], ",", ""), "%f", &f)
+	_, _ = fmt.Sscanf(strings.ReplaceAll(m[2], ",", ""), "%f", &f)
 	return f
 }
 
@@ -399,4 +400,3 @@ func findConfirmation(text string) string {
 	}
 	return ""
 }
-

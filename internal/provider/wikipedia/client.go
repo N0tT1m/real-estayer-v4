@@ -13,17 +13,19 @@ import (
 	"golang.org/x/time/rate"
 )
 
-const baseURL = "https://en.wikipedia.org/api/rest_v1"
+// defaultBaseURL is Wikimedia's REST endpoint. Client.baseURL defaults to it;
+// tests point a client at an httptest server instead.
+const defaultBaseURL = "https://en.wikipedia.org/api/rest_v1"
 
 // userAgent must include contact info per Wikimedia's robot policy
 // (https://meta.wikimedia.org/wiki/User-Agent_policy). Override in prod by
 // setting a real contact URL / email in a build-time variable if needed.
 const userAgent = "real-estayer/1.0 (https://github.com/realestayer/v4; ops@realestayer.local)"
 
-
 type Client struct {
 	http    *http.Client
 	limiter *rate.Limiter
+	baseURL string
 }
 
 // NewClient builds a Wikipedia/Wikimedia REST client with a shared token-bucket
@@ -36,6 +38,17 @@ func NewClient() *Client {
 	return &Client{
 		http:    &http.Client{Timeout: 10 * time.Second},
 		limiter: rate.NewLimiter(rate.Limit(20), 40),
+		baseURL: defaultBaseURL,
+	}
+}
+
+// newClientForTest returns a client pointed at an arbitrary base URL with the
+// rate limiter opened up, so tests don't pay the production throttle.
+func newClientForTest(baseURL string) *Client {
+	return &Client{
+		http:    &http.Client{Timeout: 5 * time.Second},
+		limiter: rate.NewLimiter(rate.Inf, 1),
+		baseURL: baseURL,
 	}
 }
 
@@ -121,7 +134,7 @@ type summaryResponse struct {
 // GetCitySummary fetches a description and image for the given city from Wikipedia.
 func (c *Client) GetCitySummary(ctx context.Context, cityName string) (*CityInfo, error) {
 	escaped := url.PathEscape(cityName)
-	req, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/page/summary/"+escaped, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/page/summary/"+escaped, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +145,7 @@ func (c *Client) GetCitySummary(ctx context.Context, cityName string) (*CityInfo
 	if err != nil {
 		return nil, fmt.Errorf("wikipedia request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, fmt.Errorf("wikipedia page not found: %s", cityName)

@@ -154,8 +154,9 @@ func validateTravelerIdentity(id *models.TravelerIdentity) error {
 func (h *Handler) UploadPhoto(w http.ResponseWriter, r *http.Request) {
 	// Enforce the size cap before ParseMultipartForm so a 500 MB body can't
 	// exhaust memory on its way to being rejected.
+	// #nosec G120 -- body is bounded by MaxBytesReader on the next line.
 	r.Body = http.MaxBytesReader(w, r.Body, 12<<20)
-	if err := r.ParseMultipartForm(12 << 20); err != nil {
+	if err := r.ParseMultipartForm(12 << 20); err != nil { // #nosec G120 -- body capped by MaxBytesReader above
 		h.jsonError(w, http.StatusBadRequest, "invalid multipart form")
 		return
 	}
@@ -164,7 +165,7 @@ func (h *Handler) UploadPhoto(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, http.StatusBadRequest, "missing file field")
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Sniff the magic bytes rather than trusting the client-supplied
 	// Content-Type header — the browser-declared type is spoofable.
@@ -269,9 +270,9 @@ func (h *Handler) PublicPollPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.render(w, r, "poll.html", map[string]interface{}{
-		"Title":     poll.Title,
-		"Poll":      poll,
-		"Summary":   h.pollService.Summarize(poll),
+		"Title":   poll.Title,
+		"Poll":    poll,
+		"Summary": h.pollService.Summarize(poll),
 	})
 }
 
@@ -301,7 +302,11 @@ func (h *Handler) PublicPollVote(w http.ResponseWriter, r *http.Request) {
 // ---- Receipt OCR ----
 
 func (h *Handler) ReceiptOCRUpload(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(8 << 20); err != nil {
+	// Cap the body before parsing. ParseMultipartForm's argument only bounds
+	// what is held in memory — it spills the rest to disk — so without this a
+	// large upload is unbounded. Mirrors UploadPhoto.
+	r.Body = http.MaxBytesReader(w, r.Body, 8<<20)
+	if err := r.ParseMultipartForm(8 << 20); err != nil { // #nosec G120 -- body capped by MaxBytesReader above
 		h.jsonError(w, http.StatusBadRequest, "invalid multipart form")
 		return
 	}
@@ -310,7 +315,7 @@ func (h *Handler) ReceiptOCRUpload(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, http.StatusBadRequest, "missing file field")
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	out, err := h.receiptOCR.FromImageBytes(r.Context(), io.LimitReader(file, 6<<20), header.Header.Get("Content-Type"))
 	if err != nil {
 		if errors.Is(err, service.ErrReceiptOCRNotConfigured) {

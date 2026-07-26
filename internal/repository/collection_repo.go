@@ -61,7 +61,7 @@ func (r *CollectionRepository) ListForDestination(ctx context.Context, destinati
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 	var out []models.Collection
 	if err := cursor.All(ctx, &out); err != nil {
 		return nil, err
@@ -79,7 +79,7 @@ func (r *CollectionRepository) ListFeatured(ctx context.Context, limit int) ([]m
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 	var out []models.Collection
 	if err := cursor.All(ctx, &out); err != nil {
 		return nil, err

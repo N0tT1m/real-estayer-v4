@@ -54,8 +54,8 @@ func TestPollSummarizeIgnoresUnknownOptions(t *testing.T) {
 		Options: []models.PollOption{opt},
 		Responses: []models.PollResponse{
 			{DisplayName: "x", OptionVotes: map[string]string{
-				opt.ID.Hex():       "yes",
-				"deadbeef-ghost":   "yes", // stale / tampered option id
+				opt.ID.Hex():     "yes",
+				"deadbeef-ghost": "yes", // stale / tampered option id
 			}},
 		},
 	}

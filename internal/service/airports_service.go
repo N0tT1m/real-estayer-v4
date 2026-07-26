@@ -39,7 +39,7 @@ type Airport struct {
 
 // AirportService caches a lookup map keyed by uppercase IATA code.
 type AirportService struct {
-	mu    sync.RWMutex
+	mu     sync.RWMutex
 	byIATA map[string]*Airport
 	loaded bool
 	extURL string
@@ -146,7 +146,7 @@ func (s *AirportService) ensureExtended(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("airports: status %d", resp.StatusCode)
 	}

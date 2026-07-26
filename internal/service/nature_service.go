@@ -12,14 +12,14 @@ import (
 
 // NatureService bundles two complementary nature datasets:
 //
-//   iNaturalist — free, keyless; any taxon, crowd-sourced observations.
-//   eBird       — bird sightings; free with an API key signup.
+//	iNaturalist — free, keyless; any taxon, crowd-sourced observations.
+//	eBird       — bird sightings; free with an API key signup.
 //
 // Both are read-only for our purposes. We expose a single `NearbyObservations`
 // call per source and return a unified `Sighting` shape so the UI can mix the
 // results.
 type NatureService struct {
-	client  *http.Client
+	client   *http.Client
 	eBirdKey string
 }
 
@@ -34,16 +34,16 @@ func NewNatureService(eBirdKey string) *NatureService {
 
 // Sighting is the unified record rendered by the UI.
 type Sighting struct {
-	Source       string    `json:"source"`      // "iNaturalist" | "eBird"
-	CommonName   string    `json:"common_name"`
-	ScientificName string  `json:"scientific_name,omitempty"`
-	Lat          float64   `json:"lat,omitempty"`
-	Lng          float64   `json:"lng,omitempty"`
-	ObservedAt   time.Time `json:"observed_at"`
-	PhotoURL     string    `json:"photo_url,omitempty"`
-	URL          string    `json:"url,omitempty"`
-	Location     string    `json:"location,omitempty"`
-	Count        int       `json:"count,omitempty"`
+	Source         string    `json:"source"` // "iNaturalist" | "eBird"
+	CommonName     string    `json:"common_name"`
+	ScientificName string    `json:"scientific_name,omitempty"`
+	Lat            float64   `json:"lat,omitempty"`
+	Lng            float64   `json:"lng,omitempty"`
+	ObservedAt     time.Time `json:"observed_at"`
+	PhotoURL       string    `json:"photo_url,omitempty"`
+	URL            string    `json:"url,omitempty"`
+	Location       string    `json:"location,omitempty"`
+	Count          int       `json:"count,omitempty"`
 }
 
 // INatNearby returns recent verifiable research-grade observations within
@@ -65,24 +65,24 @@ func (s *NatureService) INatNearby(ctx context.Context, lat, lng float64, radius
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("inaturalist: status %d", resp.StatusCode)
 	}
 	var raw struct {
 		Results []struct {
-			ID             int64  `json:"id"`
-			ObservedOn     string `json:"observed_on"`
-			URI            string `json:"uri"`
-			PlaceGuess     string `json:"place_guess"`
-			Geojson        struct {
+			ID         int64  `json:"id"`
+			ObservedOn string `json:"observed_on"`
+			URI        string `json:"uri"`
+			PlaceGuess string `json:"place_guess"`
+			Geojson    struct {
 				Coordinates []float64 `json:"coordinates"`
 			} `json:"geojson"`
 			Photos []struct {
 				URL string `json:"url"`
 			} `json:"photos"`
 			Taxon struct {
-				Name         string `json:"name"`
+				Name                string `json:"name"`
 				PreferredCommonName string `json:"preferred_common_name"`
 			} `json:"taxon"`
 		} `json:"results"`
@@ -93,11 +93,11 @@ func (s *NatureService) INatNearby(ctx context.Context, lat, lng float64, radius
 	out := make([]Sighting, 0, len(raw.Results))
 	for _, r := range raw.Results {
 		s := Sighting{
-			Source:     "iNaturalist",
-			CommonName: firstNonEmpty(r.Taxon.PreferredCommonName, r.Taxon.Name),
+			Source:         "iNaturalist",
+			CommonName:     firstNonEmpty(r.Taxon.PreferredCommonName, r.Taxon.Name),
 			ScientificName: r.Taxon.Name,
-			Location:   r.PlaceGuess,
-			URL:        r.URI,
+			Location:       r.PlaceGuess,
+			URL:            r.URI,
 		}
 		if len(r.Geojson.Coordinates) == 2 {
 			// iNat returns [lng, lat].
@@ -135,7 +135,7 @@ func (s *NatureService) EBirdRecent(ctx context.Context, lat, lng float64, radiu
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("ebird: status %d", resp.StatusCode)
 	}

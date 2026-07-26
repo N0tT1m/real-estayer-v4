@@ -49,7 +49,7 @@ func (r *TripReviewRepository) ListForTrip(ctx context.Context, tripID primitive
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 	var out []models.ItemReview
 	if err := cursor.All(ctx, &out); err != nil {
 		return nil, err

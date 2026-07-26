@@ -77,7 +77,7 @@ func (h *Handler) TestDiscordWebhook(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, http.StatusBadGateway, "Could not reach Discord: "+err.Error())
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
 		h.jsonError(w, http.StatusBadGateway, "Discord returned an error. Double-check the webhook URL.")
 		return

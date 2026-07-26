@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net"
 	"net/smtp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -77,9 +78,13 @@ func (m *Mailer) Send(msg Message) error {
 		return errors.New("mailer: at least one recipient required")
 	}
 
-	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.Port)
+	// JoinHostPort rather than "%s:%d" so a literal IPv6 host is bracketed
+	// ("::1" -> "[::1]:587"). Hostnames and IPv4 addresses are unaffected.
+	addr := net.JoinHostPort(m.cfg.Host, strconv.Itoa(m.cfg.Port))
 	tlsConfig := &tls.Config{
-		ServerName:         m.cfg.Host,
+		ServerName: m.cfg.Host,
+		// #nosec G402 -- opt-in via SMTP_INSECURE_SKIP_VERIFY for self-signed
+		// relays; defaults to false.
 		InsecureSkipVerify: m.cfg.InsecureSkipVerify, //nolint:gosec // opt-in
 	}
 
@@ -101,7 +106,7 @@ func (m *Mailer) Send(msg Message) error {
 		_ = conn.Close()
 		return fmt.Errorf("mailer: smtp client: %w", err)
 	}
-	defer client.Quit()
+	defer func() { _ = client.Quit() }()
 
 	if !m.cfg.ImplicitTLS {
 		// STARTTLS upgrade; required on submission port 587.

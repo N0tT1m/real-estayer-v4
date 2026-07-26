@@ -21,13 +21,13 @@ import (
 // stamped on the User doc under `preferences.notifications.sent` so we don't
 // email the same reminder twice.
 type NotificationWorker struct {
-	users         *repository.UserRepository
-	trips         *repository.TripRepository
-	watchlist     *repository.WatchlistRepository
-	priceHistory  *repository.PriceHistoryRepository
-	flightStatus  *FlightStatusService
-	mailer        *mailer.Mailer
-	appBaseURL    string
+	users        *repository.UserRepository
+	trips        *repository.TripRepository
+	watchlist    *repository.WatchlistRepository
+	priceHistory *repository.PriceHistoryRepository
+	flightStatus *FlightStatusService
+	mailer       *mailer.Mailer
+	appBaseURL   string
 }
 
 func NewNotificationWorker(
@@ -49,10 +49,10 @@ func NewNotificationWorker(
 // Run performs one pass of all notification checks. Returns a summary for
 // logging; errors per-user are logged but don't abort the pass.
 type NotifyRunSummary struct {
-	TripReminders  int
-	PriceDrops     int
-	FlightAlerts   int
-	WeeklyDigests  int
+	TripReminders int
+	PriceDrops    int
+	FlightAlerts  int
+	WeeklyDigests int
 }
 
 func (w *NotificationWorker) Run(ctx context.Context) NotifyRunSummary {
@@ -228,7 +228,7 @@ func (w *NotificationWorker) sendFlightAlerts(ctx context.Context) int {
 			if alreadySent(user, item.ID, key) {
 				continue
 			}
-			subject := fmt.Sprintf("Flight %s: %s", item.ReferenceID, strings.Title(status.Status))
+			subject := fmt.Sprintf("Flight %s: %s", item.ReferenceID, titleWords(status.Status))
 			if status.DelayMinutes > 0 {
 				subject = fmt.Sprintf("Flight %s delayed %d min", item.ReferenceID, status.DelayMinutes)
 			}
@@ -244,8 +244,8 @@ func (w *NotificationWorker) sendFlightAlerts(ctx context.Context) int {
 			}
 			recordSent(user, item.ID, key)
 			if err := w.users.Update(ctx, user); err != nil {
-			slog.Warn("notifications: user update after send failed", "user_id", user.ID.Hex(), "error", err)
-		}
+				slog.Warn("notifications: user update after send failed", "user_id", user.ID.Hex(), "error", err)
+			}
 			sent++
 		}
 	}

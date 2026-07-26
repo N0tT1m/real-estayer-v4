@@ -24,8 +24,8 @@ var (
 	ErrInvalidEmail       = errors.New("invalid email address")
 	// Returned by Login when the user has 2FA enabled and no OTP was supplied
 	// or it failed to verify. The handler uses this to render the OTP step.
-	ErrTOTPRequired       = errors.New("two-factor code required")
-	ErrTOTPInvalid        = errors.New("two-factor code invalid")
+	ErrTOTPRequired = errors.New("two-factor code required")
+	ErrTOTPInvalid  = errors.New("two-factor code invalid")
 )
 
 var emailRegex = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)

@@ -11,17 +11,17 @@ import (
 // trip — a crew can answer "when should we go to Lisbon?" before a trip is
 // even created.
 type AvailabilityPoll struct {
-	ID          primitive.ObjectID   `bson:"_id,omitempty"      json:"id"`
-	CreatedBy   primitive.ObjectID   `bson:"created_by"         json:"created_by"`
-	TripID      *primitive.ObjectID  `bson:"trip_id,omitempty"  json:"trip_id,omitempty"`
-	Title       string               `bson:"title"              json:"title"`
-	Description string               `bson:"description,omitempty" json:"description,omitempty"`
-	Options     []PollOption         `bson:"options"            json:"options"`
-	Responses   []PollResponse       `bson:"responses,omitempty" json:"responses,omitempty"`
-	Slug        string               `bson:"slug"               json:"slug"` // unguessable; anyone with the link can respond
-	ClosesAt    *time.Time           `bson:"closes_at,omitempty" json:"closes_at,omitempty"`
-	CreatedAt   time.Time            `bson:"created_at"         json:"created_at"`
-	UpdatedAt   time.Time            `bson:"updated_at"         json:"updated_at"`
+	ID          primitive.ObjectID  `bson:"_id,omitempty"      json:"id"`
+	CreatedBy   primitive.ObjectID  `bson:"created_by"         json:"created_by"`
+	TripID      *primitive.ObjectID `bson:"trip_id,omitempty"  json:"trip_id,omitempty"`
+	Title       string              `bson:"title"              json:"title"`
+	Description string              `bson:"description,omitempty" json:"description,omitempty"`
+	Options     []PollOption        `bson:"options"            json:"options"`
+	Responses   []PollResponse      `bson:"responses,omitempty" json:"responses,omitempty"`
+	Slug        string              `bson:"slug"               json:"slug"` // unguessable; anyone with the link can respond
+	ClosesAt    *time.Time          `bson:"closes_at,omitempty" json:"closes_at,omitempty"`
+	CreatedAt   time.Time           `bson:"created_at"         json:"created_at"`
+	UpdatedAt   time.Time           `bson:"updated_at"         json:"updated_at"`
 }
 
 // PollOption is one date-range choice.
