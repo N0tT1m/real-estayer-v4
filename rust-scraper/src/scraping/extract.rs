@@ -1478,9 +1478,11 @@ pub(crate) fn listing_from_search_result(entry: &serde_json::Value) -> Option<Li
 /// Airbnb has nested `niobeClientData` differently over time — as `[…, {data}]`
 /// (older) and `[[…, {data}]]` (current) — so probe each container and its
 /// immediate children rather than hard-coding one index path.
-pub(crate) fn find_search_results(
-    json_data: &serde_json::Value,
-) -> Option<&Vec<serde_json::Value>> {
+/// Locate the `staysSearch.results` node. Both the listing array and the
+/// pagination cursor hang off it, so resolving it once keeps the two in sync —
+/// a cursor read from a different node than the results it paginates is how
+/// you silently re-harvest page one forever.
+fn find_stays_search_results(json_data: &serde_json::Value) -> Option<&serde_json::Value> {
     let niobe = json_data.get("niobeClientData")?.as_array()?;
     let mut candidates: Vec<&serde_json::Value> = Vec::new();
     for item in niobe {
@@ -1492,18 +1494,41 @@ pub(crate) fn find_search_results(
         }
     }
     for c in candidates {
-        if let Some(arr) = c
+        let results = c
             .get("data")
             .and_then(|d| d.get("presentation"))
             .and_then(|d| d.get("staysSearch"))
-            .and_then(|d| d.get("results"))
-            .and_then(|d| d.get("searchResults"))
-            .and_then(|d| d.as_array())
-        {
-            return Some(arr);
+            .and_then(|d| d.get("results"));
+        // Only accept a node that actually carries the listing array; some
+        // responses contain a skeleton `results` with no searchResults yet.
+        if let Some(r) = results {
+            if r.get("searchResults").and_then(|s| s.as_array()).is_some() {
+                return Some(r);
+            }
         }
     }
     None
+}
+
+pub(crate) fn find_search_results(
+    json_data: &serde_json::Value,
+) -> Option<&Vec<serde_json::Value>> {
+    find_stays_search_results(json_data)?
+        .get("searchResults")?
+        .as_array()
+}
+
+/// Airbnb's opaque next-page token. Absent on the last page, which is the
+/// only reliable end-of-results signal — the result count per page is not
+/// fixed, so "fewer than N came back" cannot be used to detect the end.
+pub(crate) fn find_next_page_cursor(json_data: &serde_json::Value) -> Option<String> {
+    let info = find_stays_search_results(json_data)?.get("paginationInfo")?;
+    // `nextPageCursor` is null on the final page rather than absent.
+    let cursor = info.get("nextPageCursor")?.as_str()?;
+    if cursor.is_empty() {
+        return None;
+    }
+    Some(cursor.to_string())
 }
 
 /// Phase 1: build listings for every result in the search-page JSON.
@@ -1854,5 +1879,72 @@ mod extract_tests {
     #[test]
     fn urls_from_source_empty_when_none() {
         assert!(extract_listing_urls_from_source("<html>nothing</html>").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod pagination_tests {
+    use super::*;
+    use serde_json::json;
+
+    // Wrap a staysSearch `results` node in the niobeClientData envelope the
+    // real page ships, so these tests exercise the same traversal as prod.
+    fn envelope(results: serde_json::Value) -> serde_json::Value {
+        json!({
+            "niobeClientData": [[
+                {"data": {"presentation": {"staysSearch": {"results": results}}}}
+            ]]
+        })
+    }
+
+    #[test]
+    fn reads_next_page_cursor() {
+        let v = envelope(json!({
+            "searchResults": [],
+            "paginationInfo": {"nextPageCursor": "eyJzZWN0aW9uX29mZnNldCI6MH0="},
+        }));
+        assert_eq!(
+            find_next_page_cursor(&v).as_deref(),
+            Some("eyJzZWN0aW9uX29mZnNldCI6MH0=")
+        );
+    }
+
+    // The last page reports a null cursor rather than omitting the field.
+    // Treating null as "keep going" would re-request page one until the page
+    // cap, which is exactly the loop the harvest is meant to avoid.
+    #[test]
+    fn null_or_empty_cursor_means_last_page() {
+        for c in [json!(null), json!("")] {
+            let v = envelope(json!({
+                "searchResults": [],
+                "paginationInfo": {"nextPageCursor": c},
+            }));
+            assert_eq!(find_next_page_cursor(&v), None);
+        }
+    }
+
+    #[test]
+    fn missing_pagination_info_is_not_an_error() {
+        let v = envelope(json!({"searchResults": []}));
+        assert_eq!(find_next_page_cursor(&v), None);
+    }
+
+    // A skeleton `results` node with no searchResults must not shadow the real
+    // one; otherwise the cursor is read from a node that paginates nothing.
+    #[test]
+    fn skips_skeleton_results_node() {
+        let v = json!({
+            "niobeClientData": [[
+                {"data": {"presentation": {"staysSearch": {"results": {
+                    "paginationInfo": {"nextPageCursor": "WRONG"}
+                }}}}},
+                {"data": {"presentation": {"staysSearch": {"results": {
+                    "searchResults": [],
+                    "paginationInfo": {"nextPageCursor": "RIGHT"}
+                }}}}}
+            ]]
+        });
+        assert_eq!(find_next_page_cursor(&v).as_deref(), Some("RIGHT"));
+        assert!(find_search_results(&v).is_some());
     }
 }
