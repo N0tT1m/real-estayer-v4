@@ -155,3 +155,50 @@ func TestLoadReadsCommonEnvVars(t *testing.T) {
 		})
 	}
 }
+
+// AI_MODEL is the correct key; ANTHROPIC_MODEL predates the local-backend
+// support and is wrong on its face once AI_BASE_URL points at ollama, where
+// the value is a tag like "gemma3:27b". Both must keep working, with the
+// specific one winning, or the .78 deployment silently changes model on
+// upgrade.
+func TestAIModelPrefersAIModelOverAnthropicModel(t *testing.T) {
+	base := map[string]string{"SESSION_SECRET": strings.Repeat("x", 40)}
+
+	cases := []struct {
+		name     string
+		env      map[string]string
+		wantElem string
+	}{
+		{"neither set", nil, "claude-opus-5"},
+		{"legacy only", map[string]string{"ANTHROPIC_MODEL": "gemma3:27b"}, "gemma3:27b"},
+		{"preferred only", map[string]string{"AI_MODEL": "qwen3:32b"}, "qwen3:32b"},
+		{
+			"both set - preferred wins",
+			map[string]string{"AI_MODEL": "qwen3:32b", "ANTHROPIC_MODEL": "stale"},
+			"qwen3:32b",
+		},
+		{"blank is not a value", map[string]string{"AI_MODEL": "  "}, "claude-opus-5"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for k, v := range base {
+				t.Setenv(k, v)
+			}
+			// Clear both so cases don't leak into each other.
+			t.Setenv("AI_MODEL", "")
+			t.Setenv("ANTHROPIC_MODEL", "")
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.AIModel != tc.wantElem {
+				t.Errorf("AIModel = %q, want %q", cfg.AIModel, tc.wantElem)
+			}
+		})
+	}
+}
