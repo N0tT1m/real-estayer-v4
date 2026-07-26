@@ -637,6 +637,12 @@ pub async fn scrape_city_fast(
     if enrich {
         listings = enrich_listings_parallel(listings, ENRICH_CONCURRENCY).await;
     }
+    // After enrichment so page markup wins, but outside the `if` so a
+    // disabled or failed enrichment still leaves region/country populated —
+    // that is the path that produced 280 unfilterable listings.
+    for l in &mut listings {
+        fill_place(&l.location, &mut l.region, &mut l.country);
+    }
 
     Ok(listings)
 }
@@ -747,6 +753,9 @@ pub(crate) async fn tile_and_store(
     if !fresh.is_empty() {
         if enrich {
             fresh = enrich_listings_parallel(fresh, ENRICH_CONCURRENCY).await;
+        }
+        for l in &mut fresh {
+            fill_place(&l.location, &mut l.region, &mut l.country);
         }
         match crate::database::insert_many(fresh).await {
             Ok(ids) => {

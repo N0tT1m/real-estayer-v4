@@ -1,0 +1,190 @@
+# canonical|comma-separated aliases. Loaded by internal/listing/place.go and,
+# via include_str!, by rust-scraper/src/scraping/place.rs. One source of
+# truth so the scraper and the app cannot drift apart on country spellings.
+#
+# NO two-letter ISO codes: a two-letter trailing segment in an Airbnb
+# location is overwhelmingly a US state, and CA/IN/ID/LA/MA/MD/ME/MO/MS/MT/
+# NE/PA/SC/SD/VA and others all collide with one.
+United States|USA,U.S.,U.S.A.,United States of America,America
+United Kingdom|UK,U.K.,Great Britain,Britain,England,Scotland,Wales,Northern Ireland
+United Arab Emirates|UAE,U.A.E.
+Canada|
+Mexico|México
+Brazil|Brasil
+Argentina|
+Chile|
+Colombia|
+Peru|Perú
+Ecuador|
+Uruguay|
+Paraguay|
+Bolivia|
+Venezuela|
+Costa Rica|
+Panama|Panamá
+Guatemala|
+Honduras|
+Nicaragua|
+El Salvador|
+Belize|
+Cuba|
+Jamaica|
+Dominican Republic|
+Puerto Rico|
+Bahamas|The Bahamas
+Barbados|
+Trinidad and Tobago|
+Haiti|
+Aruba|
+Curaçao|Curacao
+France|
+Spain|España
+Portugal|
+Italy|Italia
+Germany|Deutschland
+Netherlands|Holland,The Netherlands
+Belgium|
+Switzerland|
+Austria|
+Ireland|
+Denmark|
+Sweden|
+Norway|
+Finland|
+Iceland|
+Poland|
+Czech Republic|Czechia
+Slovakia|
+Hungary|
+Romania|
+Bulgaria|
+Greece|
+Croatia|
+Slovenia|
+Serbia|
+Bosnia and Herzegovina|
+Montenegro|
+Albania|
+North Macedonia|Macedonia
+Estonia|
+Latvia|
+Lithuania|
+Ukraine|
+Belarus|
+Moldova|
+Russia|Russian Federation
+Turkey|Türkiye,Turkiye
+Cyprus|
+Malta|
+Luxembourg|
+Monaco|
+Andorra|
+San Marino|
+Liechtenstein|
+Japan|
+China|
+Hong Kong|
+Macau|Macao
+Taiwan|
+South Korea|Korea,Republic of Korea
+North Korea|
+Mongolia|
+India|
+Pakistan|
+Bangladesh|
+Sri Lanka|
+Nepal|
+Bhutan|
+Maldives|
+Thailand|
+Vietnam|Viet Nam
+Cambodia|
+Laos|
+Myanmar|Burma
+Malaysia|
+Singapore|
+Indonesia|
+Philippines|
+Brunei|
+Timor-Leste|East Timor
+Australia|
+New Zealand|
+Fiji|
+Papua New Guinea|
+Samoa|
+Tonga|
+Vanuatu|
+Solomon Islands|
+French Polynesia|Tahiti
+New Caledonia|
+Guam|
+Israel|
+Palestine|
+Jordan|
+Lebanon|
+Syria|
+Iraq|
+Iran|
+Saudi Arabia|
+Qatar|
+Kuwait|
+Bahrain|
+Oman|
+Yemen|
+Georgia (country)|Sakartvelo
+Armenia|
+Azerbaijan|
+Kazakhstan|
+Uzbekistan|
+Turkmenistan|
+Kyrgyzstan|
+Tajikistan|
+Afghanistan|
+Egypt|
+Morocco|Maroc
+Algeria|
+Tunisia|
+Libya|
+Sudan|
+South Africa|
+Kenya|
+Tanzania|
+Uganda|
+Rwanda|
+Burundi|
+Ethiopia|
+Eritrea|
+Somalia|
+Djibouti|
+Ghana|
+Nigeria|
+Senegal|
+Ivory Coast|Côte d'Ivoire,Cote d'Ivoire
+Mali|
+Burkina Faso|
+Niger|
+Chad|
+Cameroon|
+Gabon|
+Congo|
+Democratic Republic of the Congo|DR Congo,DRC
+Angola|
+Zambia|
+Zimbabwe|
+Botswana|
+Namibia|
+Mozambique|
+Malawi|
+Madagascar|
+Mauritius|
+Seychelles|
+Cape Verde|Cabo Verde
+Gambia|The Gambia
+Guinea|
+Sierra Leone|
+Liberia|
+Togo|
+Benin|
+Lesotho|
+Eswatini|Swaziland
+Zanzibar|
