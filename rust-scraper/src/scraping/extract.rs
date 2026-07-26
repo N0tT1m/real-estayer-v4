@@ -658,15 +658,14 @@ pub(crate) fn extract_urls_from_json_value(value: &serde_json::Value, urls: &mut
                 extract_urls_from_json_value(item, urls);
             }
         }
-        serde_json::Value::String(s) => {
-            // Check if string itself is a listing URL
+        // Check if the string itself is a listing URL.
+        serde_json::Value::String(s)
             if (s.contains("/rooms/") || s.contains("/homes/"))
-                && (s.starts_with("http") || s.starts_with("/"))
-            {
-                let full_url = construct_airbnb_url(s);
-                urls.push(full_url);
-                debug!("Found listing URL in JSON-LD string: {}", s);
-            }
+                && (s.starts_with("http") || s.starts_with("/")) =>
+        {
+            let full_url = construct_airbnb_url(s);
+            urls.push(full_url);
+            debug!("Found listing URL in JSON-LD string: {}", s);
         }
         _ => {} // Ignore other types
     }
@@ -1690,7 +1689,7 @@ mod extract_tests {
         for limit in 0..s.len() + 5 {
             let out = safe_truncate(s, limit);
             assert!(s.starts_with(out), "truncation must be a prefix");
-            assert!(out.len() <= limit.max(0));
+            assert!(out.len() <= limit);
         }
     }
 
