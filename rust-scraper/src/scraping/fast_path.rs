@@ -123,7 +123,11 @@ async fn harvest_search_page_paged(
                 find_page_cursors(&json),
             ),
             None => {
-                warn!("[FAST] No embedded JSON on page {}", url);
+                // "No embedded JSON" on its own is unactionable: it cannot
+                // distinguish a bot wall, a redirect, a markup change, or a
+                // page that simply had not finished rendering. Report enough
+                // to tell those apart without a second scrape.
+                describe_missing_json(driver, url, &html).await;
                 (Vec::new(), Vec::new())
             }
         },
@@ -132,6 +136,43 @@ async fn harvest_search_page_paged(
             (Vec::new(), Vec::new())
         }
     }
+}
+
+/// Explain why a page yielded no embedded JSON.
+///
+/// The extractor keys on `<script id="data-deferred-state-0">`. When that is
+/// absent the cause is one of: Airbnb served a challenge/blocked page, the
+/// navigation landed somewhere else, the markup changed, or the page was
+/// still rendering. Each has a different fix and they are indistinguishable
+/// from the bare warning, so record the discriminating facts here.
+async fn describe_missing_json(driver: &StealthDriver, requested: &str, html: &str) {
+    use tracing::warn;
+
+    let landed = driver
+        .current_url()
+        .await
+        .unwrap_or_else(|_| "<unavailable>".to_string());
+    let title = html
+        .split_once("<title")
+        .and_then(|(_, rest)| rest.split_once('>'))
+        .and_then(|(_, rest)| rest.split_once("</title>"))
+        .map(|(t, _)| t.trim())
+        .unwrap_or("<none>");
+    let marker = |needle: &str| html.to_lowercase().contains(needle);
+
+    warn!(
+        "[FAST] No embedded JSON. requested={} landed={} bytes={} title={:?} \
+         deferred_state={} niobe={} captcha={} denied={} login_wall={}",
+        requested,
+        landed,
+        html.len(),
+        title,
+        html.contains("data-deferred-state"),
+        html.contains("niobeClientData"),
+        marker("captcha") || marker("are you a robot") || marker("unusual traffic"),
+        marker("access to this page has been denied") || marker("403 forbidden"),
+        marker("log in or sign up") && !html.contains("niobeClientData"),
+    );
 }
 
 /// Walk every page of a search by following Airbnb's own pagination cursor.
