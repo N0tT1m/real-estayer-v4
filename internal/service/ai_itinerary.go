@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -20,27 +21,160 @@ import (
 // caching via `cache_control: {"type": "ephemeral"}` on the system block —
 // cost optimization for a prompt that rarely changes.
 type AIItineraryService struct {
-	apiKey string
-	model  string
-	client *http.Client
+	apiKey  string
+	model   string
+	baseURL string // "" => Anthropic's hosted API
+	client  *http.Client
 }
 
-var ErrAIItineraryNotConfigured = errors.New("ai: ANTHROPIC_API_KEY not set")
+var ErrAIItineraryNotConfigured = errors.New("ai: set ANTHROPIC_API_KEY, or AI_BASE_URL for a local OpenAI-compatible endpoint")
 
-// NewAIItineraryService wires the service. model defaults to Claude Opus 5;
-// override with ANTHROPIC_MODEL if you want to trade capability for cost.
-func NewAIItineraryService(apiKey, model string) *AIItineraryService {
+// anthropicBaseURL is the hosted API. A non-empty AI_BASE_URL replaces it and
+// switches the wire format to OpenAI-compatible chat completions.
+const anthropicBaseURL = "https://api.anthropic.com"
+
+// NewAIItineraryService wires the service.
+//
+// Two backends are supported:
+//
+//   - Anthropic hosted: leave baseURL empty and set an API key. model defaults
+//     to Claude Opus 5.
+//   - Any OpenAI-compatible endpoint (ollama, vLLM, a local gateway): set
+//     baseURL to something ending in /v1. The API key is optional — local
+//     servers usually want none — so configuration is keyed on baseURL there.
+//
+// The two speak different wire formats; see chatText.
+func NewAIItineraryService(apiKey, model, baseURL string) *AIItineraryService {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if model == "" {
-		model = "claude-opus-5"
+		if baseURL == "" {
+			model = "claude-opus-5"
+		}
+		// For a local endpoint there is no sensible default model name — the
+		// operator must name one their server actually serves.
 	}
 	return &AIItineraryService{
-		apiKey: apiKey,
-		model:  model,
-		client: &http.Client{Timeout: 60 * time.Second},
+		apiKey:  apiKey,
+		model:   model,
+		baseURL: baseURL,
+		client:  &http.Client{Timeout: 120 * time.Second}, // local models can be slow
 	}
 }
 
-func (s *AIItineraryService) Configured() bool { return s.apiKey != "" }
+// usesOpenAIFormat reports whether requests go to an OpenAI-compatible server.
+func (s *AIItineraryService) usesOpenAIFormat() bool { return s.baseURL != "" }
+
+func (s *AIItineraryService) Configured() bool {
+	if s.usesOpenAIFormat() {
+		// Local servers commonly need no key; a model name is what's required.
+		return s.model != ""
+	}
+	return s.apiKey != ""
+}
+
+// chatText sends a system prompt plus one user message and returns the reply
+// text. It hides the difference between Anthropic's /v1/messages shape
+// (system as a block list, reply in content[].text) and the OpenAI chat
+// completions shape (system as a message, reply in choices[0].message.content).
+func (s *AIItineraryService) chatText(ctx context.Context, system, userMsg string, maxTokens int) (string, error) {
+	if !s.Configured() {
+		return "", ErrAIItineraryNotConfigured
+	}
+
+	var (
+		url  string
+		body map[string]any
+	)
+	if s.usesOpenAIFormat() {
+		url = s.baseURL + "/chat/completions"
+		body = map[string]any{
+			"model":      s.model,
+			"max_tokens": maxTokens,
+			"messages": []map[string]any{
+				{"role": "system", "content": system},
+				{"role": "user", "content": userMsg},
+			},
+		}
+	} else {
+		url = anthropicBaseURL + "/v1/messages"
+		body = map[string]any{
+			"model":      s.model,
+			"max_tokens": maxTokens,
+			"system": []map[string]any{{
+				"type":          "text",
+				"text":          system,
+				"cache_control": map[string]string{"type": "ephemeral"},
+			}},
+			"messages": []map[string]any{{"role": "user", "content": userMsg}},
+		}
+	}
+
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(buf))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if s.usesOpenAIFormat() {
+		if s.apiKey != "" {
+			req.Header.Set("Authorization", "Bearer "+s.apiKey)
+		}
+	} else {
+		req.Header.Set("x-api-key", s.apiKey)
+		req.Header.Set("anthropic-version", "2023-06-01")
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("ai request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("ai: status %d", resp.StatusCode)
+	}
+	return decodeChatReply(resp.Body, s.usesOpenAIFormat())
+}
+
+// decodeChatReply pulls the assistant text out of whichever envelope came back.
+func decodeChatReply(r io.Reader, openAIFormat bool) (string, error) {
+	if openAIFormat {
+		var out struct {
+			Choices []struct {
+				Message struct {
+					Content string `json:"content"`
+				} `json:"message"`
+			} `json:"choices"`
+		}
+		if err := json.NewDecoder(r).Decode(&out); err != nil {
+			return "", err
+		}
+		if len(out.Choices) == 0 {
+			return "", errors.New("ai: response contained no choices")
+		}
+		return out.Choices[0].Message.Content, nil
+	}
+
+	var out struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.NewDecoder(r).Decode(&out); err != nil {
+		return "", err
+	}
+	// Skip non-text blocks (thinking, tool use) rather than assuming index 0.
+	var sb strings.Builder
+	for _, c := range out.Content {
+		if c.Type == "text" {
+			sb.WriteString(c.Text)
+		}
+	}
+	return sb.String(), nil
+}
 
 // ItineraryRequest is the input shape.
 type ItineraryRequest struct {
@@ -128,58 +262,11 @@ Rules:
 		budgetSuffix(req.BudgetUSD),
 	)
 
-	body := map[string]interface{}{
-		// Current models think by default and max_tokens caps thinking +
-		// response text together, so leave headroom above the ~3k the JSON
-		// itself needs or the reply truncates mid-object.
-		"model":      s.model,
-		"max_tokens": 8000,
-		"system": []map[string]interface{}{
-			{
-				"type":          "text",
-				"text":          system,
-				"cache_control": map[string]string{"type": "ephemeral"},
-			},
-		},
-		"messages": []map[string]interface{}{
-			{"role": "user", "content": userMsg},
-		},
-	}
-	buf, _ := json.Marshal(body)
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.anthropic.com/v1/messages", bytes.NewReader(buf))
+	raw, err := s.chatText(ctx, system, userMsg, 8000)
 	if err != nil {
 		return nil, err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", s.apiKey)
-	httpReq.Header.Set("anthropic-version", "2023-06-01")
 
-	resp, err := s.client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("anthropic request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("anthropic: status %d", resp.StatusCode)
-	}
-
-	var apiResp struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-		return nil, err
-	}
-
-	var raw string
-	for _, c := range apiResp.Content {
-		if c.Type == "text" {
-			raw += c.Text
-		}
-	}
 	raw = stripCodeFence(strings.TrimSpace(raw))
 	var out Itinerary
 	if err := json.Unmarshal([]byte(raw), &out); err != nil {
@@ -233,48 +320,11 @@ Rules:
 		string(priorJSON), turn.Feedback,
 	)
 
-	body := map[string]interface{}{
-		// See Generate: budget covers thinking tokens as well as the JSON.
-		"model":      s.model,
-		"max_tokens": 8000,
-		"system": []map[string]interface{}{{
-			"type": "text", "text": system,
-			"cache_control": map[string]string{"type": "ephemeral"},
-		}},
-		"messages": []map[string]interface{}{{"role": "user", "content": userMsg}},
-	}
-	buf, _ := json.Marshal(body)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.anthropic.com/v1/messages", bytes.NewReader(buf))
+	raw, err := s.chatText(ctx, system, userMsg, 8000)
 	if err != nil {
 		return nil, err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", s.apiKey)
-	httpReq.Header.Set("anthropic-version", "2023-06-01")
 
-	resp, err := s.client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("anthropic: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("anthropic: status %d", resp.StatusCode)
-	}
-	var apiResp struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-		return nil, err
-	}
-	raw := ""
-	for _, c := range apiResp.Content {
-		if c.Type == "text" {
-			raw += c.Text
-		}
-	}
 	raw = stripCodeFence(strings.TrimSpace(raw))
 	var out Itinerary
 	if err := json.Unmarshal([]byte(raw), &out); err != nil {
