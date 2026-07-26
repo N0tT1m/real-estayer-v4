@@ -23,7 +23,7 @@ url = "2.5.3"
 urlencoding = "2.1.3"
 futures = "0.3.31"
 selenium-rs = "0.1.2"
-mongodb = { version = "2.8", features = ["tokio-runtime"] }
+mongodb = { version = "3.6", features = ["tokio-runtime"] }
 # Feature list is load-bearing for the scraper's fingerprint, not just ergonomics:
 #   http2   - Chrome always negotiates h2 with a major site. Without this the
 #             fast path spoke HTTP/1.1 only while sending a Chrome UA, which
