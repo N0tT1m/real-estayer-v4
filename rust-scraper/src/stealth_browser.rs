@@ -168,7 +168,7 @@ impl StealthBrowser {
             .request_timeout(std::time::Duration::from_secs(120))
             .with_head() // Run visible for debugging
             // Use isolated profile to avoid conflicts
-            .arg(&user_data_arg)
+            .arg(user_data_arg.as_str())
             .arg("--incognito")
             // Anti-detection args
             .arg("--disable-blink-features=AutomationControlled")

@@ -200,7 +200,7 @@ pub async fn insert_many(listings: Vec<Listing>) -> Result<Vec<String>> {
 
     let unique_count = unique_listings.len();
 
-    match collection.insert_many(unique_listings, None).await {
+    match collection.insert_many(unique_listings).await {
         Ok(result) => {
             let inserted_ids: Vec<String> = result
                 .inserted_ids
@@ -236,7 +236,7 @@ async fn get_existing_urls(
         "url": { "$in": urls }
     };
 
-    let mut cursor = collection.find(filter, None).await?;
+    let mut cursor = collection.find(filter).await?;
     let mut existing_urls = std::collections::HashSet::new();
 
     while let Some(listing) = cursor.try_next().await? {
@@ -256,10 +256,10 @@ pub async fn get_listings_by_query(query: Document, limit: i64) -> Result<Vec<Li
 
     let mut cursor = if limit > 0 {
         let options = FindOptions::builder().limit(limit).build();
-        collection.find(query, options).await?
+        collection.find(query).with_options(options).await?
     } else {
         // No limit if limit <= 0
-        collection.find(query, None).await?
+        collection.find(query).await?
     };
 
     let mut listings = Vec::new();
@@ -272,7 +272,7 @@ pub async fn get_listings_by_query(query: Document, limit: i64) -> Result<Vec<Li
 
 pub async fn get_listing_by_id(id: ObjectId) -> Result<Option<Listing>> {
     let collection = get_collection().await;
-    Ok(collection.find_one(doc! { "_id": id }, None).await?)
+    Ok(collection.find_one(doc! { "_id": id }).await?)
 }
 
 pub async fn get_filters(query: Document, limit: i64) -> Result<FiltersResponse> {
@@ -284,7 +284,7 @@ pub async fn get_filters(query: Document, limit: i64) -> Result<FiltersResponse>
         doc! { "$sort": { "_id": 1 } },
     ];
 
-    let mut cursor = collection.aggregate(pipeline, None).await?;
+    let mut cursor = collection.aggregate(pipeline).await?;
     let mut features = Vec::new();
 
     while let Some(doc) = cursor.try_next().await? {
