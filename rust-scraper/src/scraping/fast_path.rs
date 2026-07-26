@@ -96,13 +96,17 @@ pub(crate) fn build_map_search_url(
 }
 
 /// Navigate to a search URL, scroll to load lazy content, and harvest every
-/// listing present in the embedded JSON.
-pub(crate) async fn harvest_search_page(driver: &StealthDriver, url: &str) -> Vec<Listing> {
+/// listing present in the embedded JSON, along with Airbnb's next-page cursor.
+/// Callers want `harvest_search_all_pages`; this is one page of that walk.
+async fn harvest_search_page_paged(
+    driver: &StealthDriver,
+    url: &str,
+) -> (Vec<Listing>, Option<String>) {
     use tracing::{info, warn};
     info!("[FAST] Harvesting search page: {}", url);
     if let Err(e) = driver.goto(url).await {
         warn!("[FAST] Failed to navigate to {}: {}", url, e);
-        return Vec::new();
+        return (Vec::new(), None);
     }
     sleep(Duration::from_secs(5)).await;
     for i in 1..=5 {
@@ -114,17 +118,76 @@ pub(crate) async fn harvest_search_page(driver: &StealthDriver, url: &str) -> Ve
     sleep(Duration::from_secs(2)).await;
     match driver.page_source().await {
         Ok(html) => match extract_airbnb_json_data(&html) {
-            Some(json) => extract_all_listings_from_json(&json),
+            Some(json) => (
+                extract_all_listings_from_json(&json),
+                find_next_page_cursor(&json),
+            ),
             None => {
                 warn!("[FAST] No embedded JSON on page {}", url);
-                Vec::new()
+                (Vec::new(), None)
             }
         },
         Err(e) => {
             warn!("[FAST] Failed to read page source for {}: {}", url, e);
-            Vec::new()
+            (Vec::new(), None)
         }
     }
+}
+
+/// Walk every page of a search by following Airbnb's own pagination cursor.
+///
+/// One page carries roughly 18 results, while a single search query exposes
+/// ~270-300 before Airbnb truncates it. Harvesting only the first page made
+/// `TILE_SPLIT_THRESHOLD` (270) unreachable, so bounding-box subdivision never
+/// fired and an entire continent came back as one tile of 18 listings.
+///
+/// Stops on the first page that contributes nothing new. That guard is what
+/// makes a broken or ignored cursor degrade to today's single-page behaviour
+/// instead of re-harvesting page one `MAX_SEARCH_PAGES` times.
+pub(crate) async fn harvest_search_all_pages(
+    driver: &StealthDriver,
+    base_url: &str,
+) -> Vec<Listing> {
+    use tracing::info;
+    let mut out: Vec<Listing> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut cursor: Option<String> = None;
+
+    for page in 1..=MAX_SEARCH_PAGES {
+        let url = match &cursor {
+            None => base_url.to_string(),
+            Some(c) => format!(
+                "{}&cursor={}&pagination_search=true",
+                base_url,
+                urlencoding::encode(c)
+            ),
+        };
+        let (listings, next) = harvest_search_page_paged(driver, &url).await;
+        let returned = listings.len();
+        let mut added = 0;
+        for listing in listings {
+            if seen.insert(listing.url.clone()) {
+                out.push(listing);
+                added += 1;
+            }
+        }
+        info!(
+            "[FAST] page {}/{}: returned={} new={} total={}",
+            page,
+            MAX_SEARCH_PAGES,
+            returned,
+            added,
+            out.len()
+        );
+        if added == 0 {
+            break;
+        }
+        match next {
+            Some(c) => cursor = Some(c),
+            None => break,
+        }
+    }
+    out
 }
 
 /// Phase 3: recursively harvest a bounding box, splitting into quadrants whenever
@@ -146,7 +209,7 @@ pub(crate) async fn collect_listings_tiled(
 ) {
     use tracing::info;
     let url = build_map_search_url(location, &bbox, guests, amenity_filter);
-    let tile_listings = harvest_search_page(driver, &url).await;
+    let tile_listings = harvest_search_all_pages(driver, &url).await;
     let returned = tile_listings.len();
     let mut added = 0;
     for listing in tile_listings {
@@ -321,7 +384,7 @@ pub async fn scrape_city_fast(
         &guests,
         amenity_filter.as_ref(),
     );
-    let mut base = harvest_search_page(driver, &base_url).await;
+    let mut base = harvest_search_all_pages(driver, &base_url).await;
     info!(
         "[FAST] Phase 1 harvested {} listings for {}",
         base.len(),
@@ -444,7 +507,7 @@ pub(crate) async fn tile_and_store(
     use tracing::{info, warn};
 
     let url = build_map_search_url(location, &bbox, guests, amenity_filter);
-    let tile_listings = harvest_search_page(driver, &url).await;
+    let tile_listings = harvest_search_all_pages(driver, &url).await;
     let returned = tile_listings.len();
     tiles_processed.fetch_add(1, AtomicOrdering::SeqCst);
 

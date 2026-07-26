@@ -45,5 +45,10 @@ pub const SEC_CH_UA_VALUES: &[&str] = &[
 pub(crate) const TILE_SPLIT_THRESHOLD: usize = 270;
 /// Max recursion depth for bounding-box subdivision (4^6 = 4096 tiles worst case).
 pub(crate) const MAX_TILE_DEPTH: usize = 6;
+/// Pages to follow per search before giving up. A page holds ~18 results and
+/// Airbnb truncates a single query around 270-300, so ~15 pages reaches the
+/// cap; the limit is a runaway guard, not the normal stopping condition
+/// (an absent next-page cursor is).
+pub(crate) const MAX_SEARCH_PAGES: usize = 16;
 /// Concurrent HTTP enrichment fetches. Unlike browsers, these don't conflict.
 pub(crate) const ENRICH_CONCURRENCY: usize = 10;
