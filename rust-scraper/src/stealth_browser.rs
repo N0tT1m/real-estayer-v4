@@ -173,7 +173,7 @@ impl StealthBrowser {
 
         // Spawn handler task (silently consume handler events - errors are non-fatal CDP parsing issues)
         let handler_task = tokio::spawn(async move {
-            while let Some(_) = handler.next().await {}
+            while handler.next().await.is_some() {}
         });
 
         info!("[STEALTH] Browser launched successfully");

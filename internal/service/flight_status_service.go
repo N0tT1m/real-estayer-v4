@@ -78,7 +78,7 @@ func (s *FlightStatusService) Lookup(ctx context.Context, flightIATA, date strin
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("aviationstack: status %d", resp.StatusCode)
 	}
@@ -86,7 +86,7 @@ func (s *FlightStatusService) Lookup(ctx context.Context, flightIATA, date strin
 	var raw struct {
 		Data []struct {
 			FlightStatus string `json:"flight_status"`
-			Airline struct {
+			Airline      struct {
 				Name string `json:"name"`
 			} `json:"airline"`
 			Flight struct {

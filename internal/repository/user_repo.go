@@ -109,7 +109,7 @@ func (r *UserRepository) List(ctx context.Context, page, limit int) ([]models.Us
 	if err != nil {
 		return nil, 0, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var users []models.User
 	if err := cursor.All(ctx, &users); err != nil {

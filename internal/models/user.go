@@ -14,7 +14,7 @@ type User struct {
 	Name         string             `bson:"name" json:"name"`
 	AvatarURL    string             `bson:"avatar_url,omitempty" json:"avatar_url,omitempty"`
 	IsAdmin      bool               `bson:"is_admin" json:"is_admin"`
-	TOTPSecret   string             `bson:"totp_secret,omitempty" json:"-"`         // set during enrol
+	TOTPSecret   string             `bson:"totp_secret,omitempty" json:"-"`                       // set during enrol
 	TOTPEnabled  bool               `bson:"totp_enabled,omitempty" json:"totp_enabled,omitempty"` // true once user verifies a code
 	Identity     TravelerIdentity   `bson:"identity,omitempty" json:"identity,omitempty"`
 	Preferences  UserPreferences    `bson:"preferences" json:"preferences"`
@@ -29,14 +29,14 @@ type User struct {
 // needs at-rest encryption, run the DB on an encrypted volume or slot in
 // field-level encryption. The profile UI warns users about sensitivity.
 type TravelerIdentity struct {
-	Citizenship     string           `bson:"citizenship,omitempty"     json:"citizenship,omitempty"` // ISO-3166-1 alpha-2
-	PassportNumber  string           `bson:"passport_number,omitempty" json:"passport_number,omitempty"`
-	PassportExpiry  *time.Time       `bson:"passport_expiry,omitempty" json:"passport_expiry,omitempty"`
-	DateOfBirth     *time.Time       `bson:"date_of_birth,omitempty"   json:"date_of_birth,omitempty"`
-	KnownTravelerNo string           `bson:"ktn,omitempty"             json:"ktn,omitempty"`
-	RedressNo       string           `bson:"redress_no,omitempty"      json:"redress_no,omitempty"`
-	GlobalEntryID   string           `bson:"global_entry_id,omitempty" json:"global_entry_id,omitempty"`
-	LoyaltyAccounts []LoyaltyAccount `bson:"loyalty_accounts,omitempty" json:"loyalty_accounts,omitempty"`
+	Citizenship      string           `bson:"citizenship,omitempty"     json:"citizenship,omitempty"` // ISO-3166-1 alpha-2
+	PassportNumber   string           `bson:"passport_number,omitempty" json:"passport_number,omitempty"`
+	PassportExpiry   *time.Time       `bson:"passport_expiry,omitempty" json:"passport_expiry,omitempty"`
+	DateOfBirth      *time.Time       `bson:"date_of_birth,omitempty"   json:"date_of_birth,omitempty"`
+	KnownTravelerNo  string           `bson:"ktn,omitempty"             json:"ktn,omitempty"`
+	RedressNo        string           `bson:"redress_no,omitempty"      json:"redress_no,omitempty"`
+	GlobalEntryID    string           `bson:"global_entry_id,omitempty" json:"global_entry_id,omitempty"`
+	LoyaltyAccounts  []LoyaltyAccount `bson:"loyalty_accounts,omitempty" json:"loyalty_accounts,omitempty"`
 	EmergencyContact EmergencyContact `bson:"emergency_contact,omitempty" json:"emergency_contact,omitempty"`
 }
 
@@ -58,9 +58,9 @@ type EmergencyContact struct {
 
 // UserPreferences stores user settings
 type UserPreferences struct {
-	Currency      string                `bson:"currency" json:"currency"`
-	Language      string                `bson:"language" json:"language"`
-	Notifications NotificationSettings  `bson:"notifications" json:"notifications"`
+	Currency      string               `bson:"currency" json:"currency"`
+	Language      string               `bson:"language" json:"language"`
+	Notifications NotificationSettings `bson:"notifications" json:"notifications"`
 }
 
 // NotificationSettings controls notification preferences.

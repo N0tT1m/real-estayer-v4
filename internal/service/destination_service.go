@@ -12,7 +12,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/realestayer/v4/internal/models"
-	"github.com/realestayer/v4/internal/provider/amadeus"
 	"github.com/realestayer/v4/internal/provider/wikipedia"
 	"github.com/realestayer/v4/internal/repository"
 )
@@ -172,7 +171,7 @@ func cityHash(s string) uint32 {
 }
 
 // isoCountryNames maps ISO 3166-1 alpha-2 codes to their English country names.
-// Used during seeding so we don't rely on Amadeus returning the correct country name.
+// Used during seeding so we don't rely on the geocoder returning the correct country name.
 var isoCountryNames = map[string]string{
 	"AE": "United Arab Emirates", "AR": "Argentina", "AT": "Austria",
 	"AU": "Australia", "BE": "Belgium", "BH": "Bahrain",
@@ -321,25 +320,38 @@ var wikipediaNames = map[string]string{
 }
 
 type DestinationService struct {
-	repo          *repository.DestinationRepository
-	amadeusClient *amadeus.Client
-	wikiClient    *wikipedia.Client
-	overpass      *OverpassService // used for POI highlights after Amadeus was dropped
+	repo       *repository.DestinationRepository
+	geocoder   *GeocodingService // city coordinates (replaced Amadeus city search)
+	airports   *AirportService   // nearest IATA code (replaced Amadeus city search)
+	wikiClient *wikipedia.Client
+	overpass   *OverpassService // used for POI highlights after Amadeus was dropped
 
 	// seeding guards a background seed so two racing API calls can't both
 	// start one. atomic.Bool would be slightly cleaner but we target Go
 	// versions back to 1.18; sync.Mutex + bool is fine.
-	seedMu     sync.Mutex
-	seeding    bool
+	seedMu  sync.Mutex
+	seeding bool
 }
 
-func NewDestinationService(repo *repository.DestinationRepository, amadeusClient *amadeus.Client) *DestinationService {
+func NewDestinationService(repo *repository.DestinationRepository, geocoder *GeocodingService, airports *AirportService) *DestinationService {
 	return &DestinationService{
-		repo:          repo,
-		amadeusClient: amadeusClient,
-		wikiClient:    wikipedia.NewClient(),
-		overpass:      NewOverpassService(),
+		repo:       repo,
+		geocoder:   geocoder,
+		airports:   airports,
+		wikiClient: wikipedia.NewClient(),
+		overpass:   NewOverpassService(),
 	}
+}
+
+// countryFromDisplayName pulls the trailing country out of a Nominatim
+// display_name ("Paris, Ile-de-France, France" -> "France"). Returns an empty
+// string when the shape is unexpected, letting the caller fall back.
+func countryFromDisplayName(display string) string {
+	parts := strings.Split(display, ",")
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(parts[len(parts)-1])
 }
 
 func (s *DestinationService) GetDestination(ctx context.Context, id string) (*models.Destination, error) {
@@ -370,7 +382,7 @@ func (s *DestinationService) GetDestinationByName(ctx context.Context, name stri
 	return s.fetchAndCache(ctx, name, countryCode, region)
 }
 
-// AddDestination looks up a city by name from Amadeus + Wikipedia and stores it in MongoDB.
+// AddDestination looks up a city by name (geocoder + Wikipedia) and stores it in MongoDB.
 // This is used by the admin API to add any new city without touching code.
 func (s *DestinationService) AddDestination(ctx context.Context, cityName, countryCode, region string) (*models.Destination, error) {
 	return s.fetchAndCache(ctx, cityName, countryCode, region)
@@ -515,14 +527,6 @@ func (s *DestinationService) SeedDestinations(ctx context.Context) error {
 	return nil
 }
 
-// SeedFromAmadeus is retained as a thin alias so existing callers
-// (startup goroutine, admin reseed endpoint) don't need to change. The name
-// is a misnomer now — Amadeus is no longer called — but renaming across
-// HandlerDeps + routes is out of scope for this change.
-func (s *DestinationService) SeedFromAmadeus(ctx context.Context) error {
-	return s.SeedDestinations(ctx)
-}
-
 // GetHighlights returns up to 6 nearby Points of Interest — museums,
 // viewpoints, galleries, attractions — around (latitude, longitude). Pulls
 // from OpenStreetMap via Overpass (keyless, free), which replaced Amadeus
@@ -558,32 +562,53 @@ func (s *DestinationService) GetHighlights(ctx context.Context, latitude, longit
 	return highlights, nil
 }
 
-// fetchAndCache looks up a city from Amadeus + Wikipedia and stores it in MongoDB.
+// fetchAndCache resolves a city and stores it in MongoDB.
+//
+// This used to call Amadeus for coordinates + IATA code. Amadeus is gone, so
+// the same fields are now assembled from services already in the app:
+// Nominatim (via GeocodingService) for coordinates, the bundled airport
+// dataset for the nearest IATA code, and Wikipedia for copy and imagery.
 func (s *DestinationService) fetchAndCache(ctx context.Context, name, countryCode, region string) (*models.Destination, error) {
-	if s.amadeusClient == nil {
-		return nil, fmt.Errorf("amadeus client not configured")
+	if s.geocoder == nil {
+		return nil, fmt.Errorf("destination: geocoding service not configured")
 	}
 
-	amResult, err := s.amadeusClient.SearchCity(ctx, name, countryCode)
+	// Bias the geocoder with the country when the caller knows it, so
+	// "Cairo" resolves to Egypt rather than Cairo, Illinois.
+	query := name
+	if countryName := isoCountryNames[countryCode]; countryName != "" {
+		query = name + ", " + countryName
+	}
+	matches, err := s.geocoder.Search(ctx, query, 1)
 	if err != nil {
+		return nil, fmt.Errorf("city lookup failed for %s: %w", name, err)
+	}
+	if len(matches) == 0 {
 		return nil, fmt.Errorf("city not found: %s", name)
 	}
+	place := matches[0]
 
 	if region == "" {
-		region = regionForCountry(amResult.CountryCode)
+		region = regionForCountry(countryCode)
 	}
 
-	cityName := formatCityName(amResult.Name, name)
-	// Prefer the caller-supplied country code over Amadeus result to avoid
-	// mismatches (e.g. Cairo, IL instead of Cairo, Egypt).
-	storedCode := amResult.CountryCode
-	if countryCode != "" {
-		storedCode = countryCode
-	}
+	cityName := formatCityName(name, name)
+	storedCode := countryCode
 	countryName := isoCountryNames[storedCode]
 	if countryName == "" {
-		countryName = formatCountryName(amResult.CountryName)
+		// Nominatim puts the country last in the display name.
+		countryName = formatCountryName(countryFromDisplayName(place.DisplayName))
 	}
+
+	// Nearest airport by name match; empty when the dataset has no entry,
+	// which the destination template already handles.
+	airportCode := ""
+	if s.airports != nil {
+		if hits := s.airports.Search(ctx, name, 1); len(hits) > 0 {
+			airportCode = hits[0].IATA
+		}
+	}
+
 	description, wikiImage := s.enrichFromWikipedia(ctx, name)
 	imageURL := seedImages[name]
 	if imageURL == "" {
@@ -595,9 +620,9 @@ func (s *DestinationService) fetchAndCache(ctx context.Context, name, countryCod
 		Country:         countryName,
 		CountryCode:     storedCode,
 		Region:          region,
-		AirportCode:     amResult.IataCode,
-		Latitude:        amResult.Latitude,
-		Longitude:       amResult.Longitude,
+		AirportCode:     airportCode,
+		Latitude:        place.Lat,
+		Longitude:       place.Lng,
 		Description:     description,
 		ImageURL:        imageURL,
 		AvgDailyBudget:  cityBudget(cityName, region),
@@ -668,16 +693,16 @@ func regionForCountry(countryCode string) string {
 	return "Other"
 }
 
-func formatCityName(amadeusName, seedName string) string {
-	if amadeusName == strings.ToUpper(amadeusName) && len(seedName) > 0 {
+func formatCityName(resolvedName, seedName string) string {
+	if resolvedName == strings.ToUpper(resolvedName) && len(seedName) > 0 {
 		return seedName
 	}
-	return amadeusName
+	return resolvedName
 }
 
 func formatCountryName(name string) string {
 	if name == strings.ToUpper(name) {
-		return strings.Title(strings.ToLower(name))
+		return titleWords(strings.ToLower(name))
 	}
 	return name
 }

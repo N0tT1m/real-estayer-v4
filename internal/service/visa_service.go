@@ -23,11 +23,11 @@ func NewVisaService() *VisaService { return &VisaService{} }
 type Kind string
 
 const (
-	KindVisaFree        Kind = "visa_free"         // passport stamp only
-	KindETA             Kind = "eta"               // electronic travel authorization pre-arrival
-	KindVisaOnArrival   Kind = "voa"               // visa issued on landing
-	KindVisaRequired    Kind = "visa_required"     // embassy/consulate required
-	KindNotAvailable    Kind = "not_available"     // no data
+	KindVisaFree      Kind = "visa_free"     // passport stamp only
+	KindETA           Kind = "eta"           // electronic travel authorization pre-arrival
+	KindVisaOnArrival Kind = "voa"           // visa issued on landing
+	KindVisaRequired  Kind = "visa_required" // embassy/consulate required
+	KindNotAvailable  Kind = "not_available" // no data
 )
 
 // Requirement is the view-model.

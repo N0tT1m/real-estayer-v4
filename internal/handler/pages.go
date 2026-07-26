@@ -19,7 +19,7 @@ func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 	result, _ := h.listingService.Search(r.Context(), params)
 
 	h.render(w, r, "home.html", map[string]interface{}{
-		"Title":           "Real-Estayer - Find Your Perfect Stay",
+		"Title":            "Real-Estayer - Find Your Perfect Stay",
 		"FeaturedListings": result.Listings,
 	})
 }
@@ -143,20 +143,6 @@ func (h *Handler) FlightsPage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HotelsPage renders the hotel search page
-func (h *Handler) HotelsPage(w http.ResponseWriter, r *http.Request) {
-	h.render(w, r, "hotels.html", map[string]interface{}{
-		"Title": "Search Hotels",
-	})
-}
-
-// CarsPage renders the car rental search page
-func (h *Handler) CarsPage(w http.ResponseWriter, r *http.Request) {
-	h.render(w, r, "cars.html", map[string]interface{}{
-		"Title": "Rent a Car",
-	})
-}
-
 // TripsPage renders the trips list page
 func (h *Handler) TripsPage(w http.ResponseWriter, r *http.Request) {
 	userID := h.getUserID(r)
@@ -241,28 +227,8 @@ func (h *Handler) FlightBookingPage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HotelBookingPage is a soft landing for users who click "View Rooms" on a
-// hotel result. We don't have a live hotel booking API (Booking.com /
-// Expedia partners are clickouts), so this page explains the flow and
-// links out. If we later wire a principal booking path, replace the body
-// with the real form.
-func (h *Handler) HotelBookingPage(w http.ResponseWriter, r *http.Request) {
-	h.render(w, r, "hotel_book.html", map[string]interface{}{
-		"Title": "Finish your hotel booking",
-	})
-}
-
-// CarBookingPage is the car-rental equivalent of HotelBookingPage — we
-// don't book cars as principal yet, so this nudges the user back to the
-// /cars page where the affiliate compare-cards live.
-func (h *Handler) CarBookingPage(w http.ResponseWriter, r *http.Request) {
-	h.render(w, r, "car_book.html", map[string]interface{}{
-		"Title": "Finish your car rental",
-	})
-}
-
-// BookingConfirmationPage is the landing after a successful flight (or
-// future hotel) booking. Reference ID comes in via ?ref=. We don't fetch
+// BookingConfirmationPage is the landing after a successful flight booking.
+// Reference ID comes in via ?ref=. We don't fetch
 // the booking server-side here — the page reads it for display only; the
 // real source of truth is /bookings.
 func (h *Handler) BookingConfirmationPage(w http.ResponseWriter, r *http.Request) {
@@ -274,7 +240,7 @@ func (h *Handler) BookingConfirmationPage(w http.ResponseWriter, r *http.Request
 
 // Health check page
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("OK"))
+	_, _ = w.Write([]byte("OK"))
 }
 
 // ScrapePage renders the public scraping page

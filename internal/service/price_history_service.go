@@ -38,8 +38,8 @@ func (s *PriceHistoryService) Recent(ctx context.Context, listingID primitive.Ob
 // A single point renders as a flat line. No points renders a muted placeholder.
 func (s *PriceHistoryService) RenderSparklineSVG(points []models.ListingPricePoint) string {
 	const (
-		w, h    = 320, 64
-		padY    = 4
+		w, h = 320, 64
+		padY = 4
 	)
 	if len(points) == 0 {
 		return `<svg class="sparkline" viewBox="0 0 320 64" preserveAspectRatio="none" aria-label="No price history yet"><text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" fill="currentColor" opacity="0.5" font-size="10">No price history yet</text></svg>`

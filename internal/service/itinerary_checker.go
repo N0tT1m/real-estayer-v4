@@ -163,7 +163,7 @@ func checkinBeforeArrival(items []models.TripItem) []Warning {
 				Severity: SeverityError,
 				Code:     "checkin_before_arrival",
 				Title:    fmt.Sprintf("%q starts before your flight lands", it.Title),
-				Detail:   fmt.Sprintf("Check-in is %s but the flight arrives %s.",
+				Detail: fmt.Sprintf("Check-in is %s but the flight arrives %s.",
 					it.StartTime.Format("Mon Jan 2 15:04"), lastFlightArrival.Format("Mon Jan 2 15:04")),
 				ItemIDs: []string{it.ID.Hex()},
 			})

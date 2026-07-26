@@ -53,7 +53,7 @@ func (r *PollRepository) ListForTrip(ctx context.Context, tripID primitive.Objec
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 	var out []models.AvailabilityPoll
 	if err := cursor.All(ctx, &out); err != nil {
 		return nil, err
@@ -67,7 +67,7 @@ func (r *PollRepository) ListForUser(ctx context.Context, userID primitive.Objec
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 	var out []models.AvailabilityPoll
 	if err := cursor.All(ctx, &out); err != nil {
 		return nil, err

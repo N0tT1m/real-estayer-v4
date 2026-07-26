@@ -117,7 +117,7 @@ pub async fn insert_many(listings: Vec<Listing>) -> Result<Vec<String>> {
     // Validate and filter listings
     let original_count = listings.len();
     let valid_listings: Vec<Listing> = listings.into_iter()
-        .filter(|listing| validate_listing(listing))
+        .filter(validate_listing)
         .collect();
 
     let rejected_count = original_count - valid_listings.len();

@@ -13,7 +13,7 @@ func TestLocalPhotoStorageSaveAndURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 
 	s := &LocalPhotoStorage{Root: dir, PublicPrefix: "/uploads"}
 	url, err := s.Save(context.Background(), "user123", "holiday.jpg", bytes.NewReader([]byte("fake-jpeg-bytes")), "image/jpeg")
@@ -30,7 +30,7 @@ func TestLocalPhotoStorageSaveAndURL(t *testing.T) {
 
 func TestLocalPhotoStorageRejectsEmptyUser(t *testing.T) {
 	dir, _ := os.MkdirTemp("", "re-uploads-")
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	s := &LocalPhotoStorage{Root: dir, PublicPrefix: "/uploads"}
 	if _, err := s.Save(context.Background(), "", "x.png", bytes.NewReader([]byte("x")), "image/png"); err == nil {
 		t.Errorf("expected error for empty userID")

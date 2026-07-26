@@ -37,12 +37,15 @@ func CSRF(secret string, secure bool) func(http.Handler) http.Handler {
 			}
 			if token == "" || !verifyCSRF(token, key) {
 				token = issueCSRF(key)
+				// #nosec G124 -- HttpOnly must be false here: the double-submit
+				// pattern requires JS to read this cookie and echo it back in the
+				// X-CSRF-Token header. Secure/SameSite are set below.
 				http.SetCookie(w, &http.Cookie{
 					Name:     csrfCookieName,
 					Value:    token,
 					Path:     "/",
 					Expires:  time.Now().Add(12 * time.Hour),
-					HttpOnly: false, // readable by JS so SPA can echo it in a header
+					HttpOnly: false,
 					Secure:   secure,
 					SameSite: http.SameSiteLaxMode,
 				})

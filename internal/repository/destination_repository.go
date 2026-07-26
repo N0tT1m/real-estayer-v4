@@ -127,7 +127,7 @@ func (r *DestinationRepository) Find(ctx context.Context, filter models.Destinat
 	if err != nil {
 		return nil, 0, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var destinations []models.Destination
 	if err := cursor.All(ctx, &destinations); err != nil {

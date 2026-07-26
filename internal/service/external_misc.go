@@ -30,11 +30,11 @@ type sunCacheEntry struct {
 // SunTimes is the one-day view-model. All times are UTC ISO8601 strings from
 // the upstream API; the UI formats in the traveller's TZ.
 type SunTimes struct {
-	Date          string `json:"date"`
-	Sunrise       string `json:"sunrise"`
-	Sunset        string `json:"sunset"`
-	SolarNoon     string `json:"solar_noon"`
-	DayLength     string `json:"day_length"`
+	Date               string `json:"date"`
+	Sunrise            string `json:"sunrise"`
+	Sunset             string `json:"sunset"`
+	SolarNoon          string `json:"solar_noon"`
+	DayLength          string `json:"day_length"`
 	CivilTwilightBegin string `json:"civil_twilight_begin"`
 	CivilTwilightEnd   string `json:"civil_twilight_end"`
 }
@@ -63,7 +63,7 @@ func (s *SunService) Get(ctx context.Context, lat, lng float64, date string) (*S
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var raw struct {
 		Results struct {
 			Sunrise            string `json:"sunrise"`
@@ -152,14 +152,14 @@ func (s *AirQualityService) Get(ctx context.Context, lat, lng float64, radiusM i
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("openaq: status %d", resp.StatusCode)
 	}
 
 	var raw struct {
 		Results []struct {
-			Name     string `json:"name"`
+			Name         string `json:"name"`
 			DatetimeLast struct {
 				Utc string `json:"utc"`
 			} `json:"datetimeLast"`
@@ -223,10 +223,10 @@ type RoutingService struct {
 
 // Route is the trimmed OSRM response.
 type Route struct {
-	Profile       string  `json:"profile"`  // driving / cycling / foot
-	DistanceM     float64 `json:"distance_m"`
-	DurationS     float64 `json:"duration_s"`
-	DurationHuman string  `json:"duration_human"`
+	Profile       string          `json:"profile"` // driving / cycling / foot
+	DistanceM     float64         `json:"distance_m"`
+	DurationS     float64         `json:"duration_s"`
+	DurationHuman string          `json:"duration_human"`
 	GeoJSON       json.RawMessage `json:"geojson"`
 }
 
@@ -260,7 +260,7 @@ func (s *RoutingService) Directions(ctx context.Context, profile string, fromLat
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("osrm: status %d", resp.StatusCode)
 	}
@@ -351,7 +351,7 @@ func (s *GeocodingService) Search(ctx context.Context, q string, limit int) ([]G
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("nominatim: status %d", resp.StatusCode)
 	}
@@ -367,8 +367,8 @@ func (s *GeocodingService) Search(ctx context.Context, q string, limit int) ([]G
 	out := make([]GeocodeResult, 0, len(raw))
 	for _, r := range raw {
 		var lat, lng float64
-		fmt.Sscanf(r.Lat, "%f", &lat)
-		fmt.Sscanf(r.Lon, "%f", &lng)
+		_, _ = fmt.Sscanf(r.Lat, "%f", &lat)
+		_, _ = fmt.Sscanf(r.Lon, "%f", &lng)
 		out = append(out, GeocodeResult{DisplayName: r.DisplayName, Lat: lat, Lng: lng, Type: r.Type})
 	}
 	s.mu.Lock()
@@ -437,16 +437,16 @@ func (w *WeatherService) ClimateNormals(ctx context.Context, lat, lng float64) (
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("open-meteo archive: status %d", resp.StatusCode)
 	}
 	var raw struct {
 		Daily struct {
-			Time       []string  `json:"time"`
-			TempMax    []float64 `json:"temperature_2m_max"`
-			TempMin    []float64 `json:"temperature_2m_min"`
-			PrecipSum  []float64 `json:"precipitation_sum"`
+			Time      []string  `json:"time"`
+			TempMax   []float64 `json:"temperature_2m_max"`
+			TempMin   []float64 `json:"temperature_2m_min"`
+			PrecipSum []float64 `json:"precipitation_sum"`
 		} `json:"daily"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {

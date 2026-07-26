@@ -48,7 +48,7 @@ func (r *PriceHistoryRepository) Recent(ctx context.Context, listingID primitive
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var points []models.ListingPricePoint
 	if err := cursor.All(ctx, &points); err != nil {

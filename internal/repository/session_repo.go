@@ -66,7 +66,7 @@ func (r *SessionRepository) FindByUserID(ctx context.Context, userID primitive.O
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var sessions []models.Session
 	if err := cursor.All(ctx, &sessions); err != nil {

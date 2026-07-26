@@ -17,7 +17,7 @@ import (
 // via Claude's vision API. The output is deliberately narrow — only the
 // fields we actually need to pre-fill an expense form.
 type ReceiptOCRService struct {
-	ai *AIItineraryService
+	ai     *AIItineraryService
 	client *http.Client
 }
 
@@ -84,8 +84,9 @@ func (s *ReceiptOCRService) run(ctx context.Context, imagePart map[string]any) (
 Use null / empty strings if you're unsure. Do not add markdown.`
 
 	body := map[string]any{
+		// Headroom for thinking tokens, which share this budget on current models.
 		"model":      s.ai.model,
-		"max_tokens": 500,
+		"max_tokens": 2000,
 		"system": []map[string]any{{
 			"type": "text", "text": system,
 			"cache_control": map[string]string{"type": "ephemeral"},
@@ -111,7 +112,7 @@ Use null / empty strings if you're unsure. Do not add markdown.`
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("anthropic: status %d", resp.StatusCode)
 	}

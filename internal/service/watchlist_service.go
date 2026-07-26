@@ -12,7 +12,6 @@ import (
 // WatchlistService handles watchlist-related business logic
 type WatchlistService struct {
 	watchlistRepo *repository.WatchlistRepository
-	listingRepo   *repository.ListingRepository
 }
 
 // NewWatchlistService creates a new watchlist service

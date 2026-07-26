@@ -34,7 +34,7 @@ func normalizeListingFeatures(ctx context.Context, db *database.DB) error {
 	if err != nil {
 		return err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var scanned, changed int
 	for cursor.Next(ctx) {

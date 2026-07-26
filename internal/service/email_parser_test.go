@@ -105,11 +105,11 @@ func TestParseUnknownWithoutAIErrors(t *testing.T) {
 
 func TestFindConfirmationVariants(t *testing.T) {
 	cases := map[string]string{
-		"Confirmation code: ABCDEF":       "ABCDEF",
-		"Confirmation number ZZZ9999":    "ZZZ9999",
-		"Your reservation code: XX1111":  "XX1111",
-		"Booking ref: R4N50M":            "R4N50M",
-		"just no confirmation here":      "",
+		"Confirmation code: ABCDEF":     "ABCDEF",
+		"Confirmation number ZZZ9999":   "ZZZ9999",
+		"Your reservation code: XX1111": "XX1111",
+		"Booking ref: R4N50M":           "R4N50M",
+		"just no confirmation here":     "",
 	}
 	for in, want := range cases {
 		if got := findConfirmation(in); got != want {
@@ -120,10 +120,10 @@ func TestFindConfirmationVariants(t *testing.T) {
 
 func TestFindCurrencyFromSymbols(t *testing.T) {
 	cases := map[string]string{
-		"Total: €120":   "EUR",
-		"Total: £80":    "GBP",
-		"Total: ¥8500":  "JPY",
-		"Total: $99":    "USD",
+		"Total: €120":  "EUR",
+		"Total: £80":   "GBP",
+		"Total: ¥8500": "JPY",
+		"Total: $99":   "USD",
 	}
 	for in, want := range cases {
 		if got := findCurrency(in); got != want {

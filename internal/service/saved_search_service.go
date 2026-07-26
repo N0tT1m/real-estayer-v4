@@ -161,7 +161,7 @@ func (s *SavedSearchService) notify(ctx context.Context, webhook string, search 
 		slog.Warn("saved search: webhook send failed", "error", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 }
 
 func joinLines(ls []string) string {

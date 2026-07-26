@@ -27,7 +27,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	db, err := database.Connect(cfg.MongoURI)
+	db, err := database.Connect(cfg.MongoURI, cfg.MongoDatabase)
 	if err != nil {
 		slog.Error("connect mongo", "error", err)
 		os.Exit(1)

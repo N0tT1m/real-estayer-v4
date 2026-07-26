@@ -8,6 +8,7 @@ package service
 import (
 	"crypto/hmac"
 	"crypto/rand"
+	// #nosec G505 -- RFC 6238 mandates HMAC-SHA1 for TOTP interoperability.
 	"crypto/sha1"
 	"encoding/base32"
 	"encoding/binary"
@@ -50,6 +51,7 @@ func TOTPVerify(secret, code string) bool {
 	}
 	now := time.Now().Unix() / 30
 	for _, delta := range []int64{-1, 0, 1} {
+		// #nosec G115 -- now is Unix()/30; negative only for a pre-1970 clock.
 		if hotp(secret, uint64(now+delta)) == code {
 			return true
 		}
@@ -70,6 +72,6 @@ func hotp(secret string, counter uint64) string {
 	mac.Write(buf)
 	sum := mac.Sum(nil)
 	offset := sum[len(sum)-1] & 0x0f
-	truncated := binary.BigEndian.Uint32(sum[offset : offset+4]) & 0x7fffffff
+	truncated := binary.BigEndian.Uint32(sum[offset:offset+4]) & 0x7fffffff
 	return fmt.Sprintf("%06d", truncated%1_000_000)
 }

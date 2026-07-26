@@ -20,18 +20,18 @@ import (
 // caching via `cache_control: {"type": "ephemeral"}` on the system block —
 // cost optimization for a prompt that rarely changes.
 type AIItineraryService struct {
-	apiKey  string
-	model   string
-	client  *http.Client
+	apiKey string
+	model  string
+	client *http.Client
 }
 
 var ErrAIItineraryNotConfigured = errors.New("ai: ANTHROPIC_API_KEY not set")
 
-// NewAIItineraryService wires the service. model defaults to Claude 4.7 Sonnet
-// — fast, cheap enough for UX, excellent at structured output.
+// NewAIItineraryService wires the service. model defaults to Claude Opus 5;
+// override with ANTHROPIC_MODEL if you want to trade capability for cost.
 func NewAIItineraryService(apiKey, model string) *AIItineraryService {
 	if model == "" {
-		model = "claude-sonnet-4-6"
+		model = "claude-opus-5"
 	}
 	return &AIItineraryService{
 		apiKey: apiKey,
@@ -54,24 +54,24 @@ type ItineraryRequest struct {
 
 // Itinerary is the structured output.
 type Itinerary struct {
-	Summary string            `json:"summary"`
-	Tips    []string          `json:"tips,omitempty"`
-	Days    []ItineraryDay    `json:"days"`
+	Summary string         `json:"summary"`
+	Tips    []string       `json:"tips,omitempty"`
+	Days    []ItineraryDay `json:"days"`
 }
 
 type ItineraryDay struct {
-	Date   string             `json:"date"`
-	Theme  string             `json:"theme,omitempty"`
-	Blocks []ItineraryBlock   `json:"blocks"`
+	Date   string           `json:"date"`
+	Theme  string           `json:"theme,omitempty"`
+	Blocks []ItineraryBlock `json:"blocks"`
 }
 
 type ItineraryBlock struct {
-	Time       string `json:"time"`       // e.g. "09:00"
-	Title      string `json:"title"`
-	Kind       string `json:"kind"`        // morning, lunch, afternoon, dinner, evening, transfer
+	Time         string `json:"time"` // e.g. "09:00"
+	Title        string `json:"title"`
+	Kind         string `json:"kind"` // morning, lunch, afternoon, dinner, evening, transfer
 	Neighborhood string `json:"neighborhood,omitempty"`
-	Notes      string `json:"notes,omitempty"`
-	CostHint   string `json:"cost_hint,omitempty"`
+	Notes        string `json:"notes,omitempty"`
+	CostHint     string `json:"cost_hint,omitempty"`
 }
 
 // Generate asks Claude for an itinerary and parses the JSON response.
@@ -129,8 +129,11 @@ Rules:
 	)
 
 	body := map[string]interface{}{
+		// Current models think by default and max_tokens caps thinking +
+		// response text together, so leave headroom above the ~3k the JSON
+		// itself needs or the reply truncates mid-object.
 		"model":      s.model,
-		"max_tokens": 3000,
+		"max_tokens": 8000,
 		"system": []map[string]interface{}{
 			{
 				"type":          "text",
@@ -156,7 +159,7 @@ Rules:
 	if err != nil {
 		return nil, fmt.Errorf("anthropic request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("anthropic: status %d", resp.StatusCode)
 	}
@@ -195,8 +198,8 @@ func budgetSuffix(b float64) string {
 // RefinementTurn is one back-and-forth: the prior itinerary + a user
 // instruction like "add more museums" or "swap Tuesday for something quieter".
 type RefinementTurn struct {
-	Prior   *Itinerary `json:"prior"`
-	Feedback string    `json:"feedback"`
+	Prior    *Itinerary `json:"prior"`
+	Feedback string     `json:"feedback"`
 }
 
 // Refine runs the itinerary through another pass with the user's feedback.
@@ -231,8 +234,9 @@ Rules:
 	)
 
 	body := map[string]interface{}{
+		// See Generate: budget covers thinking tokens as well as the JSON.
 		"model":      s.model,
-		"max_tokens": 3500,
+		"max_tokens": 8000,
 		"system": []map[string]interface{}{{
 			"type": "text", "text": system,
 			"cache_control": map[string]string{"type": "ephemeral"},
@@ -252,7 +256,7 @@ Rules:
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("anthropic: status %d", resp.StatusCode)
 	}

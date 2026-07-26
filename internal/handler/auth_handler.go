@@ -118,11 +118,13 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	if isJSON {
 		h.jsonResponse(w, http.StatusOK, resp)
 	} else {
+		// #nosec G710 -- sanitizeRedirect rejects absolute URLs, scheme/host,
+		// and protocol-relative ("//", "/\\") forms; only same-site paths pass.
 		redirect := sanitizeRedirect(r.FormValue("redirect"))
 		if redirect == "" {
 			redirect = "/dashboard"
 		}
-		http.Redirect(w, r, redirect, http.StatusFound)
+		http.Redirect(w, r, redirect, http.StatusFound) // #nosec G710 -- sanitizeRedirect allows same-site paths only
 	}
 }
 
@@ -210,6 +212,8 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// #nosec G124 -- HttpOnly/SameSite are set below; Secure is env-dependent
+	// (IsProduction) which gosec cannot evaluate.
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    "",
@@ -229,6 +233,8 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) setSessionCookie(w http.ResponseWriter, token string) {
+	// #nosec G124 -- HttpOnly/SameSite are set below; Secure is env-dependent
+	// (IsProduction) which gosec cannot evaluate.
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    token,

@@ -36,27 +36,27 @@ func (s *TransitService) Configured() bool { return s.apiKey != "" }
 // duration/distance plus per-step instructions and the transit agency /
 // line name so the UI can render bus/metro badges.
 type TransitRoute struct {
-	Mode         string         `json:"mode"` // transit / driving (fallback)
-	DurationS    int            `json:"duration_s"`
-	DurationText string         `json:"duration_text"`
-	DistanceM    int            `json:"distance_m"`
-	Summary      string         `json:"summary,omitempty"`
-	Steps        []TransitStep  `json:"steps,omitempty"`
-	PolylineEnc  string         `json:"polyline,omitempty"` // Google's encoded polyline
+	Mode         string        `json:"mode"` // transit / driving (fallback)
+	DurationS    int           `json:"duration_s"`
+	DurationText string        `json:"duration_text"`
+	DistanceM    int           `json:"distance_m"`
+	Summary      string        `json:"summary,omitempty"`
+	Steps        []TransitStep `json:"steps,omitempty"`
+	PolylineEnc  string        `json:"polyline,omitempty"` // Google's encoded polyline
 }
 
 // TransitStep is a single leg: "Walk 4 min to station", "Metro line 2 for
 // 6 stops", etc.
 type TransitStep struct {
-	Mode             string `json:"mode"` // WALKING, TRANSIT, DRIVING
-	Instructions     string `json:"instructions"`
-	DurationS        int    `json:"duration_s"`
-	DistanceM        int    `json:"distance_m"`
-	TransitLine      string `json:"transit_line,omitempty"`
-	TransitAgency    string `json:"transit_agency,omitempty"`
-	DepartureStop    string `json:"departure_stop,omitempty"`
-	ArrivalStop      string `json:"arrival_stop,omitempty"`
-	NumStops         int    `json:"num_stops,omitempty"`
+	Mode          string `json:"mode"` // WALKING, TRANSIT, DRIVING
+	Instructions  string `json:"instructions"`
+	DurationS     int    `json:"duration_s"`
+	DistanceM     int    `json:"distance_m"`
+	TransitLine   string `json:"transit_line,omitempty"`
+	TransitAgency string `json:"transit_agency,omitempty"`
+	DepartureStop string `json:"departure_stop,omitempty"`
+	ArrivalStop   string `json:"arrival_stop,omitempty"`
+	NumStops      int    `json:"num_stops,omitempty"`
 }
 
 // Route returns transit directions from A to B. `departure` is optional
@@ -90,7 +90,7 @@ func (s *TransitService) Route(ctx context.Context, fromLat, fromLng, toLat, toL
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("google directions: status %d", resp.StatusCode)
 	}
@@ -111,8 +111,8 @@ func (s *TransitService) Route(ctx context.Context, fromLat, fromLng, toLat, toL
 					Value int `json:"value"`
 				} `json:"distance"`
 				Steps []struct {
-					TravelMode       string `json:"travel_mode"`
-					HTMLInstructions string `json:"html_instructions"`
+					TravelMode       string              `json:"travel_mode"`
+					HTMLInstructions string              `json:"html_instructions"`
 					Duration         struct{ Value int } `json:"duration"`
 					Distance         struct{ Value int } `json:"distance"`
 					TransitDetails   *struct {

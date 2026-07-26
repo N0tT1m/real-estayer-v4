@@ -25,17 +25,17 @@ func NewTravelStatsService(trips *repository.TripRepository, expenses *repositor
 
 // UserStats is the dashboard view-model.
 type UserStats struct {
-	TotalTrips      int              `json:"total_trips"`
-	UpcomingTrips   int              `json:"upcoming_trips"`
-	DaysOnTheRoad   int              `json:"days_on_the_road"`
-	FutureDays      int              `json:"future_days"`
-	Countries       []string         `json:"countries"`
-	Cities          []string         `json:"cities"`
-	TopMonths       []MonthCount     `json:"top_months"`
-	CarbonKg        float64          `json:"carbon_kg"`
-	TotalSpent      map[string]float64 `json:"total_spent_by_currency"`
-	AnnualHeatmap   map[int][]MonthCount `json:"annual_heatmap"` // year → month counts
-	FavoriteCategory string          `json:"favorite_category,omitempty"`
+	TotalTrips       int                  `json:"total_trips"`
+	UpcomingTrips    int                  `json:"upcoming_trips"`
+	DaysOnTheRoad    int                  `json:"days_on_the_road"`
+	FutureDays       int                  `json:"future_days"`
+	Countries        []string             `json:"countries"`
+	Cities           []string             `json:"cities"`
+	TopMonths        []MonthCount         `json:"top_months"`
+	CarbonKg         float64              `json:"carbon_kg"`
+	TotalSpent       map[string]float64   `json:"total_spent_by_currency"`
+	AnnualHeatmap    map[int][]MonthCount `json:"annual_heatmap"` // year → month counts
+	FavoriteCategory string               `json:"favorite_category,omitempty"`
 }
 
 // MonthCount is one row of "March: 12 days traveled."
@@ -179,7 +179,7 @@ func tripDays(t models.Trip) int {
 // they've chosen. The buckets are heuristic — think personality quiz, not
 // science.
 type Profile struct {
-	Label       string   `json:"label"`        // "City explorer" etc.
+	Label       string   `json:"label"` // "City explorer" etc.
 	Description string   `json:"description"`
 	Tags        []string `json:"tags,omitempty"`
 }

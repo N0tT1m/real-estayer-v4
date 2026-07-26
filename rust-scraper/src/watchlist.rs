@@ -38,6 +38,9 @@ pub struct PriceHistory {
 }
 
 impl WatchlistItem {
+    // A watchlist row is genuinely this wide; a builder would add
+    // ceremony without removing the fields.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         user_id: String,
         listing_url: String,
@@ -77,6 +80,12 @@ impl WatchlistItem {
 pub struct AirbnbWatchlistService {
     watchlist_items: Vec<WatchlistItem>,
     price_history: Vec<PriceHistory>,
+}
+
+impl Default for AirbnbWatchlistService {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AirbnbWatchlistService {
@@ -212,7 +221,6 @@ impl AirbnbWatchlistService {
             .replace(" total", "")
             .replace(" night", "")
             .replace("per night", "")
-            .trim()
             .split_whitespace()
             .next()?
             .to_string();

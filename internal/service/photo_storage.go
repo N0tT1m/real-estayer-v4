@@ -19,11 +19,11 @@ import (
 // PhotoStorage abstracts over "where do uploaded images live". Two
 // implementations ship:
 //
-//   LocalPhotoStorage — writes to /app/data/uploads (configurable). Good for
-//                       dev and single-box deployments.
-//   S3PhotoStorage    — pushes to any S3-compatible bucket (AWS S3, R2,
-//                       MinIO, Wasabi, etc.) using the AWS Signature V4
-//                       algorithm over plain net/http, zero AWS-SDK bloat.
+//	LocalPhotoStorage — writes to /app/data/uploads (configurable). Good for
+//	                    dev and single-box deployments.
+//	S3PhotoStorage    — pushes to any S3-compatible bucket (AWS S3, R2,
+//	                    MinIO, Wasabi, etc.) using the AWS Signature V4
+//	                    algorithm over plain net/http, zero AWS-SDK bloat.
 //
 // Choice is driven by env: set UPLOADS_S3_BUCKET (+ keys) to opt into S3;
 // otherwise the local driver is used. URLs returned are public — the caller
@@ -42,12 +42,12 @@ type PhotoStorage interface {
 func NewPhotoStorage() PhotoStorage {
 	if bucket := os.Getenv("UPLOADS_S3_BUCKET"); bucket != "" {
 		return &S3PhotoStorage{
-			Bucket:          bucket,
-			Region:          getenvOr("UPLOADS_S3_REGION", "auto"),
-			Endpoint:        os.Getenv("UPLOADS_S3_ENDPOINT"),
-			AccessKey:       os.Getenv("UPLOADS_S3_ACCESS_KEY"),
-			SecretKey:       os.Getenv("UPLOADS_S3_SECRET_KEY"),
-			PublicBaseURL:   os.Getenv("UPLOADS_S3_PUBLIC_BASE_URL"),
+			Bucket:        bucket,
+			Region:        getenvOr("UPLOADS_S3_REGION", "auto"),
+			Endpoint:      os.Getenv("UPLOADS_S3_ENDPOINT"),
+			AccessKey:     os.Getenv("UPLOADS_S3_ACCESS_KEY"),
+			SecretKey:     os.Getenv("UPLOADS_S3_SECRET_KEY"),
+			PublicBaseURL: os.Getenv("UPLOADS_S3_PUBLIC_BASE_URL"),
 			client:        &http.Client{Timeout: 30 * time.Second},
 		}
 	}
@@ -73,17 +73,26 @@ func (s *LocalPhotoStorage) Save(_ context.Context, userID, filename string, rea
 	final := safeName + "-" + nonce + ext
 
 	dir := filepath.Join(s.Root, sanitizePath(userID))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	// 0750, not 0755: upload directories hold user content and only the
+	// service account needs to traverse them.
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", fmt.Errorf("mkdir: %w", err)
 	}
 	full := filepath.Join(dir, final)
+	// #nosec G304 -- `full` is Root + sanitizePath(userID) + a sanitized,
+	// nonce-suffixed filename; no caller-supplied path segment survives.
 	f, err := os.Create(full)
 	if err != nil {
 		return "", fmt.Errorf("create: %w", err)
 	}
-	defer f.Close()
+	// Safety net for the error paths below; the success path closes explicitly
+	// so a failed flush is reported instead of silently truncating the upload.
+	defer func() { _ = f.Close() }()
 	if _, err := io.Copy(f, io.LimitReader(reader, 10<<20)); err != nil { // 10 MB cap
 		return "", fmt.Errorf("write: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return "", fmt.Errorf("close: %w", err)
 	}
 	// Return as "<prefix>/<userID>/<filename>" — the handler mounts a
 	// FileServer at PublicPrefix.
@@ -137,7 +146,7 @@ func (s *S3PhotoStorage) Save(ctx context.Context, userID, filename string, read
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode/100 != 2 {
 		msg, _ := io.ReadAll(resp.Body)
 		return "", fmt.Errorf("s3 PUT status %d: %s", resp.StatusCode, string(msg))

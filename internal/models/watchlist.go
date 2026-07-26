@@ -48,9 +48,9 @@ type UpdateWatchlistRequest struct {
 
 // WatchlistStats provides summary statistics
 type WatchlistStats struct {
-	TotalItems    int     `json:"total_items"`
-	ActiveItems   int     `json:"active_items"`
-	AlertsSent    int     `json:"alerts_sent"`
-	AvgSavings    float64 `json:"avg_savings"`
-	TotalSavings  float64 `json:"total_savings"`
+	TotalItems   int     `json:"total_items"`
+	ActiveItems  int     `json:"active_items"`
+	AlertsSent   int     `json:"alerts_sent"`
+	AvgSavings   float64 `json:"avg_savings"`
+	TotalSavings float64 `json:"total_savings"`
 }

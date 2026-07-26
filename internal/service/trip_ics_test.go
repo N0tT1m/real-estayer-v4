@@ -14,11 +14,11 @@ func TestRenderTripICS(t *testing.T) {
 	flightStart := start.Add(10 * time.Hour)
 	flightEnd := flightStart.Add(3 * time.Hour)
 	trip := &models.Trip{
-		ID:        primitive.NewObjectID(),
-		Name:      "Tokyo, Japan",
+		ID:          primitive.NewObjectID(),
+		Name:        "Tokyo, Japan",
 		Description: "Cherry blossom, ramen, temples.",
-		StartDate: start,
-		EndDate:   start.Add(5 * 24 * time.Hour),
+		StartDate:   start,
+		EndDate:     start.Add(5 * 24 * time.Hour),
 		Items: []models.TripItem{
 			{
 				ID:        primitive.NewObjectID(),

@@ -9,18 +9,18 @@ import (
 // CarbonService estimates CO2e for a trip. Formulas are deliberately simple
 // and public-domain:
 //
-//   Flights: distance-based tiers approximating the UK DEFRA 2023 figures
-//     short-haul (<1,500 km):   0.255 kg CO2e / passenger-km
-//     long-haul  (>=1,500 km):  0.195 kg CO2e / passenger-km
-//     No radiative-forcing multiplier applied — most offset calculators
-//     quote the plain number; we do the same for transparency.
+//	Flights: distance-based tiers approximating the UK DEFRA 2023 figures
+//	  short-haul (<1,500 km):   0.255 kg CO2e / passenger-km
+//	  long-haul  (>=1,500 km):  0.195 kg CO2e / passenger-km
+//	  No radiative-forcing multiplier applied — most offset calculators
+//	  quote the plain number; we do the same for transparency.
 //
-//   Cars:    0.171 kg CO2e / vehicle-km (EU average 2023)
-//            We split across passengers when size is known.
+//	Cars:    0.171 kg CO2e / vehicle-km (EU average 2023)
+//	         We split across passengers when size is known.
 //
-//   Stays:   12 kg CO2e / room-night (global hotel average, Cornell HCMI)
-//            short-term rentals tend lower — we use 8 kg/night for
-//            TripItemTypeListing.
+//	Stays:   12 kg CO2e / room-night (global hotel average, Cornell HCMI)
+//	         short-term rentals tend lower — we use 8 kg/night for
+//	         TripItemTypeListing.
 //
 // The service is intentionally stateless. A future upgrade could pull per-
 // airline emissions from the Travel-Tech IATA API.
@@ -40,16 +40,16 @@ type Estimate struct {
 
 // TripEstimate is the full rollup.
 type TripEstimate struct {
-	Items   []Estimate `json:"items"`
-	TotalKg float64    `json:"total_kg"`
+	Items       []Estimate  `json:"items"`
+	TotalKg     float64     `json:"total_kg"`
 	Equivalents Equivalents `json:"equivalents"`
 }
 
 // Equivalents expresses the total in relatable units so the UI can render
 // something more evocative than "432 kg CO2e".
 type Equivalents struct {
-	KmInAverageCar int `json:"km_in_average_car"`
-	MonthsAvgPerson int `json:"months_avg_person"` // global average 4 t CO2/yr/person
+	KmInAverageCar  int `json:"km_in_average_car"`
+	MonthsAvgPerson int `json:"months_avg_person"`  // global average 4 t CO2/yr/person
 	TreesForOneYear int `json:"trees_for_one_year"` // one tree absorbs ~22 kg/yr
 }
 

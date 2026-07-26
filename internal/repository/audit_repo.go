@@ -44,7 +44,7 @@ func (r *AuditRepository) ListByUser(ctx context.Context, userID primitive.Objec
 	if err != nil {
 		return nil, err
 	}
-	defer cur.Close(ctx)
+	defer func() { _ = cur.Close(ctx) }()
 	var out []models.AuditEvent
 	if err := cur.All(ctx, &out); err != nil {
 		return nil, err

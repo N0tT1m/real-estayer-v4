@@ -89,7 +89,7 @@ func (r *TripRepository) FindByUserID(ctx context.Context, userID primitive.Obje
 	if err != nil {
 		return nil, 0, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var trips []models.Trip
 	if err := cursor.All(ctx, &trips); err != nil {
@@ -127,8 +127,8 @@ func (r *TripRepository) AddItem(ctx context.Context, tripID primitive.ObjectID,
 		ctx,
 		bson.M{"_id": tripID},
 		bson.M{
-			"$push":  bson.M{"items": item},
-			"$set":   bson.M{"updated_at": time.Now()},
+			"$push": bson.M{"items": item},
+			"$set":  bson.M{"updated_at": time.Now()},
 		},
 	)
 	return err
@@ -296,7 +296,7 @@ func (r *TripRepository) FindUpcomingAll(ctx context.Context, from time.Time, li
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 	var out []models.Trip
 	if err := cursor.All(ctx, &out); err != nil {
 		return nil, err
@@ -323,7 +323,7 @@ func (r *TripRepository) GetUpcoming(ctx context.Context, userID primitive.Objec
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var trips []models.Trip
 	if err := cursor.All(ctx, &trips); err != nil {

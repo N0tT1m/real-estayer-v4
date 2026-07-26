@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"strings"
 
+	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/realestayer/v4/internal/logctx"
 	"github.com/realestayer/v4/internal/models"
 	"github.com/realestayer/v4/internal/repository"
-	chimw "github.com/go-chi/chi/v5/middleware"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 

@@ -59,3 +59,28 @@ func TestNormalizeFeaturesDedupesPreservingOrder(t *testing.T) {
 		t.Errorf("NormalizeFeatures() = %v; want %v", got, want)
 	}
 }
+
+// Regression: "dishwasher" contains "washer" and "hair dryer" contains
+// "dryer", so an unguarded substring match labelled a dishwasher as laundry
+// and a hair dryer as a clothes dryer. Both are user-visible in the feature
+// filters, and m001 writes the result into stored listings.
+func TestNormalizeFeatureDoesNotConflateApplianceNames(t *testing.T) {
+	cases := map[string]string{
+		"Dishwasher": "Dishwasher",
+		"dishwasher": "Dishwasher",
+		"Hair dryer": "Hair Dryer",
+		"hairdryer":  "Hairdryer",
+		"Blow dryer": "Blow Dryer",
+		// The genuine laundry appliances must still normalise.
+		"Washer":          "Washer",
+		"Washing machine": "Washer",
+		"Laundry":         "Washer",
+		"Dryer":           "Dryer",
+		"Clothes dryer":   "Dryer",
+	}
+	for in, want := range cases {
+		if got := NormalizeFeature(in); got != want {
+			t.Errorf("NormalizeFeature(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

@@ -25,7 +25,7 @@ func main() {
 		slog.Error("config", "error", err)
 		os.Exit(1)
 	}
-	db, err := database.Connect(cfg.MongoURI)
+	db, err := database.Connect(cfg.MongoURI, cfg.MongoDatabase)
 	if err != nil {
 		slog.Error("db connect", "error", err)
 		os.Exit(1)
@@ -54,7 +54,7 @@ func starterCollections() []models.Collection {
 		{
 			Slug: "12-hours-lisbon", Destination: "Lisbon",
 			Title: "12 hours in Lisbon", Subtitle: "A one-day walking loop through Alfama, Baixa and Bairro Alto.",
-			Description: "Start early before the heat, pace yourself on the hills, and finish with fado and a glass of vinho verde.",
+			Description:   "Start early before the heat, pace yourself on the hills, and finish with fado and a glass of vinho verde.",
 			DurationHours: 12, Featured: true,
 			Tags: []string{"walking", "food", "views"},
 			Stops: []models.CollectionStop{
@@ -69,7 +69,7 @@ func starterCollections() []models.Collection {
 		{
 			Slug: "weekend-tokyo", Destination: "Tokyo",
 			Title: "A first weekend in Tokyo", Subtitle: "Two days that sample the city's extremes without crossing town twice.",
-			Description: "Shinjuku and Shibuya on Saturday, Asakusa and Ueno on Sunday. Eat as you walk; ride the trains everywhere.",
+			Description:   "Shinjuku and Shibuya on Saturday, Asakusa and Ueno on Sunday. Eat as you walk; ride the trains everywhere.",
 			DurationHours: 36, Featured: true,
 			Tags: []string{"food", "city", "first-visit"},
 			Stops: []models.CollectionStop{

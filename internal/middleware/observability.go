@@ -110,32 +110,32 @@ func (m *Metrics) MetricsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 
-		fmt.Fprintln(w, "# HELP app_uptime_seconds Seconds since the process started.")
-		fmt.Fprintln(w, "# TYPE app_uptime_seconds counter")
-		fmt.Fprintf(w, "app_uptime_seconds %d\n", int64(time.Since(m.started).Seconds()))
+		_, _ = fmt.Fprintln(w, "# HELP app_uptime_seconds Seconds since the process started.")
+		_, _ = fmt.Fprintln(w, "# TYPE app_uptime_seconds counter")
+		_, _ = fmt.Fprintf(w, "app_uptime_seconds %d\n", int64(time.Since(m.started).Seconds()))
 
-		fmt.Fprintln(w, "# HELP http_requests_total Total HTTP requests by method and status.")
-		fmt.Fprintln(w, "# TYPE http_requests_total counter")
+		_, _ = fmt.Fprintln(w, "# HELP http_requests_total Total HTTP requests by method and status.")
+		_, _ = fmt.Fprintln(w, "# TYPE http_requests_total counter")
 		m.requests.Range(func(k, v any) bool {
 			parts := splitOnce(k.(string), ' ')
-			fmt.Fprintf(w, "http_requests_total{method=%q,status=%q} %d\n", parts[0], parts[1], v.(*atomic.Uint64).Load())
+			_, _ = fmt.Fprintf(w, "http_requests_total{method=%q,status=%q} %d\n", parts[0], parts[1], v.(*atomic.Uint64).Load())
 			return true
 		})
 
-		fmt.Fprintln(w, "# HELP http_request_duration_ms Request latency in milliseconds.")
-		fmt.Fprintln(w, "# TYPE http_request_duration_ms histogram")
+		_, _ = fmt.Fprintln(w, "# HELP http_request_duration_ms Request latency in milliseconds.")
+		_, _ = fmt.Fprintln(w, "# TYPE http_request_duration_ms histogram")
 		m.durations.Range(func(k, v any) bool {
 			method := k.(string)
 			h := v.(*bucketedHistogram)
 			cumulative := uint64(0)
 			for i, b := range h.bounds {
 				cumulative += h.counts[i].Load()
-				fmt.Fprintf(w, "http_request_duration_ms_bucket{method=%q,le=%q} %d\n", method, strconv.FormatFloat(b, 'g', -1, 64), cumulative)
+				_, _ = fmt.Fprintf(w, "http_request_duration_ms_bucket{method=%q,le=%q} %d\n", method, strconv.FormatFloat(b, 'g', -1, 64), cumulative)
 			}
 			cumulative += h.counts[len(h.counts)-1].Load()
-			fmt.Fprintf(w, "http_request_duration_ms_bucket{method=%q,le=\"+Inf\"} %d\n", method, cumulative)
-			fmt.Fprintf(w, "http_request_duration_ms_sum{method=%q} %d\n", method, h.sum.Load()/1000)
-			fmt.Fprintf(w, "http_request_duration_ms_count{method=%q} %d\n", method, h.total.Load())
+			_, _ = fmt.Fprintf(w, "http_request_duration_ms_bucket{method=%q,le=\"+Inf\"} %d\n", method, cumulative)
+			_, _ = fmt.Fprintf(w, "http_request_duration_ms_sum{method=%q} %d\n", method, h.sum.Load()/1000)
+			_, _ = fmt.Fprintf(w, "http_request_duration_ms_count{method=%q} %d\n", method, h.total.Load())
 			return true
 		})
 	}

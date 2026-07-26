@@ -82,7 +82,7 @@ func (s *ListingService) GetStats(ctx context.Context) (map[string]interface{}, 
 	}
 
 	return map[string]interface{}{
-		"total":     count,
+		"total":          count,
 		"total_listings": count,
 		"regions":        len(regions),
 		"countries":      len(countries),

@@ -278,8 +278,6 @@
 		{ id: "nav-explore",   kind: "go", title: "Explore destinations", subtitle: "/explore",   url: "/explore",   icon: iconCompass() },
 		{ id: "nav-listings",  kind: "go", title: "Browse stays",         subtitle: "/listings",  url: "/listings",  icon: iconHome() },
 		{ id: "nav-flights",   kind: "go", title: "Search flights",       subtitle: "/flights",   url: "/flights",   icon: iconPlane() },
-		{ id: "nav-hotels",    kind: "go", title: "Search hotels",        subtitle: "/hotels",    url: "/hotels",    icon: iconBed() },
-		{ id: "nav-cars",      kind: "go", title: "Search car rentals",   subtitle: "/cars",      url: "/cars",      icon: iconCar() },
 		{ id: "nav-scrape",    kind: "go", title: "Scrape rentals",       subtitle: "/scrape",    url: "/scrape",    icon: iconSearch() },
 		{ id: "nav-dashboard", kind: "go", title: "Go to dashboard",      subtitle: "/dashboard", url: "/dashboard", icon: iconHome() },
 		{ id: "nav-trips",     kind: "go", title: "My trips",             subtitle: "/trips",     url: "/trips",     icon: iconMap() },
@@ -408,8 +406,6 @@
 	function iconCompass() { return svg(`<circle cx="12" cy="12" r="9"/><path stroke-linecap="round" stroke-linejoin="round" d="M8 16l2-6 6-2-2 6-6 2z"/>`); }
 	function iconHome()    { return svg(`<path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>`); }
 	function iconPlane()   { return svg(`<path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>`); }
-	function iconBed()     { return svg(`<path stroke-linecap="round" stroke-linejoin="round" d="M3 10v10m0-10V7a2 2 0 012-2h14a2 2 0 012 2v3m0 0v10m0-10H3m18 5H3"/>`); }
-	function iconCar()     { return svg(`<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l1.5-4a2 2 0 012-1.5h7a2 2 0 012 1.5L19 13m-14 0h14m-14 0v5a1 1 0 001 1h1a1 1 0 001-1v-1h8v1a1 1 0 001 1h1a1 1 0 001-1v-5"/>`); }
 	function iconSearch()  { return svg(`<path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"/>`); }
 	function iconMap()     { return svg(`<path stroke-linecap="round" stroke-linejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.553 2.776A1 1 0 0021 18.882V8.118a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>`); }
 	function iconHeart()   { return svg(`<path stroke-linecap="round" stroke-linejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/>`); }
