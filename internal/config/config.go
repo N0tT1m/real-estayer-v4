@@ -118,6 +118,7 @@ func Load() (*Config, error) {
 		TicketmasterAPIKey:  os.Getenv("TICKETMASTER_API_KEY"),
 		AnthropicAPIKey:     os.Getenv("ANTHROPIC_API_KEY"),
 		AIModel:             getEnv("ANTHROPIC_MODEL", "claude-opus-5"),
+		AIBaseURL:           os.Getenv("AI_BASE_URL"),
 		OpenAQAPIKey:        os.Getenv("OPENAQ_API_KEY"),
 		UnsplashKey:         os.Getenv("UNSPLASH_ACCESS_KEY"),
 		AffiliateTag:        getEnv("AFFILIATE_TAG", "realestayer"),
