@@ -110,7 +110,7 @@ func main() {
 	currencyService := service.NewCurrencyService()
 	placesService := service.NewOverpassService()
 	eventsService := service.NewEventsService(cfg.TicketmasterAPIKey)
-	aiItineraryService := service.NewAIItineraryService(cfg.AnthropicAPIKey, cfg.AIModel)
+	aiItineraryService := service.NewAIItineraryService(cfg.AnthropicAPIKey, cfg.AIModel, cfg.AIBaseURL)
 	countryService := service.NewCountryService()
 	sunService := service.NewSunService()
 	airService := service.NewAirQualityService(cfg.OpenAQAPIKey)

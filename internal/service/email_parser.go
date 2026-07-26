@@ -1,12 +1,10 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"regexp"
 	"strings"
 	"time"
@@ -223,50 +221,11 @@ Respond ONLY with a JSON object of the form {"items":[ ... ]} where each item ha
   details: { ...any extra structured fields you can extract }
 If the email isn't a travel booking, respond with {"items":[]}.`
 
-	body := map[string]any{
-		// Headroom for thinking tokens, which share this budget on current models.
-		"model":      s.ai.model,
-		"max_tokens": 4000,
-		"system": []map[string]any{{
-			"type": "text", "text": systemPrompt,
-			"cache_control": map[string]string{"type": "ephemeral"},
-		}},
-		"messages": []map[string]any{{
-			"role": "user", "content": text,
-		}},
-	}
-	buf, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.anthropic.com/v1/messages", bytes.NewReader(buf))
+	raw, err := s.ai.chatText(ctx, systemPrompt, text, 4000)
 	if err != nil {
 		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", s.ai.apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-	resp, err := s.ai.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("anthropic: status %d", resp.StatusCode)
 	}
 
-	var api struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&api); err != nil {
-		return nil, err
-	}
-	raw := ""
-	for _, c := range api.Content {
-		if c.Type == "text" {
-			raw += c.Text
-		}
-	}
 	raw = stripCodeFence(strings.TrimSpace(raw))
 
 	// Claude writes dates as strings; we parse them into *time.Time here so

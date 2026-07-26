@@ -23,7 +23,7 @@ func TestEventsConfiguredGate(t *testing.T) {
 }
 
 func TestAIItineraryConfiguredAndErrSentinel(t *testing.T) {
-	s := NewAIItineraryService("", "")
+	s := NewAIItineraryService("", "", "")
 	if s.Configured() {
 		t.Errorf("empty key → not configured")
 	}
@@ -34,7 +34,7 @@ func TestAIItineraryConfiguredAndErrSentinel(t *testing.T) {
 }
 
 func TestAIItineraryValidation(t *testing.T) {
-	s := NewAIItineraryService("key", "claude-test")
+	s := NewAIItineraryService("key", "claude-test", "")
 	if _, err := s.Generate(context.Background(), ItineraryRequest{}); err == nil {
 		t.Errorf("expected error for missing destination")
 	}

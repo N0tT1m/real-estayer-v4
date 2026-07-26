@@ -79,6 +79,13 @@ func (s *ReceiptOCRService) FromImageBytes(ctx context.Context, data io.Reader, 
 // run sends the image block alongside a tight system prompt and parses the
 // JSON response. Any parse failure returns a wrapped error.
 func (s *ReceiptOCRService) run(ctx context.Context, imagePart map[string]any) (*ReceiptExtract, error) {
+	// Receipt OCR needs a vision model and sends Anthropic-shaped image blocks.
+	// A local OpenAI-compatible endpoint uses a different multimodal format and
+	// is usually a text-only model anyway, so say so plainly instead of letting
+	// the request fail somewhere less obvious.
+	if s.ai.usesOpenAIFormat() {
+		return nil, errors.New("receipt OCR requires a vision-capable Anthropic model; it is not supported against AI_BASE_URL")
+	}
 	system := `You are a receipt-reader. Respond ONLY with a single JSON object matching:
 {"merchant":"<name>","total":<number>,"currency":"<ISO 4217>","category":"<flight|hotel|car|activity|food|other>","date":"<YYYY-MM-DD>","notes":"<short free text>"}
 Use null / empty strings if you're unsure. Do not add markdown.`

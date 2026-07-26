@@ -46,6 +46,10 @@ type Config struct {
 	// Anthropic key for the AI itinerary builder. Optional.
 	AnthropicAPIKey string
 	AIModel         string
+	// AIBaseURL points the AI features at an OpenAI-compatible server
+	// (ollama, vLLM, a local gateway) instead of Anthropic. Must end in
+	// /v1. When empty, the hosted Anthropic API is used.
+	AIBaseURL string
 
 	// Optional enrichment keys
 	OpenAQAPIKey        string
@@ -218,7 +222,8 @@ func (c *Config) LogFeatureSummary() {
 	feature("field_encryption", c.FieldEncryptionKey != "",
 		"AES-GCM for PII — without this, passport/KTN is stored plaintext")
 	feature("discord_webhook", c.DiscordWebhookURL != "", "price-drop notifications")
-	feature("anthropic", c.AnthropicAPIKey != "", "AI itinerary + receipt OCR")
+	feature("ai", c.AnthropicAPIKey != "" || c.AIBaseURL != "",
+		"AI itinerary + email parsing"+aiBackendNote(c))
 	feature("maptiler", c.MapTilerKey != "", "vector map tiles (falls back to CARTO)")
 	feature("ticketmaster", c.TicketmasterAPIKey != "", "events search")
 	feature("openaq", c.OpenAQAPIKey != "", "air quality widget")
@@ -228,6 +233,18 @@ func (c *Config) LogFeatureSummary() {
 	feature("google_directions", c.GoogleDirectionsKey != "", "transit routing (falls back to OSRM)")
 	feature("metrics", c.MetricsEnabled, "/metrics endpoint")
 	feature("error_webhook", c.ErrorWebhookURL != "", "panic reporting")
+}
+
+// aiBackendNote names which backend the AI features will use, so the boot
+// log says where requests are going rather than just "enabled".
+func aiBackendNote(c *Config) string {
+	if c.AIBaseURL != "" {
+		return " via " + c.AIBaseURL + " (OpenAI-compatible)"
+	}
+	if c.AnthropicAPIKey != "" {
+		return " via api.anthropic.com"
+	}
+	return ""
 }
 
 func (c *Config) IsDevelopment() bool {
