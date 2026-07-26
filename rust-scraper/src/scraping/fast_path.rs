@@ -101,12 +101,12 @@ pub(crate) fn build_map_search_url(
 async fn harvest_search_page_paged(
     driver: &StealthDriver,
     url: &str,
-) -> (Vec<Listing>, Option<String>) {
+) -> (Vec<Listing>, Vec<String>) {
     use tracing::{info, warn};
     info!("[FAST] Harvesting search page: {}", url);
     if let Err(e) = driver.goto(url).await {
         warn!("[FAST] Failed to navigate to {}: {}", url, e);
-        return (Vec::new(), None);
+        return (Vec::new(), Vec::new());
     }
     sleep(Duration::from_secs(5)).await;
     for i in 1..=5 {
@@ -120,16 +120,16 @@ async fn harvest_search_page_paged(
         Ok(html) => match extract_airbnb_json_data(&html) {
             Some(json) => (
                 extract_all_listings_from_json(&json),
-                find_next_page_cursor(&json),
+                find_page_cursors(&json),
             ),
             None => {
                 warn!("[FAST] No embedded JSON on page {}", url);
-                (Vec::new(), None)
+                (Vec::new(), Vec::new())
             }
         },
         Err(e) => {
             warn!("[FAST] Failed to read page source for {}: {}", url, e);
-            (Vec::new(), None)
+            (Vec::new(), Vec::new())
         }
     }
 }
@@ -141,8 +141,11 @@ async fn harvest_search_page_paged(
 /// `TILE_SPLIT_THRESHOLD` (270) unreachable, so bounding-box subdivision never
 /// fired and an entire continent came back as one tile of 18 listings.
 ///
-/// Stops on the first page that contributes nothing new. That guard is what
-/// makes a broken or ignored cursor degrade to today's single-page behaviour
+/// The first response carries the cursors for every page, so page 1 tells us
+/// how many pages exist; the rest are fetched by replaying those cursors.
+///
+/// Stops early on any page that contributes nothing new. That guard is what
+/// makes an ignored or changed cursor param degrade to single-page behaviour
 /// instead of re-harvesting page one `MAX_SEARCH_PAGES` times.
 pub(crate) async fn harvest_search_all_pages(
     driver: &StealthDriver,
@@ -151,18 +154,38 @@ pub(crate) async fn harvest_search_all_pages(
     use tracing::info;
     let mut out: Vec<Listing> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
-    let mut cursor: Option<String> = None;
 
-    for page in 1..=MAX_SEARCH_PAGES {
-        let url = match &cursor {
-            None => base_url.to_string(),
-            Some(c) => format!(
-                "{}&cursor={}&pagination_search=true",
-                base_url,
-                urlencoding::encode(c)
-            ),
-        };
-        let (listings, next) = harvest_search_page_paged(driver, &url).await;
+    let (first, cursors) = harvest_search_page_paged(driver, base_url).await;
+    let first_returned = first.len();
+    for listing in first {
+        if seen.insert(listing.url.clone()) {
+            out.push(listing);
+        }
+    }
+    info!(
+        "[FAST] page 1/{}: returned={} new={} (search reports {} pages)",
+        MAX_SEARCH_PAGES,
+        first_returned,
+        out.len(),
+        cursors.len().max(1),
+    );
+
+    // cursors[0] is the page just fetched.
+    for (idx, cursor) in cursors.iter().enumerate().skip(1) {
+        if idx >= MAX_SEARCH_PAGES {
+            info!(
+                "[FAST] stopping at the {}-page cap ({} cursors offered)",
+                MAX_SEARCH_PAGES,
+                cursors.len()
+            );
+            break;
+        }
+        let url = format!(
+            "{}&cursor={}&pagination_search=true",
+            base_url,
+            urlencoding::encode(cursor)
+        );
+        let (listings, _) = harvest_search_page_paged(driver, &url).await;
         let returned = listings.len();
         let mut added = 0;
         for listing in listings {
@@ -173,18 +196,15 @@ pub(crate) async fn harvest_search_all_pages(
         }
         info!(
             "[FAST] page {}/{}: returned={} new={} total={}",
-            page,
-            MAX_SEARCH_PAGES,
+            idx + 1,
+            cursors.len(),
             returned,
             added,
             out.len()
         );
         if added == 0 {
+            info!("[FAST] page {} added nothing new - stopping", idx + 1);
             break;
-        }
-        match next {
-            Some(c) => cursor = Some(c),
-            None => break,
         }
     }
     out
