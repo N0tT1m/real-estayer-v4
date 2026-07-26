@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log/slog"
@@ -479,7 +480,12 @@ func (s *DestinationService) SeedDestinations(ctx context.Context) error {
 			continue
 		}
 
-		description, wikiImage := s.enrichFromWikipedia(ctx, city.Name)
+		countryName := isoCountryNames[city.CountryCode]
+		if countryName == "" {
+			countryName = city.CountryCode
+		}
+
+		description, wikiImage := s.enrichFromWikipedia(ctx, city.Name, countryName)
 		if description == "" {
 			wikiFailures++
 		}
@@ -489,11 +495,6 @@ func (s *DestinationService) SeedDestinations(ctx context.Context) error {
 		imageURL := seedImages[city.Name]
 		if imageURL == "" {
 			imageURL = wikiImage
-		}
-
-		countryName := isoCountryNames[city.CountryCode]
-		if countryName == "" {
-			countryName = city.CountryCode
 		}
 
 		dest := &models.Destination{
@@ -609,7 +610,7 @@ func (s *DestinationService) fetchAndCache(ctx context.Context, name, countryCod
 		}
 	}
 
-	description, wikiImage := s.enrichFromWikipedia(ctx, name)
+	description, wikiImage := s.enrichFromWikipedia(ctx, name, countryName)
 	imageURL := seedImages[name]
 	if imageURL == "" {
 		imageURL = wikiImage
@@ -638,13 +639,28 @@ func (s *DestinationService) fetchAndCache(ctx context.Context, name, countryCod
 
 // enrichFromWikipedia fetches a city description and image from Wikipedia.
 // Falls back to a generic description if Wikipedia is unavailable.
-func (s *DestinationService) enrichFromWikipedia(ctx context.Context, cityName string) (description, imageURL string) {
+// country may be empty; when supplied it is used to disambiguate names that
+// several places share.
+func (s *DestinationService) enrichFromWikipedia(ctx context.Context, cityName, country string) (description, imageURL string) {
 	wikiTitle := cityName
 	if mapped, ok := wikipediaNames[cityName]; ok {
 		wikiTitle = mapped
 	}
 
 	info, err := s.wikiClient.GetCitySummary(ctx, wikiTitle)
+	if errors.Is(err, wikipedia.ErrDisambiguation) && country != "" && !strings.Contains(wikiTitle, ",") {
+		// "Cartagena" indexes six places; "Cartagena, Colombia" is the article.
+		// This is Wikipedia's own naming convention for ambiguous settlements,
+		// and redirects cover the accent variants ("San Jose, Costa Rica" ->
+		// "San José, Costa Rica").
+		qualified := wikiTitle + ", " + country
+		if retry, retryErr := s.wikiClient.GetCitySummary(ctx, qualified); retryErr == nil {
+			info, err = retry, nil
+		} else {
+			slog.Warn("destination: disambiguation retry failed",
+				"city", cityName, "tried", qualified, "error", retryErr)
+		}
+	}
 	if err != nil {
 		slog.Warn("destination seed: wikipedia lookup failed", "city", cityName, "error", err)
 		description = fmt.Sprintf("%s is a popular travel destination with unique culture, history, and experiences for every type of traveller.", cityName)
