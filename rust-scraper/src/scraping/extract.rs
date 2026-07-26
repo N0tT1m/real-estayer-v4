@@ -1517,17 +1517,32 @@ pub(crate) fn find_search_results(
         .as_array()
 }
 
-/// Airbnb's opaque next-page token. Absent on the last page, which is the
-/// only reliable end-of-results signal — the result count per page is not
-/// fixed, so "fewer than N came back" cannot be used to detect the end.
-pub(crate) fn find_next_page_cursor(json_data: &serde_json::Value) -> Option<String> {
-    let info = find_stays_search_results(json_data)?.get("paginationInfo")?;
-    // `nextPageCursor` is null on the final page rather than absent.
-    let cursor = info.get("nextPageCursor")?.as_str()?;
-    if cursor.is_empty() {
-        return None;
-    }
-    Some(cursor.to_string())
+/// Every page cursor for this search, in page order, index 0 being the page
+/// that was just fetched.
+///
+/// Airbnb does NOT ship a chained `nextPageCursor` — it ships the whole list
+/// up front under `paginationInfo.pageCursors`, each entry a base64 blob like
+/// `{"section_offset":0,"items_offset":18,"version":1}`. A live search page
+/// returns 15 of them (15 x 18 = 270 results), which is where
+/// `TILE_SPLIT_THRESHOLD` comes from.
+///
+/// Having the full list means the caller knows the page count before it
+/// starts, and never has to chain a cursor out of each response.
+pub(crate) fn find_page_cursors(json_data: &serde_json::Value) -> Vec<String> {
+    let Some(info) = find_stays_search_results(json_data).and_then(|r| r.get("paginationInfo"))
+    else {
+        return Vec::new();
+    };
+    info.get("pageCursors")
+        .and_then(|c| c.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Phase 1: build listings for every result in the search-page JSON.
@@ -1896,54 +1911,74 @@ mod pagination_tests {
         })
     }
 
+    // Verbatim from a live search response. Airbnb ships the whole cursor list
+    // under `pageCursors` — there is NO `nextPageCursor` field, which is what
+    // an earlier version of this reader looked for, so it found nothing and
+    // paginated exactly one page.
     #[test]
-    fn reads_next_page_cursor() {
+    fn reads_the_full_page_cursor_list() {
         let v = envelope(json!({
             "searchResults": [],
-            "paginationInfo": {"nextPageCursor": "eyJzZWN0aW9uX29mZnNldCI6MH0="},
+            "paginationInfo": {
+                "__typename": "StaysSearchPaginationInfo",
+                "pageCursors": [
+                    "eyJzZWN0aW9uX29mZnNldCI6MCwiaXRlbXNfb2Zmc2V0IjowLCJ2ZXJzaW9uIjoxfQ==",
+                    "eyJzZWN0aW9uX29mZnNldCI6MCwiaXRlbXNfb2Zmc2V0IjoxOCwidmVyc2lvbiI6MX0=",
+                    "eyJzZWN0aW9uX29mZnNldCI6MCwiaXRlbXNfb2Zmc2V0IjozNiwidmVyc2lvbiI6MX0="
+                ]
+            }
+        }));
+        let cursors = find_page_cursors(&v);
+        assert_eq!(cursors.len(), 3);
+        // Index 0 is the page already fetched; the caller skips it.
+        assert!(cursors[1].starts_with("eyJzZWN0aW9uX29mZnNldCI6MCwiaXRlbXNfb2Zmc2V0IjoxOCw"));
+    }
+
+    #[test]
+    fn missing_pagination_info_yields_no_cursors() {
+        let v = envelope(json!({"searchResults": []}));
+        assert!(find_page_cursors(&v).is_empty());
+    }
+
+    // A single-page result set still lists its own cursor; that must not be
+    // mistaken for "there is a page 2".
+    #[test]
+    fn single_page_yields_one_cursor() {
+        let v = envelope(json!({
+            "searchResults": [],
+            "paginationInfo": {"pageCursors": ["eyJpdGVtc19vZmZzZXQiOjB9"]}
+        }));
+        assert_eq!(find_page_cursors(&v).len(), 1);
+    }
+
+    #[test]
+    fn empty_entries_are_dropped() {
+        let v = envelope(json!({
+            "searchResults": [],
+            "paginationInfo": {"pageCursors": ["a", "", "b", null]}
         }));
         assert_eq!(
-            find_next_page_cursor(&v).as_deref(),
-            Some("eyJzZWN0aW9uX29mZnNldCI6MH0=")
+            find_page_cursors(&v),
+            vec!["a".to_string(), "b".to_string()]
         );
     }
 
-    // The last page reports a null cursor rather than omitting the field.
-    // Treating null as "keep going" would re-request page one until the page
-    // cap, which is exactly the loop the harvest is meant to avoid.
-    #[test]
-    fn null_or_empty_cursor_means_last_page() {
-        for c in [json!(null), json!("")] {
-            let v = envelope(json!({
-                "searchResults": [],
-                "paginationInfo": {"nextPageCursor": c},
-            }));
-            assert_eq!(find_next_page_cursor(&v), None);
-        }
-    }
-
-    #[test]
-    fn missing_pagination_info_is_not_an_error() {
-        let v = envelope(json!({"searchResults": []}));
-        assert_eq!(find_next_page_cursor(&v), None);
-    }
-
     // A skeleton `results` node with no searchResults must not shadow the real
-    // one; otherwise the cursor is read from a node that paginates nothing.
+    // one; otherwise cursors come from a node that paginates nothing.
     #[test]
     fn skips_skeleton_results_node() {
         let v = json!({
             "niobeClientData": [[
                 {"data": {"presentation": {"staysSearch": {"results": {
-                    "paginationInfo": {"nextPageCursor": "WRONG"}
+                    "paginationInfo": {"pageCursors": ["WRONG"]}
                 }}}}},
                 {"data": {"presentation": {"staysSearch": {"results": {
                     "searchResults": [],
-                    "paginationInfo": {"nextPageCursor": "RIGHT"}
+                    "paginationInfo": {"pageCursors": ["RIGHT"]}
                 }}}}}
             ]]
         });
-        assert_eq!(find_next_page_cursor(&v).as_deref(), Some("RIGHT"));
+        assert_eq!(find_page_cursors(&v), vec!["RIGHT".to_string()]);
         assert!(find_search_results(&v).is_some());
     }
 }
