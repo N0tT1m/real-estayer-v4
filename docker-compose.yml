@@ -13,7 +13,9 @@ services:
       - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/real_estayer}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-real_estayer}
       - REDIS_URL=redis://redis:6379
-      # Default to the in-network scraper; override to an external host via .env.
+      # The scraper normally runs OFF this box (Windows host, real Chrome), so
+      # .env sets this to that host. The in-network default only applies when
+      # the optional `scraper` profile is up — see that service below.
       - RUST_SCRAPER_URL=${RUST_SCRAPER_URL:-http://rust-scraper:3001}
       - SCRAPER_API_KEY=${SCRAPER_API_KEY}
       # Optional integrations. env_file already loads these; naming them here
@@ -55,10 +57,20 @@ services:
     networks:
       - realestayer
 
-  # The scraper the app calls at RUST_SCRAPER_URL. It was previously run off-box
-  # and pointed at by IP, which meant the stack could not be brought up from this
-  # file alone and a scraper outage looked like an app bug.
+  # OPT-IN, and NOT how this is deployed. The scraper normally runs on the
+  # Windows host and the app reaches it over the LAN via RUST_SCRAPER_URL —
+  # it drives a real Chrome there, which is what the stealth flow depends on.
+  #
+  # This service exists so the stack can be brought up standalone (dev, CI, a
+  # box with no Windows host). Start it explicitly:
+  #
+  #     docker compose --profile scraper up -d
+  #     RUST_SCRAPER_URL=http://rust-scraper:3001 docker compose up -d app
+  #
+  # Without the profile it is never built or started, and the app keeps
+  # pointing at whatever RUST_SCRAPER_URL says.
   rust-scraper:
+    profiles: [scraper]
     build:
       context: ./rust-scraper
       dockerfile: Dockerfile
