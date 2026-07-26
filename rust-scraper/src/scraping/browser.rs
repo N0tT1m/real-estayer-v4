@@ -158,6 +158,16 @@ pub async fn configure_realistic_browser(driver: &WebDriver) -> Result<()> {
     let script = format!("window.resizeTo({}, {});", viewport.0, viewport.1);
     let _ = driver.execute(&script, vec![]).await;
 
+    // Every claim below comes from the one pinned profile, so navigator.platform
+    // agrees with the user agent that create_webdriver() passed to Chrome and
+    // with the client hints get_realistic_headers() sends. This used to be
+    // hardcoded 'MacIntel' regardless of both.
+    let profile = profile::active();
+    debug!(
+        "Applying profile platform={} ua={}",
+        profile.navigator_platform, profile.user_agent
+    );
+
     // Add realistic browser properties and behaviors
     let enhancement_scripts = [
         // Make webdriver property undefined
@@ -174,7 +184,10 @@ pub async fn configure_realistic_browser(driver: &WebDriver) -> Result<()> {
         // Add realistic navigator properties
         "Object.defineProperty(navigator, 'language', {get: () => 'en-US'});",
         "Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});",
-        "Object.defineProperty(navigator, 'platform', {get: () => 'MacIntel'});",
+        &format!(
+            "Object.defineProperty(navigator, 'platform', {{get: () => '{}'}});",
+            profile.navigator_platform
+        ),
         // Add realistic timing behavior
         "window.chrome = {runtime: {}};",
         // Override automation detection
@@ -202,33 +215,53 @@ pub async fn configure_realistic_browser(driver: &WebDriver) -> Result<()> {
         )
         .await;
 
-    let user_agent = USER_AGENTS[fastrand::usize(0..USER_AGENTS.len())];
-    debug!("Using user agent: {}", user_agent);
-
     info!("Browser configured with enhanced anti-detection settings");
     Ok(())
 }
 
-// Add realistic headers to requests (for future HTTP client implementation)
+/// Browser-like headers for the HTTP fast path, all derived from the one pinned
+/// profile.
+///
+/// Previously the UA, `Sec-CH-UA`, and `Sec-CH-UA-Platform` were three
+/// independent draws, so this could emit a Firefox user agent alongside
+/// `"Google Chrome";v="131"` and `Sec-Ch-Ua-Platform: "Windows"` on a Linux
+/// box. Client-hint headers are now omitted entirely for engines that do not
+/// implement them, because Firefox and Safari send no `Sec-CH-UA-*` at all.
 pub fn get_realistic_headers() -> std::collections::HashMap<String, String> {
+    get_realistic_headers_for(profile::active())
+}
+
+/// [`get_realistic_headers`] against an explicit profile. Split out so the
+/// coherence rules can be tested across every profile in the pool.
+pub fn get_realistic_headers_for(
+    profile: &profile::BrowserProfile,
+) -> std::collections::HashMap<String, String> {
     let mut headers = std::collections::HashMap::new();
 
-    let user_agent = USER_AGENTS[fastrand::usize(0..USER_AGENTS.len())];
-    let accept = ACCEPT_HEADERS[fastrand::usize(0..ACCEPT_HEADERS.len())];
-    let sec_ch_ua = SEC_CH_UA_VALUES[fastrand::usize(0..SEC_CH_UA_VALUES.len())];
-
-    headers.insert("User-Agent".to_string(), user_agent.to_string());
-    headers.insert("Accept".to_string(), accept.to_string());
-    headers.insert("Accept-Language".to_string(), "en-US,en;q=0.9".to_string());
+    headers.insert("User-Agent".to_string(), profile.user_agent.to_string());
+    headers.insert("Accept".to_string(), profile.accept.to_string());
+    headers.insert(
+        "Accept-Language".to_string(),
+        profile.accept_language.to_string(),
+    );
     headers.insert(
         "Accept-Encoding".to_string(),
         "gzip, deflate, br, zstd".to_string(),
     );
     headers.insert("Cache-Control".to_string(), "no-cache".to_string());
     headers.insert("Pragma".to_string(), "no-cache".to_string());
-    headers.insert("Sec-Ch-Ua".to_string(), sec_ch_ua.to_string());
-    headers.insert("Sec-Ch-Ua-Mobile".to_string(), "?0".to_string());
-    headers.insert("Sec-Ch-Ua-Platform".to_string(), "\"Windows\"".to_string());
+
+    // Only Chromium engines send these. Emitting them with a Gecko or WebKit UA
+    // is a direct contradiction, so absence is the correct behaviour.
+    if let Some(sec_ch_ua) = profile.sec_ch_ua.as_deref() {
+        headers.insert("Sec-Ch-Ua".to_string(), sec_ch_ua.to_string());
+        headers.insert("Sec-Ch-Ua-Mobile".to_string(), "?0".to_string());
+        headers.insert(
+            "Sec-Ch-Ua-Platform".to_string(),
+            format!("\"{}\"", profile.ch_platform),
+        );
+    }
+
     headers.insert("Sec-Fetch-Dest".to_string(), "document".to_string());
     headers.insert("Sec-Fetch-Mode".to_string(), "navigate".to_string());
     headers.insert("Sec-Fetch-Site".to_string(), "none".to_string());
@@ -717,4 +750,116 @@ pub(crate) async fn extract_data_fallback(
         picture_url,
         features,
     ))
+}
+
+#[cfg(test)]
+mod header_coherence_tests {
+    use super::*;
+    use crate::scraping::profile::{self, all_profiles};
+
+    /// The original bug: three independent draws meant a Gecko or WebKit user
+    /// agent could ship with Chromium client hints. Assert per profile that the
+    /// two agree, for every profile rather than whichever one is active.
+    #[test]
+    fn client_hint_headers_only_accompany_chromium_user_agents() {
+        for p in &all_profiles() {
+            let h = get_realistic_headers_for(p);
+            let ua = &h["User-Agent"];
+            let has_hints = h.contains_key("Sec-Ch-Ua");
+
+            assert_eq!(
+                has_hints,
+                p.sends_client_hints(),
+                "Sec-Ch-Ua presence disagrees with the profile for {ua}"
+            );
+            if !has_hints {
+                for key in ["Sec-Ch-Ua-Mobile", "Sec-Ch-Ua-Platform"] {
+                    assert!(
+                        !h.contains_key(key),
+                        "{key} leaked onto a non-Chromium UA: {ua}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Sec-Ch-Ua-Platform used to be hardcoded `"Windows"` regardless of the UA.
+    #[test]
+    fn ch_platform_header_matches_the_user_agent() {
+        for p in &all_profiles() {
+            let h = get_realistic_headers_for(p);
+            let Some(platform) = h.get("Sec-Ch-Ua-Platform") else {
+                continue;
+            };
+            assert_eq!(platform, &format!("\"{}\"", p.ch_platform));
+
+            let ua = &h["User-Agent"];
+            let expected_ua_marker = match p.ch_platform {
+                "Windows" => "Windows NT",
+                "macOS" => "Macintosh",
+                "Linux" => "Linux",
+                other => panic!("unexpected platform {other}"),
+            };
+            assert!(
+                ua.contains(expected_ua_marker),
+                "platform {platform} contradicts UA {ua}"
+            );
+        }
+    }
+
+    /// The Sec-Ch-Ua brand list must name the same browser version the UA does.
+    #[test]
+    fn ch_ua_brand_version_matches_user_agent_version() {
+        for p in &all_profiles() {
+            let h = get_realistic_headers_for(p);
+            let Some(sec_ch_ua) = h.get("Sec-Ch-Ua") else {
+                continue;
+            };
+            let ua = &h["User-Agent"];
+            let major = ua
+                .split("Chrome/")
+                .nth(1)
+                .and_then(|rest| rest.split('.').next())
+                .expect("chromium profile must carry a Chrome/ version");
+            assert!(
+                sec_ch_ua.contains(&format!("v=\"{major}\"")),
+                "Sec-Ch-Ua {sec_ch_ua:?} does not match Chrome major {major} from {ua}"
+            );
+        }
+    }
+
+    /// Accept and Accept-Language are engine-specific; a Chrome Accept string on
+    /// a Firefox UA is the same class of contradiction as a stray client hint.
+    #[test]
+    fn accept_headers_come_from_the_same_profile() {
+        for p in &all_profiles() {
+            let h = get_realistic_headers_for(p);
+            assert_eq!(h["Accept"], p.accept, "for {}", p.user_agent);
+            assert_eq!(h["Accept-Language"], p.accept_language);
+
+            let is_firefox = p.user_agent.contains("Firefox/");
+            // Firefox is the only engine here that sends q=0.5 on its second
+            // language, and it never sends the signed-exchange Accept token.
+            assert_eq!(
+                is_firefox,
+                h["Accept-Language"].contains("q=0.5"),
+                "Accept-Language style disagrees with engine: {}",
+                p.user_agent
+            );
+            if is_firefox {
+                assert!(!h["Accept"].contains("signed-exchange"), "{}", p.user_agent);
+            }
+        }
+    }
+
+    /// Headers must be stable within a run — a UA that changes between requests
+    /// in one session is a stronger signal than one that never changes.
+    #[test]
+    fn headers_are_stable_across_calls() {
+        assert_eq!(get_realistic_headers(), get_realistic_headers());
+        assert_eq!(
+            get_realistic_headers()["User-Agent"],
+            profile::active().user_agent
+        );
+    }
 }

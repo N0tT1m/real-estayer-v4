@@ -185,11 +185,13 @@ async fn ensure_chromedriver_running() -> Result<()> {
         log::warn!("Could not detect Chrome version - ChromeDriver might not match");
     }
 
-    // Start chromedriver using local binary
-    let chromedriver_path = if cfg!(target_os = "windows") {
-        "./chromedriver.exe".to_string()
-    } else {
-        "./chromedriver".to_string()
+    // Start chromedriver using the configured path, else the local binary that
+    // fetch-chromedriver.sh drops next to the scraper. CHROME_DRIVER_PATH is
+    // what CHROMEDRIVER_UPDATE.md documents, so it has to win here.
+    let chromedriver_path = match std::env::var("CHROME_DRIVER_PATH") {
+        Ok(path) if !path.trim().is_empty() => path,
+        _ if cfg!(target_os = "windows") => "./chromedriver.exe".to_string(),
+        _ => "./chromedriver".to_string(),
     };
 
     log::info!("Starting ChromeDriver from: {}", chromedriver_path);
@@ -213,6 +215,18 @@ async fn ensure_chromedriver_running() -> Result<()> {
     Err(anyhow::anyhow!("ChromeDriver failed to start within 15 seconds. This may be due to a version mismatch between ChromeDriver and Chrome browser."))
 }
 
+/// Whether to disable GPU/WebGL. Off by default; see the call site for why.
+pub(crate) fn gpu_disabled() -> bool {
+    matches!(
+        std::env::var("SCRAPER_DISABLE_GPU")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true" | "yes"
+    )
+}
+
 /// Helper function to create WebDriver with stealth/anti-detection configuration
 pub async fn create_webdriver() -> Result<WebDriver> {
     log::info!("[WEBDRIVER] ========== CREATING NEW WEBDRIVER ==========");
@@ -224,6 +238,14 @@ pub async fn create_webdriver() -> Result<WebDriver> {
     // CRITICAL: Anti-detection flags - these are essential to avoid bot detection
     // This prevents Chrome from exposing navigator.webdriver = true
     caps.add_arg("--disable-blink-features=AutomationControlled")?;
+
+    // Match the user agent to the pinned profile. configure_realistic_browser()
+    // patches navigator.platform from the same profile, and the fast path sends
+    // client hints from it, so all three now agree. Previously no UA was set
+    // here at all: the browser leaked its real one while a randomly drawn UA was
+    // logged and discarded.
+    let profile = crate::scraping::profile::active();
+    caps.add_arg(&format!("--user-agent={}", profile.user_agent))?;
 
     // Essential args for navigation
     caps.add_arg("--no-sandbox")?;
@@ -239,13 +261,37 @@ pub async fn create_webdriver() -> Result<WebDriver> {
     caps.add_arg("--disable-plugins-discovery")?;
     caps.add_arg("--disable-default-apps")?;
 
-    // GPU fixes for Windows Chrome 143
-    caps.add_arg("--disable-gpu")?;
-    caps.add_arg("--disable-gpu-compositing")?;
-    caps.add_arg("--disable-gpu-sandbox")?;
-    caps.add_arg("--enable-unsafe-swiftshader")?;
-    caps.add_arg("--disable-webgl")?;
-    caps.add_arg("--disable-webgl2")?;
+    // GPU/WebGL. These were added as a rendering workaround for Windows Chrome
+    // 143, but they are expensive to keep on: every real browser has working
+    // WebGL, so a missing renderer — or one reporting SwiftShader — is a strong
+    // bot signal, and the renderer string is exactly the kind of hardware fact
+    // that contradicts a profile's claimed platform.
+    //
+    // So they are opt-in now. Default is a normal GPU-enabled browser; set
+    // SCRAPER_DISABLE_GPU=1 to restore the workaround if the rendering problem
+    // resurfaces.
+    if gpu_disabled() {
+        log::warn!(
+            "[WEBDRIVER] SCRAPER_DISABLE_GPU is set: disabling GPU and WebGL. \
+             This is detectable — a real browser reports a hardware renderer."
+        );
+        caps.add_arg("--disable-gpu")?;
+        caps.add_arg("--disable-gpu-compositing")?;
+        caps.add_arg("--disable-gpu-sandbox")?;
+        caps.add_arg("--enable-unsafe-swiftshader")?;
+        caps.add_arg("--disable-webgl")?;
+        caps.add_arg("--disable-webgl2")?;
+    }
+
+    // Route the browser through the same rotation the HTTP path uses, so both
+    // egress from the same address for a given request.
+    if let Some(proxy_url) = crate::scraping::proxy::next() {
+        log::info!(
+            "[WEBDRIVER] Routing browser via {}",
+            crate::scraping::proxy::redact(&proxy_url)
+        );
+        caps.add_arg(&format!("--proxy-server={}", proxy_url))?;
+    }
 
     log::info!("Creating WebDriver with stealth/anti-detection configuration");
 

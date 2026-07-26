@@ -1,5 +1,5 @@
 //! Airbnb scraping. Formerly a single 4,945-line `scraping.rs`; split by
-//! concern with the code itself unchanged.
+//! concern, originally with the code itself unchanged.
 //!
 //! | module         | what lives here                                        |
 //! |----------------|--------------------------------------------------------|
@@ -8,6 +8,8 @@
 //! | `extract`      | pure HTML/JSON parsers (no driver, easily testable)    |
 //! | `amenities`    | amenity/house-detail normalisation lookup tables       |
 //! | `params`       | `GuestParams`, `AmenityFilter`, `BoundingBox`          |
+//! | `profile`      | coherent UA / client-hint / platform identities        |
+//! | `proxy`        | egress proxy rotation (SCRAPER_PROXIES)                |
 //! | `email`        | SMTP run-report                                        |
 //! | `fast_path`    | search-JSON harvest + map tiling + parallel enrichment |
 //! | `browser_flow` | legacy serial WebDriver scrape                         |
@@ -24,6 +26,8 @@ mod email;
 mod extract;
 mod fast_path;
 mod params;
+pub mod profile;
+pub mod proxy;
 mod stealth_flow;
 
 // Re-exported so `crate::scraping::X` keeps resolving exactly as it did

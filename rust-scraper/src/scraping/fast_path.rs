@@ -247,16 +247,24 @@ pub(crate) async fn collect_listings_tiled(
     }
 }
 
-/// Build a reqwest client with browser-like headers. Forces identity encoding
-/// because this reqwest build has no decompression features enabled, so a
-/// gzip/br/zstd response would otherwise arrive as undecodable bytes.
+/// Build a reqwest client with browser-like headers.
+///
+/// This used to force `Accept-Encoding: identity` because the reqwest build had
+/// no decompression features, which made it the single most conspicuous header
+/// we sent — no real browser ever asks for uncompressed HTML. The gzip/brotli/
+/// deflate/zstd features are now enabled in Cargo.toml, so the profile's real
+/// `Accept-Encoding` goes out and reqwest transparently decompresses the reply.
 pub(crate) fn build_http_client() -> Result<reqwest::Client> {
+    build_http_client_with_proxy(proxy::next())
+}
+
+/// [`build_http_client`] against a specific proxy (`None` for a direct
+/// connection). Split out so the caller can spread a run across several egress
+/// addresses; see [`proxy`].
+pub(crate) fn build_http_client_with_proxy(proxy_url: Option<String>) -> Result<reqwest::Client> {
     use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
     let mut headers = HeaderMap::new();
     for (key, value) in get_realistic_headers() {
-        if key.eq_ignore_ascii_case("accept-encoding") {
-            continue; // overridden below
-        }
         if let (Ok(name), Ok(val)) = (
             HeaderName::from_bytes(key.as_bytes()),
             HeaderValue::from_str(&value),
@@ -264,15 +272,42 @@ pub(crate) fn build_http_client() -> Result<reqwest::Client> {
             headers.insert(name, val);
         }
     }
-    headers.insert(
-        reqwest::header::ACCEPT_ENCODING,
-        HeaderValue::from_static("identity"),
-    );
-    let client = reqwest::Client::builder()
+
+    let mut builder = reqwest::Client::builder()
         .default_headers(headers)
         .timeout(Duration::from_secs(30))
-        .build()?;
-    Ok(client)
+        // Chrome always negotiates HTTP/2 with a site like Airbnb. This build had
+        // reqwest's `http2` feature off (a consequence of default-features =
+        // false), so it spoke HTTP/1.1 only while claiming to be Chrome — visible
+        // both in the ALPN list we advertise during the handshake and to the
+        // server directly. Enabled in Cargo.toml; kept off the 1.1-only path.
+        //
+        // Chrome also keeps a cookie jar. Without one we never echo back the
+        // session cookies Airbnb sets, so every request looks like a first visit
+        // from a browser that should have state.
+        .cookie_store(true);
+
+    if let Some(url) = proxy_url {
+        // all() covers http, https, and CONNECT tunnelling, which is what the
+        // rotating-residential-proxy services hand out.
+        match reqwest::Proxy::all(&url) {
+            Ok(p) => {
+                tracing::info!("[PROXY] HTTP client routed via {}", proxy::redact(&url));
+                builder = builder.proxy(p);
+            }
+            Err(e) => {
+                // A malformed entry must not silently downgrade the whole run to
+                // a direct connection the operator did not ask for.
+                return Err(anyhow::anyhow!(
+                    "invalid proxy {}: {}",
+                    proxy::redact(&url),
+                    e
+                ));
+            }
+        }
+    }
+
+    Ok(builder.build()?)
 }
 
 /// Fetch a listing's /rooms page over HTTP and fill the fields the search JSON
