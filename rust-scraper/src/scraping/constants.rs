@@ -35,6 +35,14 @@ pub(crate) const TILE_SPLIT_THRESHOLD: usize = 270;
 /// authoritative truncation signal: it counts what Airbnb withheld rather than
 /// what we managed to keep.
 pub(crate) const AIRBNB_SEARCH_PAGE_CAP: usize = 15;
+/// Attempts for a page that came back blocked (503 / challenge) before the
+/// scrape gives up. Paginating multiplied requests per tile by ~15x, which is
+/// what started drawing 503s on a direct connection.
+pub(crate) const BLOCKED_PAGE_RETRIES: usize = 3;
+/// First backoff after a block; doubles per retry (30s, 60s, 120s). Airbnb's
+/// throttling is measured in minutes, so retrying in milliseconds just spends
+/// the remaining attempts without letting the limit decay.
+pub(crate) const BLOCKED_BACKOFF_SECS: u64 = 30;
 /// Max recursion depth for bounding-box subdivision (4^6 = 4096 tiles worst case).
 pub(crate) const MAX_TILE_DEPTH: usize = 6;
 /// Pages to follow per search before giving up. A page holds ~18 results and

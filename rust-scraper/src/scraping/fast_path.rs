@@ -101,12 +101,12 @@ pub(crate) fn build_map_search_url(
 async fn harvest_search_page_paged(
     driver: &StealthDriver,
     url: &str,
-) -> (Vec<Listing>, Vec<String>) {
+) -> (Vec<Listing>, Vec<String>, Option<&'static str>) {
     use tracing::{info, warn};
     info!("[FAST] Harvesting search page: {}", url);
     if let Err(e) = driver.goto(url).await {
         warn!("[FAST] Failed to navigate to {}: {}", url, e);
-        return (Vec::new(), Vec::new());
+        return (Vec::new(), Vec::new(), None);
     }
     sleep(Duration::from_secs(5)).await;
     for i in 1..=5 {
@@ -121,6 +121,7 @@ async fn harvest_search_page_paged(
             Some(json) => (
                 extract_all_listings_from_json(&json),
                 find_page_cursors(&json),
+                None,
             ),
             None => {
                 // "No embedded JSON" on its own is unactionable: it cannot
@@ -128,14 +129,67 @@ async fn harvest_search_page_paged(
                 // page that simply had not finished rendering. Report enough
                 // to tell those apart without a second scrape.
                 describe_missing_json(driver, url, &html).await;
-                (Vec::new(), Vec::new())
+                (Vec::new(), Vec::new(), detect_block(&html))
             }
         },
         Err(e) => {
             warn!("[FAST] Failed to read page source for {}: {}", url, e);
-            (Vec::new(), Vec::new())
+            (Vec::new(), Vec::new(), None)
         }
     }
+}
+
+/// Fetch a page, retrying with exponential backoff while Airbnb is blocking.
+/// Returns the last blocked reason if every attempt was refused.
+async fn fetch_page_with_backoff(
+    driver: &StealthDriver,
+    url: &str,
+) -> (Vec<Listing>, Vec<String>, Option<&'static str>) {
+    use tracing::warn;
+    let mut wait = BLOCKED_BACKOFF_SECS;
+    for attempt in 1..=BLOCKED_PAGE_RETRIES {
+        let (listings, cursors, blocked) = harvest_search_page_paged(driver, url).await;
+        let Some(reason) = blocked else {
+            return (listings, cursors, None);
+        };
+        if attempt == BLOCKED_PAGE_RETRIES {
+            warn!(
+                "[FAST] blocked ({}) after {} attempts - giving up on this page",
+                reason, attempt
+            );
+            return (Vec::new(), Vec::new(), Some(reason));
+        }
+        warn!(
+            "[FAST] blocked ({}) on attempt {}/{} - backing off {}s",
+            reason, attempt, BLOCKED_PAGE_RETRIES, wait
+        );
+        sleep(Duration::from_secs(wait)).await;
+        wait *= 2;
+    }
+    unreachable!("loop returns on the final attempt")
+}
+
+/// Classify a page that carried no embedded state.
+///
+/// CDP navigation reports success for a 503 or a challenge page — the
+/// document loads, it just is not the search results. Without this, being
+/// rate-limited is indistinguishable from Airbnb changing its markup, and the
+/// scrape records "Completed! 0 listings" for a run that fetched nothing.
+pub(crate) fn detect_block(html: &str) -> Option<&'static str> {
+    let l = html.to_lowercase();
+    if l.contains("503 service") || l.contains("service unavailable") {
+        return Some("503 service unavailable");
+    }
+    if l.contains("are you a robot") || l.contains("unusual traffic") || l.contains("px-captcha") {
+        return Some("bot challenge");
+    }
+    if l.contains("access to this page has been denied") || l.contains("403 forbidden") {
+        return Some("access denied");
+    }
+    if l.contains("too many requests") || l.contains("429") && l.contains("rate limit") {
+        return Some("rate limited");
+    }
+    None
 }
 
 /// Explain why a page yielded no embedded JSON.
@@ -198,7 +252,7 @@ pub(crate) async fn harvest_search_all_pages(
     let mut out: Vec<Listing> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
 
-    let (first, cursors) = harvest_search_page_paged(driver, base_url).await;
+    let (first, cursors, blocked) = fetch_page_with_backoff(driver, base_url).await;
     let first_returned = first.len();
     for listing in first {
         if seen.insert(listing.url.clone()) {
@@ -228,7 +282,20 @@ pub(crate) async fn harvest_search_all_pages(
             base_url,
             urlencoding::encode(cursor)
         );
-        let (listings, _) = harvest_search_page_paged(driver, &url).await;
+        let (listings, _, page_blocked) = fetch_page_with_backoff(driver, &url).await;
+        if let Some(reason) = page_blocked {
+            info!(
+                "[FAST] blocked ({}) mid-walk at page {} - keeping {} listings",
+                reason,
+                idx + 1,
+                out.len()
+            );
+            return SearchHarvest {
+                listings: out,
+                pages_offered: cursors.len(),
+                blocked: Some(reason),
+            };
+        }
         let returned = listings.len();
         let mut added = 0;
         for listing in listings {
@@ -253,6 +320,7 @@ pub(crate) async fn harvest_search_all_pages(
     SearchHarvest {
         listings: out,
         pages_offered: cursors.len(),
+        blocked,
     }
 }
 
@@ -261,6 +329,11 @@ pub(crate) struct SearchHarvest {
     pub(crate) listings: Vec<Listing>,
     /// Entries in `paginationInfo.pageCursors` on the first response.
     pub(crate) pages_offered: usize,
+    /// Set when Airbnb refused the request rather than returning results.
+    /// A blocked tile must not be read as an empty one: empty means "nothing
+    /// here, stop", blocked means "we were denied, and continuing makes it
+    /// worse".
+    pub(crate) blocked: Option<&'static str>,
 }
 
 impl SearchHarvest {
@@ -635,11 +708,27 @@ pub(crate) async fn tile_and_store(
     seen: &mut HashSet<String>,
     inserted_total: &AtomicUsize,
     tiles_processed: &AtomicUsize,
+    blocked_flag: &std::sync::atomic::AtomicBool,
 ) {
-    use tracing::{info, warn};
+    use tracing::{error, info, warn};
+
+    // Another branch of the recursion already hit a wall. Continuing would
+    // issue more requests while Airbnb is refusing them, which deepens the
+    // block and buries the cause under thousands of empty tiles.
+    if blocked_flag.load(AtomicOrdering::SeqCst) {
+        return;
+    }
 
     let url = build_map_search_url(location, &bbox, guests, amenity_filter);
     let harvest = harvest_search_all_pages(driver, &url).await;
+    if let Some(reason) = harvest.blocked {
+        error!(
+            "[TILE] depth={} BLOCKED ({}) - aborting the region scrape",
+            depth, reason
+        );
+        blocked_flag.store(true, AtomicOrdering::SeqCst);
+        return;
+    }
     let truncated = harvest.truncated();
     let pages_offered = harvest.pages_offered;
     let tile_listings = harvest.listings;
@@ -693,6 +782,7 @@ pub(crate) async fn tile_and_store(
                 seen,
                 inserted_total,
                 tiles_processed,
+                blocked_flag,
             ))
             .await;
         }
@@ -724,6 +814,7 @@ pub async fn scrape_region_tiled(
         bbox, max_depth, enrich
     );
     let mut seen: HashSet<String> = HashSet::new();
+    let blocked_flag = std::sync::atomic::AtomicBool::new(false);
     tile_and_store(
         driver,
         location,
@@ -736,10 +827,22 @@ pub async fn scrape_region_tiled(
         &mut seen,
         inserted_total,
         tiles_processed,
+        &blocked_flag,
     )
     .await;
     let inserted = inserted_total.load(AtomicOrdering::SeqCst);
     let tiles = tiles_processed.load(AtomicOrdering::SeqCst);
+    if blocked_flag.load(AtomicOrdering::SeqCst) {
+        // Deliberately an error, not Ok(0): a block reported as a successful
+        // empty scrape is indistinguishable from a region with no listings,
+        // and that is exactly how "Completed! 0 listings" hid a 503.
+        return Err(anyhow::anyhow!(
+            "Airbnb blocked the scrape after {} listings across {} tiles - \
+             back off, then retry (consider SCRAPER_PROXIES)",
+            inserted,
+            tiles
+        ));
+    }
     info!(
         "[REGION] Complete: {} listings inserted across {} tiles",
         inserted, tiles
@@ -935,5 +1038,51 @@ mod truncation_tests {
     #[test]
     fn listing_count_remains_a_backstop_when_no_cursors_are_offered() {
         assert!(is_truncated(TILE_SPLIT_THRESHOLD, 0));
+    }
+}
+
+#[cfg(test)]
+mod block_detection_tests {
+    use super::*;
+
+    // The page that produced "Completed! 0 listings" for a run that fetched
+    // nothing. CDP reports navigation success for this, so the only signal
+    // that anything went wrong is the body.
+    #[test]
+    fn detects_503() {
+        let html = "<html><head><title>Airbnb</title></head>\
+                    <body><h1>503 Service Unavailable</h1></body></html>";
+        assert_eq!(detect_block(html), Some("503 service unavailable"));
+    }
+
+    #[test]
+    fn detects_challenge_and_denial() {
+        assert_eq!(
+            detect_block("<div>Please verify you are a human. Are you a robot?</div>"),
+            Some("bot challenge")
+        );
+        assert_eq!(
+            detect_block("<h1>Access to this page has been denied</h1>"),
+            Some("access denied")
+        );
+    }
+
+    // A real search page must never be classified as blocked, or every scrape
+    // aborts on the first tile.
+    #[test]
+    fn real_search_page_is_not_blocked() {
+        let html = r#"<html><script id="data-deferred-state-0" type="application/json">
+                      {"niobeClientData":[[{"data":{}}]]}</script></html>"#;
+        assert_eq!(detect_block(html), None);
+    }
+
+    // An empty result set is not a block: "nothing here" and "we were refused"
+    // demand opposite responses — stop quietly versus abort loudly.
+    #[test]
+    fn empty_results_are_not_a_block() {
+        assert_eq!(
+            detect_block("<html><body>No results found</body></html>"),
+            None
+        );
     }
 }
