@@ -98,3 +98,60 @@ func TestSplitCSVTrims(t *testing.T) {
 		}
 	}
 }
+
+// A struct field plus a feature check is not enough: the loader has to
+// actually read the variable. AIBaseURL shipped without its Load() assignment
+// and silently reported the AI feature as disabled, so pin the wiring here.
+func TestLoadReadsAIBaseURL(t *testing.T) {
+	t.Setenv("SESSION_SECRET", strings.Repeat("x", 32))
+	t.Setenv("AI_BASE_URL", "http://REMOTE_HOST_REMOVED:11434/v1")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.AIBaseURL != "http://REMOTE_HOST_REMOVED:11434/v1" {
+		t.Errorf("AIBaseURL = %q, want the AI_BASE_URL value", cfg.AIBaseURL)
+	}
+}
+
+func TestAIBackendNoteNamesTheBackend(t *testing.T) {
+	if got := aiBackendNote(&Config{AIBaseURL: "http://h/v1"}); !strings.Contains(got, "http://h/v1") {
+		t.Errorf("note = %q, want it to name the local endpoint", got)
+	}
+	if got := aiBackendNote(&Config{AnthropicAPIKey: "k"}); !strings.Contains(got, "anthropic") {
+		t.Errorf("note = %q, want it to name Anthropic", got)
+	}
+	if got := aiBackendNote(&Config{}); got != "" {
+		t.Errorf("note = %q, want empty when no backend is configured", got)
+	}
+}
+
+// Every env-backed field should round-trip through Load. This catches the
+// "declared but never assigned" class of bug generically.
+func TestLoadReadsCommonEnvVars(t *testing.T) {
+	t.Setenv("SESSION_SECRET", strings.Repeat("x", 32))
+	cases := map[string]struct {
+		env, val string
+		get      func(*Config) string
+	}{
+		"AI_BASE_URL":          {"AI_BASE_URL", "http://x/v1", func(c *Config) string { return c.AIBaseURL }},
+		"ANTHROPIC_API_KEY":    {"ANTHROPIC_API_KEY", "sk-test", func(c *Config) string { return c.AnthropicAPIKey }},
+		"DISCORD_WEBHOOK_URL":  {"DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/1/a", func(c *Config) string { return c.DiscordWebhookURL }},
+		"FIELD_ENCRYPTION_KEY": {"FIELD_ENCRYPTION_KEY", strings.Repeat("a", 64), func(c *Config) string { return c.FieldEncryptionKey }},
+		"SMTP_HOST":            {"SMTP_HOST", "box.example", func(c *Config) string { return c.Email.SMTPHost }},
+		"MONGODB_DATABASE":     {"MONGODB_DATABASE", "somedb", func(c *Config) string { return c.MongoDatabase }},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(tc.env, tc.val)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if got := tc.get(cfg); got != tc.val {
+				t.Errorf("%s: got %q, want %q — is it assigned in Load()?", tc.env, got, tc.val)
+			}
+		})
+	}
+}
