@@ -35,7 +35,7 @@ jobs:
       MONGODB_TEST_URI: mongodb://127.0.0.1:27017
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v6
         with:
@@ -100,7 +100,7 @@ jobs:
       run:
         working-directory: rust-scraper
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -162,7 +162,7 @@ jobs:
     name: Template parse check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v6
         with:
