@@ -70,7 +70,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	resp, err := h.authService.Login(r.Context(), req, r.RemoteAddr, r.UserAgent(), totpCode)
+	resp, err := h.Core.Auth.Login(r.Context(), req, r.RemoteAddr, r.UserAgent(), totpCode)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrTOTPRequired):
@@ -156,7 +156,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.authService.Register(r.Context(), req)
+	resp, err := h.Core.Auth.Register(r.Context(), req)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrEmailTaken):
@@ -207,7 +207,7 @@ func (h *Handler) renderRegisterError(w http.ResponseWriter, r *http.Request, is
 // Logout handles user logout
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(sessionCookieName); err == nil {
-		if err := h.authService.Logout(r.Context(), cookie.Value); err != nil {
+		if err := h.Core.Auth.Logout(r.Context(), cookie.Value); err != nil {
 			slog.Warn("logout failed to invalidate session", "error", err)
 		}
 	}
@@ -221,7 +221,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   h.config.IsProduction(),
+		Secure:   h.Config.IsProduction(),
 		SameSite: http.SameSiteStrictMode,
 	})
 
@@ -242,7 +242,7 @@ func (h *Handler) setSessionCookie(w http.ResponseWriter, token string) {
 		Expires:  time.Now().Add(sessionCookieMaxAge),
 		MaxAge:   int(sessionCookieMaxAge.Seconds()),
 		HttpOnly: true,
-		Secure:   h.config.IsProduction(),
+		Secure:   h.Config.IsProduction(),
 		SameSite: http.SameSiteStrictMode,
 	})
 }

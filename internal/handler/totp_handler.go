@@ -11,7 +11,7 @@ import (
 // user. The UI passes the URI to a QR renderer (we use a public image
 // endpoint to avoid bundling a QR generator).
 func (h *Handler) StartTOTP(w http.ResponseWriter, r *http.Request) {
-	secret, uri, err := h.authService.StartTOTPEnrollment(r.Context(), h.getUserID(r), "Real-Estayer")
+	secret, uri, err := h.Core.Auth.StartTOTPEnrollment(r.Context(), h.getUserID(r), "Real-Estayer")
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -33,7 +33,7 @@ func (h *Handler) ConfirmTOTP(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if err := h.authService.ConfirmTOTP(r.Context(), h.getUserID(r), req.Code); err != nil {
+	if err := h.Core.Auth.ConfirmTOTP(r.Context(), h.getUserID(r), req.Code); err != nil {
 		if errors.Is(err, service.ErrTOTPInvalid) {
 			h.jsonError(w, http.StatusBadRequest, "that code didn't match — try again")
 			return
@@ -52,7 +52,7 @@ func (h *Handler) DisableTOTP(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if err := h.authService.DisableTOTP(r.Context(), h.getUserID(r), req.Code); err != nil {
+	if err := h.Core.Auth.DisableTOTP(r.Context(), h.getUserID(r), req.Code); err != nil {
 		if errors.Is(err, service.ErrTOTPInvalid) {
 			h.jsonError(w, http.StatusBadRequest, "that code didn't match")
 			return

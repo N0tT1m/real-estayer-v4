@@ -14,7 +14,7 @@ type createSavedSearchReq struct {
 }
 
 func (h *Handler) ListSavedSearches(w http.ResponseWriter, r *http.Request) {
-	items, err := h.savedSearchSvc.List(r.Context(), h.getUserID(r))
+	items, err := h.Listings.SavedSearch.List(r.Context(), h.getUserID(r))
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -28,7 +28,7 @@ func (h *Handler) CreateSavedSearch(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	ss, err := h.savedSearchSvc.Create(r.Context(), h.getUserID(r), req.Name, req.Query, req.NotifyDiscord)
+	ss, err := h.Listings.SavedSearch.Create(r.Context(), h.getUserID(r), req.Name, req.Query, req.NotifyDiscord)
 	if err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
@@ -38,7 +38,7 @@ func (h *Handler) CreateSavedSearch(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DeleteSavedSearch(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	if err := h.savedSearchSvc.Delete(r.Context(), h.getUserID(r), id); err != nil {
+	if err := h.Listings.SavedSearch.Delete(r.Context(), h.getUserID(r), id); err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}

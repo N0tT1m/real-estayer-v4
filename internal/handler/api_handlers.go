@@ -29,7 +29,7 @@ func (h *Handler) HealthAPI(w http.ResponseWriter, r *http.Request) {
 // GetListings returns paginated listings
 func (h *Handler) GetListings(w http.ResponseWriter, r *http.Request) {
 	params := h.parseListingParams(r)
-	result, err := h.listingService.Search(r.Context(), params)
+	result, err := h.Listings.Listing.Search(r.Context(), params)
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -40,7 +40,7 @@ func (h *Handler) GetListings(w http.ResponseWriter, r *http.Request) {
 // GetListing returns a single listing
 func (h *Handler) GetListing(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	listing, err := h.listingService.GetByID(r.Context(), id)
+	listing, err := h.Listings.Listing.GetByID(r.Context(), id)
 	if err != nil {
 		h.jsonError(w, http.StatusNotFound, "Listing not found")
 		return
@@ -51,7 +51,7 @@ func (h *Handler) GetListing(w http.ResponseWriter, r *http.Request) {
 // SearchListings searches listings with filters
 func (h *Handler) SearchListings(w http.ResponseWriter, r *http.Request) {
 	params := h.parseListingParams(r)
-	result, err := h.listingService.Search(r.Context(), params)
+	result, err := h.Listings.Listing.Search(r.Context(), params)
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -67,7 +67,7 @@ func (h *Handler) SearchAirports(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	airports, err := h.flightService.SearchAirports(r.Context(), keyword)
+	airports, err := h.Flight.SearchAirports(r.Context(), keyword)
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -133,7 +133,7 @@ func (h *Handler) SearchFlights(w http.ResponseWriter, r *http.Request) {
 		req.DirectOnly = true
 	}
 
-	offers, err := h.flightService.Search(r.Context(), req)
+	offers, err := h.Flight.Search(r.Context(), req)
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -152,7 +152,7 @@ func (h *Handler) GetFlightOffer(w http.ResponseWriter, r *http.Request) {
 	// cmd/server/main.go, not here.
 	provider := r.URL.Query().Get("provider")
 
-	offer, err := h.flightService.GetOffer(r.Context(), provider, offerID)
+	offer, err := h.Flight.GetOffer(r.Context(), provider, offerID)
 	if err != nil {
 		h.jsonError(w, http.StatusNotFound, "Offer not found")
 		return
@@ -205,7 +205,7 @@ func (h *Handler) parseListingParams(r *http.Request) models.ListingSearchParams
 
 // PublicScraperStatus returns the scraper status (public endpoint)
 func (h *Handler) PublicScraperStatus(w http.ResponseWriter, r *http.Request) {
-	status, err := h.scraperService.GetStatus(r.Context())
+	status, err := h.Listings.Scraper.GetStatus(r.Context())
 	if err != nil {
 		h.jsonResponse(w, http.StatusOK, map[string]interface{}{
 			"status":  "offline",
@@ -286,7 +286,7 @@ func (h *Handler) PublicTriggerScrape(w http.ResponseWriter, r *http.Request) {
 		Waterfront: waterfront,
 	}
 
-	result, err := h.scraperService.ScrapeCity(r.Context(), params)
+	result, err := h.Listings.Scraper.ScrapeCity(r.Context(), params)
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -416,7 +416,7 @@ func (h *Handler) resolveDiscordWebhook(r *http.Request) (string, error) {
 			return hook, nil
 		}
 	}
-	if hook := strings.TrimSpace(h.config.DiscordWebhookURL); hook != "" {
+	if hook := strings.TrimSpace(h.Config.DiscordWebhookURL); hook != "" {
 		return hook, nil
 	}
 	return "", errors.New("no Discord webhook configured — add one under Profile → Notifications")
@@ -449,7 +449,7 @@ func (h *Handler) SendToDiscord(w http.ResponseWriter, r *http.Request) {
 	sentURL := req.URL
 
 	if req.ListingID != "" {
-		listing, err := h.listingService.GetByID(r.Context(), req.ListingID)
+		listing, err := h.Listings.Listing.GetByID(r.Context(), req.ListingID)
 		if err != nil {
 			h.jsonError(w, http.StatusNotFound, "Listing not found")
 			return
@@ -476,7 +476,7 @@ func (h *Handler) SendToDiscord(w http.ResponseWriter, r *http.Request) {
 
 // TestDiscord sends a test message to Discord to verify webhook configuration
 func (h *Handler) TestDiscord(w http.ResponseWriter, r *http.Request) {
-	webhookURL := h.config.DiscordWebhookURL
+	webhookURL := h.Config.DiscordWebhookURL
 	if webhookURL == "" {
 		h.jsonError(w, http.StatusServiceUnavailable, "Discord webhook not configured")
 		return

@@ -16,7 +16,7 @@ func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 		Limit:  6,
 		SortBy: "rating_desc",
 	}
-	result, _ := h.listingService.Search(r.Context(), params)
+	result, _ := h.Listings.Listing.Search(r.Context(), params)
 
 	h.render(w, r, "home.html", map[string]interface{}{
 		"Title":            "Real-Estayer - Find Your Perfect Stay",
@@ -29,14 +29,14 @@ func (h *Handler) DashboardPage(w http.ResponseWriter, r *http.Request) {
 	userID := h.getUserID(r)
 
 	// Get upcoming trips
-	trips, _ := h.tripService.GetUpcoming(r.Context(), userID, 5)
+	trips, _ := h.Trips.Trip.GetUpcoming(r.Context(), userID, 5)
 
 	// Get watchlist stats
-	watchlistStats, _ := h.watchlistService.GetStats(r.Context(), userID)
+	watchlistStats, _ := h.Listings.Watchlist.GetStats(r.Context(), userID)
 
 	// Lifetime-count check drives the onboarding nudge. Cheap on small N;
 	// flip to an aggregation count later if users frequently have dozens.
-	allTrips, _, _ := h.tripService.GetUserTrips(r.Context(), userID, 1, 1)
+	allTrips, _, _ := h.Trips.Trip.GetUserTrips(r.Context(), userID, 1, 1)
 
 	h.render(w, r, "dashboard.html", map[string]interface{}{
 		"Title":          "Dashboard",
@@ -91,11 +91,11 @@ func (h *Handler) ListingsPage(w http.ResponseWriter, r *http.Request) {
 		params.City = locValue
 	}
 
-	result, _ := h.listingService.Search(r.Context(), params)
-	features, _ := h.listingService.GetFeatures(r.Context())
-	states, _ := h.listingService.GetStates(r.Context())
-	provinces, _ := h.listingService.GetProvinces(r.Context())
-	cities, _ := h.listingService.GetCities(r.Context())
+	result, _ := h.Listings.Listing.Search(r.Context(), params)
+	features, _ := h.Listings.Listing.GetFeatures(r.Context())
+	states, _ := h.Listings.Listing.GetStates(r.Context())
+	provinces, _ := h.Listings.Listing.GetProvinces(r.Context())
+	cities, _ := h.Listings.Listing.GetCities(r.Context())
 
 	selectedAmenities := make(map[string]bool)
 	for _, a := range amenities {
@@ -124,7 +124,7 @@ func (h *Handler) ListingsPage(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListingDetailPage(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	listing, err := h.listingService.GetByID(r.Context(), id)
+	listing, err := h.Listings.Listing.GetByID(r.Context(), id)
 	if err != nil {
 		http.Error(w, "Listing not found", http.StatusNotFound)
 		return
@@ -146,7 +146,7 @@ func (h *Handler) FlightsPage(w http.ResponseWriter, r *http.Request) {
 // TripsPage renders the trips list page
 func (h *Handler) TripsPage(w http.ResponseWriter, r *http.Request) {
 	userID := h.getUserID(r)
-	trips, total, _ := h.tripService.GetUserTrips(r.Context(), userID, 1, 20)
+	trips, total, _ := h.Trips.Trip.GetUserTrips(r.Context(), userID, 1, 20)
 
 	h.render(w, r, "trips.html", map[string]interface{}{
 		"Title": "My Trips",
@@ -160,7 +160,7 @@ func (h *Handler) TripDetailPage(w http.ResponseWriter, r *http.Request) {
 	userID := h.getUserID(r)
 	tripID := chi.URLParam(r, "id")
 
-	trip, err := h.tripService.GetByID(r.Context(), userID, tripID)
+	trip, err := h.Trips.Trip.GetByID(r.Context(), userID, tripID)
 	if err != nil {
 		http.Error(w, "Trip not found", http.StatusNotFound)
 		return
@@ -175,7 +175,7 @@ func (h *Handler) TripDetailPage(w http.ResponseWriter, r *http.Request) {
 // WatchlistPage renders the watchlist page
 func (h *Handler) WatchlistPage(w http.ResponseWriter, r *http.Request) {
 	userID := h.getUserID(r)
-	items, _ := h.watchlistService.GetWithListings(r.Context(), userID)
+	items, _ := h.Listings.Watchlist.GetWithListings(r.Context(), userID)
 
 	h.render(w, r, "watchlist.html", map[string]interface{}{
 		"Title":          "My Watchlist",
@@ -196,7 +196,7 @@ func (h *Handler) ProfilePage(w http.ResponseWriter, r *http.Request) {
 // users' events from here; that belongs behind a RequireAdmin route.
 func (h *Handler) SecurityPage(w http.ResponseWriter, r *http.Request) {
 	uid := h.getUserOID(r)
-	events, err := h.auditService.ListByUser(r.Context(), uid, 100)
+	events, err := h.Core.Audit.ListByUser(r.Context(), uid, 100)
 	if err != nil {
 		slog.Warn("security page: list audit events failed", "user_id", uid.Hex(), "error", err)
 		h.ServerError(w, r)

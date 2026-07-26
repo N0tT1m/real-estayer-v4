@@ -26,13 +26,13 @@ func (h *Handler) WatchlistPriceHistorySVG(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	item, err := h.watchlistService.GetForUser(r.Context(), userID, oid)
+	item, err := h.Listings.Watchlist.GetForUser(r.Context(), userID, oid)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
 
-	points, err := h.priceHistorySvc.Recent(r.Context(), item.ListingID, 30)
+	points, err := h.Listings.PriceHistory.Recent(r.Context(), item.ListingID, 30)
 	if err != nil {
 		http.Error(w, "failed to load price history", http.StatusInternalServerError)
 		return
@@ -42,5 +42,5 @@ func (h *Handler) WatchlistPriceHistorySVG(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Cache-Control", "private, max-age=60")
 	// #nosec G705 -- the SVG is built only from numeric price points via
 	// %.2f/%d formatting; no caller-controlled string is interpolated.
-	_, _ = w.Write([]byte(h.priceHistorySvc.RenderSparklineSVG(points)))
+	_, _ = w.Write([]byte(h.Listings.PriceHistory.RenderSparklineSVG(points)))
 }

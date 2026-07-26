@@ -17,7 +17,7 @@ import (
 func (h *Handler) TripICS(w http.ResponseWriter, r *http.Request) {
 	tripID := chi.URLParam(r, "id")
 	userID := h.getUserID(r)
-	trip, err := h.tripService.GetByID(r.Context(), userID, tripID)
+	trip, err := h.Trips.Trip.GetByID(r.Context(), userID, tripID)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
@@ -43,7 +43,7 @@ func (h *Handler) TripReorderItems(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if err := h.tripService.ReorderItems(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), req.ItemIDs); err != nil {
+	if err := h.Trips.Trip.ReorderItems(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), req.ItemIDs); err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -63,7 +63,7 @@ func (h *Handler) TripAddCollaborator(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	c, err := h.tripService.AddCollaboratorByEmail(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), req.Email, req.Role, h.users)
+	c, err := h.Trips.Trip.AddCollaboratorByEmail(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), req.Email, req.Role, h.Core.Users)
 	if err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
@@ -72,7 +72,7 @@ func (h *Handler) TripAddCollaborator(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) TripRemoveCollaborator(w http.ResponseWriter, r *http.Request) {
-	if err := h.tripService.RemoveCollaborator(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), chi.URLParam(r, "userId")); err != nil {
+	if err := h.Trips.Trip.RemoveCollaborator(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), chi.URLParam(r, "userId")); err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -92,7 +92,7 @@ func (h *Handler) TripClone(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	trip, err := h.tripService.Clone(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), req.StartDate, req.Name)
+	trip, err := h.Trips.Trip.Clone(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), req.StartDate, req.Name)
 	if err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
@@ -108,7 +108,7 @@ func (h *Handler) TripSetPackingList(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if err := h.tripService.SetPackingList(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), items); err != nil {
+	if err := h.Trips.Trip.SetPackingList(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), items); err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -121,7 +121,7 @@ func (h *Handler) TripSetChecklist(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if err := h.tripService.SetChecklist(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), items); err != nil {
+	if err := h.Trips.Trip.SetChecklist(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), items); err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -129,7 +129,7 @@ func (h *Handler) TripSetChecklist(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) TripSuggestPacking(w http.ResponseWriter, r *http.Request) {
-	trip, err := h.tripService.GetByID(r.Context(), h.getUserID(r), chi.URLParam(r, "id"))
+	trip, err := h.Trips.Trip.GetByID(r.Context(), h.getUserID(r), chi.URLParam(r, "id"))
 	if err != nil {
 		h.jsonError(w, http.StatusNotFound, "not found")
 		return
@@ -138,7 +138,7 @@ func (h *Handler) TripSuggestPacking(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) TripSuggestChecklist(w http.ResponseWriter, r *http.Request) {
-	trip, err := h.tripService.GetByID(r.Context(), h.getUserID(r), chi.URLParam(r, "id"))
+	trip, err := h.Trips.Trip.GetByID(r.Context(), h.getUserID(r), chi.URLParam(r, "id"))
 	if err != nil {
 		h.jsonError(w, http.StatusNotFound, "not found")
 		return
@@ -154,7 +154,7 @@ type addCommentReq struct {
 }
 
 func (h *Handler) TripListComments(w http.ResponseWriter, r *http.Request) {
-	out, err := h.commentService.List(r.Context(), h.getUserID(r), chi.URLParam(r, "id"))
+	out, err := h.Trips.Comment.List(r.Context(), h.getUserID(r), chi.URLParam(r, "id"))
 	if err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
@@ -168,7 +168,7 @@ func (h *Handler) TripAddComment(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	c, err := h.commentService.Add(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), req.ItemID, req.Body)
+	c, err := h.Trips.Comment.Add(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), req.ItemID, req.Body)
 	if err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
@@ -177,7 +177,7 @@ func (h *Handler) TripAddComment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) TripDeleteComment(w http.ResponseWriter, r *http.Request) {
-	if err := h.commentService.Delete(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), chi.URLParam(r, "commentId")); err != nil {
+	if err := h.Trips.Comment.Delete(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), chi.URLParam(r, "commentId")); err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -196,7 +196,7 @@ type createExpenseReq struct {
 }
 
 func (h *Handler) TripListExpenses(w http.ResponseWriter, r *http.Request) {
-	out, err := h.expenseService.List(r.Context(), h.getUserID(r), chi.URLParam(r, "id"))
+	out, err := h.Trips.Expense.List(r.Context(), h.getUserID(r), chi.URLParam(r, "id"))
 	if err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
@@ -210,7 +210,7 @@ func (h *Handler) TripAddExpense(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	e, err := h.expenseService.Create(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), service.CreateExpenseInput{
+	e, err := h.Trips.Expense.Create(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), service.CreateExpenseInput{
 		Description: req.Description,
 		Category:    req.Category,
 		Amount:      req.Amount,
@@ -226,7 +226,7 @@ func (h *Handler) TripAddExpense(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) TripDeleteExpense(w http.ResponseWriter, r *http.Request) {
-	if err := h.expenseService.Delete(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), chi.URLParam(r, "expenseId")); err != nil {
+	if err := h.Trips.Expense.Delete(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), chi.URLParam(r, "expenseId")); err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -234,7 +234,7 @@ func (h *Handler) TripDeleteExpense(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) TripBudgetSummary(w http.ResponseWriter, r *http.Request) {
-	summary, expenses, err := h.expenseService.Summary(r.Context(), h.getUserID(r), chi.URLParam(r, "id"))
+	summary, expenses, err := h.Trips.Expense.Summary(r.Context(), h.getUserID(r), chi.URLParam(r, "id"))
 	if err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
@@ -246,7 +246,7 @@ func (h *Handler) TripBudgetSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) TripSettleUp(w http.ResponseWriter, r *http.Request) {
-	balances, currency, err := h.expenseService.SettleUp(r.Context(), h.getUserID(r), chi.URLParam(r, "id"))
+	balances, currency, err := h.Trips.Expense.SettleUp(r.Context(), h.getUserID(r), chi.URLParam(r, "id"))
 	if err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
@@ -267,7 +267,7 @@ type addJournalReq struct {
 }
 
 func (h *Handler) TripListJournal(w http.ResponseWriter, r *http.Request) {
-	out, err := h.journalService.List(r.Context(), h.getUserID(r), chi.URLParam(r, "id"))
+	out, err := h.Trips.Journal.List(r.Context(), h.getUserID(r), chi.URLParam(r, "id"))
 	if err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
@@ -281,7 +281,7 @@ func (h *Handler) TripAddJournal(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	j, err := h.journalService.Add(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), service.JournalInput{
+	j, err := h.Trips.Journal.Add(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), service.JournalInput{
 		Title:     req.Title,
 		Body:      req.Body,
 		MediaURLs: req.MediaURLs,
@@ -295,7 +295,7 @@ func (h *Handler) TripAddJournal(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) TripDeleteJournal(w http.ResponseWriter, r *http.Request) {
-	if err := h.journalService.Delete(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), chi.URLParam(r, "entryId")); err != nil {
+	if err := h.Trips.Journal.Delete(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), chi.URLParam(r, "entryId")); err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -316,7 +316,7 @@ func (h *Handler) TripUpsertReview(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	rev, err := h.reviewService.Upsert(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), req.ItemID, req.Rating, req.Body)
+	rev, err := h.Trips.Review.Upsert(r.Context(), h.getUserID(r), chi.URLParam(r, "id"), req.ItemID, req.Rating, req.Body)
 	if err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
@@ -325,7 +325,7 @@ func (h *Handler) TripUpsertReview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) TripListReviews(w http.ResponseWriter, r *http.Request) {
-	out, err := h.reviewService.List(r.Context(), h.getUserID(r), chi.URLParam(r, "id"))
+	out, err := h.Trips.Review.List(r.Context(), h.getUserID(r), chi.URLParam(r, "id"))
 	if err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
@@ -336,7 +336,7 @@ func (h *Handler) TripListReviews(w http.ResponseWriter, r *http.Request) {
 // ===== Weather =====
 
 func (h *Handler) TripWeather(w http.ResponseWriter, r *http.Request) {
-	trip, err := h.tripService.GetByID(r.Context(), h.getUserID(r), chi.URLParam(r, "id"))
+	trip, err := h.Trips.Trip.GetByID(r.Context(), h.getUserID(r), chi.URLParam(r, "id"))
 	if err != nil {
 		h.jsonError(w, http.StatusNotFound, "not found")
 		return
@@ -350,7 +350,7 @@ func (h *Handler) TripWeather(w http.ResponseWriter, r *http.Request) {
 		if days > 14 {
 			days = 14
 		}
-		f, err := h.weatherService.Get(r.Context(), d.Coordinates.Lat, d.Coordinates.Lng, days)
+		f, err := h.Enrich.Weather.Get(r.Context(), d.Coordinates.Lat, d.Coordinates.Lng, days)
 		if err == nil && f != nil {
 			out[d.Name] = f
 		}
@@ -383,7 +383,7 @@ func (h *Handler) ConvertCurrency(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	out, err := h.currencyService.Convert(r.Context(), req.Amount, req.From, req.To)
+	out, err := h.Enrich.Currency.Convert(r.Context(), req.Amount, req.From, req.To)
 	if err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
@@ -413,7 +413,7 @@ func (h *Handler) AIItinerary(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	out, err := h.aiItineraryService.Generate(r.Context(), service.ItineraryRequest{
+	out, err := h.Trips.AIItinerary.Generate(r.Context(), service.ItineraryRequest{
 		Destination: req.Destination,
 		StartDate:   req.StartDate,
 		EndDate:     req.EndDate,
@@ -440,7 +440,7 @@ func (h *Handler) PlacesNearby(w http.ResponseWriter, r *http.Request) {
 	lat, _ := parseFloatParam(q.Get("lat"))
 	lng, _ := parseFloatParam(q.Get("lng"))
 	radius, _ := parseIntParam(q.Get("radius"))
-	out, err := h.placesService.Nearby(r.Context(), category, lat, lng, radius)
+	out, err := h.Enrich.Places.Nearby(r.Context(), category, lat, lng, radius)
 	if err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
@@ -451,7 +451,7 @@ func (h *Handler) PlacesNearby(w http.ResponseWriter, r *http.Request) {
 // ===== Events (Ticketmaster) =====
 
 func (h *Handler) EventsNearby(w http.ResponseWriter, r *http.Request) {
-	if !h.eventsService.Configured() {
+	if !h.Enrich.Events.Configured() {
 		h.jsonError(w, http.StatusServiceUnavailable, "events not configured")
 		return
 	}
@@ -471,7 +471,7 @@ func (h *Handler) EventsNearby(w http.ResponseWriter, r *http.Request) {
 			end = t
 		}
 	}
-	out, err := h.eventsService.Nearby(r.Context(), lat, lng, radius, start, end, limit)
+	out, err := h.Enrich.Events.Nearby(r.Context(), lat, lng, radius, start, end, limit)
 	if err != nil {
 		h.jsonError(w, http.StatusBadGateway, err.Error())
 		return
@@ -483,7 +483,7 @@ func (h *Handler) EventsNearby(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) CollectionsForDestination(w http.ResponseWriter, r *http.Request) {
 	dest := r.URL.Query().Get("destination")
-	out, err := h.collections.ListForDestination(r.Context(), dest)
+	out, err := h.Listings.Collections.ListForDestination(r.Context(), dest)
 	if err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
@@ -498,7 +498,7 @@ func (h *Handler) CollectionsFeatured(w http.ResponseWriter, r *http.Request) {
 			limit = n
 		}
 	}
-	out, err := h.collections.ListFeatured(r.Context(), limit)
+	out, err := h.Listings.Collections.ListFeatured(r.Context(), limit)
 	if err != nil {
 		h.jsonError(w, http.StatusBadRequest, err.Error())
 		return
@@ -508,7 +508,7 @@ func (h *Handler) CollectionsFeatured(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) CollectionPage(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
-	c, err := h.collections.FindBySlug(r.Context(), slug)
+	c, err := h.Listings.Collections.FindBySlug(r.Context(), slug)
 	if err != nil {
 		http.Error(w, "Not found", http.StatusNotFound)
 		return
@@ -527,7 +527,7 @@ func (h *Handler) AroundMePage(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) PrintableTripPage(w http.ResponseWriter, r *http.Request) {
 	tripID := chi.URLParam(r, "id")
-	trip, err := h.tripService.GetByID(r.Context(), h.getUserID(r), tripID)
+	trip, err := h.Trips.Trip.GetByID(r.Context(), h.getUserID(r), tripID)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
@@ -540,7 +540,7 @@ func (h *Handler) PrintableTripPage(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) TripCalendarPage(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
-	trips, _, err := h.tripService.GetUserTrips(r.Context(), userID, 1, 200)
+	trips, _, err := h.Trips.Trip.GetUserTrips(r.Context(), userID, 1, 200)
 	if err != nil {
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -30,7 +30,7 @@ func (h *Handler) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, exists, err := h.resetService.RequestReset(r.Context(), email)
+	token, exists, err := h.Core.Reset.RequestReset(r.Context(), email)
 	if err != nil {
 		slog.Error("request password reset", "error", err)
 	}
@@ -39,7 +39,7 @@ func (h *Handler) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 		// Best-effort email delivery — if SMTP is down we've already persisted
 		// the token, so a retry from the user still works. The response to
 		// the browser doesn't branch on this either way (anti-enumeration).
-		h.resetService.SendResetEmail(email, link)
+		h.Core.Reset.SendResetEmail(email, link)
 	}
 
 	h.render(w, r, "forgot_password.html", map[string]interface{}{
@@ -80,7 +80,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.resetService.CompleteReset(r.Context(), token, password); err != nil {
+	if err := h.Core.Reset.CompleteReset(r.Context(), token, password); err != nil {
 		var msg string
 		switch {
 		case errors.Is(err, service.ErrInvalidCredentials):
