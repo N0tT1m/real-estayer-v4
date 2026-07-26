@@ -135,10 +135,17 @@ jobs:
       - name: Integration tests
         run: cargo test --test integration_tests
 
-  # The app is deployed on Windows, so build and unit-test there too. The Linux
-  # job above stays the primary one (it has the Mongo service and the linters);
-  # this exists to catch path-separator, line-ending and platform-specific
-  # breakage before it reaches the machine that actually runs the thing.
+  # The app is *developed* on Windows, so build and unit-test there too. It is
+  # not deployed there: the Dockerfile builds GOOS=linux onto alpine and runs as
+  # a container on the app host, and the Windows box runs the Rust scraper (it
+  # needs a real Chrome for the stealth flow). So the Linux job above is both
+  # the primary gate and the one matching production; this one exists to catch
+  # path-separator, line-ending and platform-specific breakage on the machine
+  # the code is written on, before it reaches CI or a review.
+  #
+  # See .gitattributes for the other half of that: Windows checkouts would
+  # otherwise commit CRLF and fail the gofmt gate for reasons unrelated to the
+  # change.
   windows:
     name: Go build + test (Windows)
     runs-on: windows-latest
