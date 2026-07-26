@@ -16,6 +16,22 @@ services:
       # Default to the in-network scraper; override to an external host via .env.
       - RUST_SCRAPER_URL=${RUST_SCRAPER_URL:-http://rust-scraper:3001}
       - SCRAPER_API_KEY=${SCRAPER_API_KEY}
+      # Optional integrations. env_file already loads these; naming them here
+      # keeps the set the app actually consumes visible in one place, and lets
+      # a default apply where a blank value would be wrong (SMTP_PORT).
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - AI_MODEL=${AI_MODEL:-}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-}
+      - AI_BASE_URL=${AI_BASE_URL:-}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
+      - FIELD_ENCRYPTION_KEY=${FIELD_ENCRYPTION_KEY:-}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_IMPLICIT_TLS=${SMTP_IMPLICIT_TLS:-false}
+      - EMAIL_FROM=${EMAIL_FROM:-}
+      - EMAIL_FROM_NAME=${EMAIL_FROM_NAME:-Real-Estayer}
       - SESSION_SECRET=${SESSION_SECRET}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8347}
       - ADMIN_BOOTSTRAP_EMAILS=${ADMIN_BOOTSTRAP_EMAILS:-}
@@ -35,6 +51,43 @@ services:
         limits:
           cpus: "1.0"
           memory: 512M
+    restart: unless-stopped
+    networks:
+      - realestayer
+
+  # The scraper the app calls at RUST_SCRAPER_URL. It was previously run off-box
+  # and pointed at by IP, which meant the stack could not be brought up from this
+  # file alone and a scraper outage looked like an app bug.
+  rust-scraper:
+    build:
+      context: ./rust-scraper
+      dockerfile: Dockerfile
+      target: production
+    env_file:
+      - .env
+    environment:
+      # BIND_ADDR defaults to 127.0.0.1:3001 in main.rs, which inside a
+      # container binds the loopback of that container only — the app would
+      # get connection-refused. It must listen on all interfaces here.
+      - BIND_ADDR=0.0.0.0:3001
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/real_estayer}
+      - SCRAPER_API_KEY=${SCRAPER_API_KEY}
+      - ENVIRONMENT=${APP_ENV:-development}
+      # The image symlinks google-chrome to chromium; be explicit so the
+      # WebDriver flow doesn't fall back to a platform guess.
+      - CHROME_BINARY_PATH=/usr/bin/chromium
+    # Chromium crashes on the 64MB default /dev/shm under any real page load.
+    shm_size: 1gb
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      # /health is deliberately exempt from the X-API-Key middleware.
+      test: ["CMD", "curl", "-fsS", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
     networks:
       - realestayer
