@@ -45,7 +45,11 @@ type Config struct {
 
 	// Anthropic key for the AI itinerary builder. Optional.
 	AnthropicAPIKey string
-	AIModel         string
+	// AIModel names the model to call. Set it via AI_MODEL; ANTHROPIC_MODEL
+	// is still read as a fallback but is a misnomer once AIBaseURL points at
+	// a local server, where the value is an ollama tag like "gemma3:27b" and
+	// has nothing to do with Anthropic.
+	AIModel string
 	// AIBaseURL points the AI features at an OpenAI-compatible server
 	// (ollama, vLLM, a local gateway) instead of Anthropic. Must end in
 	// /v1. When empty, the hosted Anthropic API is used.
@@ -117,7 +121,7 @@ func Load() (*Config, error) {
 		MapTilerKey:         os.Getenv("MAPTILER_KEY"),
 		TicketmasterAPIKey:  os.Getenv("TICKETMASTER_API_KEY"),
 		AnthropicAPIKey:     os.Getenv("ANTHROPIC_API_KEY"),
-		AIModel:             getEnv("ANTHROPIC_MODEL", "claude-opus-5"),
+		AIModel:             firstNonEmpty(os.Getenv("AI_MODEL"), os.Getenv("ANTHROPIC_MODEL"), "claude-opus-5"),
 		AIBaseURL:           os.Getenv("AI_BASE_URL"),
 		OpenAQAPIKey:        os.Getenv("OPENAQ_API_KEY"),
 		UnsplashKey:         os.Getenv("UNSPLASH_ACCESS_KEY"),
@@ -319,4 +323,15 @@ func randomHex(n int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
+}
+
+// firstNonEmpty returns the first non-blank value, so a preferred env var can
+// shadow a deprecated one without either becoming mandatory.
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
