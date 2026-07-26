@@ -2,6 +2,9 @@
 // This bypasses WebDriver protocol entirely, making detection much harder
 
 use anyhow::Result;
+use chromiumoxide::cdp::browser_protocol::emulation::{
+    SetUserAgentOverrideParams, UserAgentBrandVersion, UserAgentMetadata,
+};
 use chromiumoxide::{Browser, BrowserConfig, Page};
 use futures::StreamExt;
 use std::sync::Arc;
@@ -11,7 +14,11 @@ use tracing::info;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
-// Anti-detection JavaScript to inject before any page loads
+// Anti-detection JavaScript, registered via
+// Page.addScriptToEvaluateOnNewDocument so it runs before any page script in
+// every frame. It used to be applied with page.evaluate() after goto() returned,
+// which left a window where Airbnb's document-start scripts observed the
+// unpatched values this is meant to hide.
 const STEALTH_JS: &str = r#"
 // Remove webdriver property
 Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
@@ -56,8 +63,11 @@ Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
 // Device memory
 Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
 
-// Platform - match Windows since that's where this runs
-Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+// navigator.platform is deliberately NOT patched here. It is set natively via
+// Emulation.setUserAgentOverride in new_stealth_page(), which also drives
+// navigator.userAgentData and the Sec-CH-UA-* request headers from the same
+// profile. Patching it in JS could only contradict those, and left a
+// Function.prototype.toString tell besides.
 
 // Chrome object (many sites check for this)
 window.chrome = {
@@ -98,21 +108,36 @@ pub struct StealthBrowser {
     handler_task: tokio::task::JoinHandle<()>,
 }
 
+/// Marker embedded in the `--user-data-dir` of every Chrome we launch, so
+/// cleanup can target our own instances instead of every Chrome on the machine.
+pub(crate) const SCRAPER_PROFILE_MARKER: &str = "chrome_scraper_";
+
 impl StealthBrowser {
-    /// Kill any existing Chrome processes to avoid conflicts
+    /// Kill Chrome instances *this scraper* started.
+    ///
+    /// This used to be `pkill -f chrome`, which on Linux and macOS killed the
+    /// operator's own browser along with any orphans. Every Chrome we launch
+    /// carries `--user-data-dir=.../chrome_scraper_<pid>`, so matching on that
+    /// marker scopes the kill to instances we are responsible for.
     fn kill_existing_chrome() {
-        info!("[STEALTH] Killing any existing Chrome processes...");
+        info!("[STEALTH] Killing orphaned scraper Chrome processes...");
         #[cfg(target_os = "windows")]
         {
-            let _ = std::process::Command::new("taskkill")
-                .args(["/IM", "chrome.exe", "/F"])
+            // taskkill has no command-line filter, so match the marker via WMI.
+            let _ = std::process::Command::new("wmic")
+                .args([
+                    "process",
+                    "where",
+                    &format!("CommandLine like '%{}%'", SCRAPER_PROFILE_MARKER),
+                    "delete",
+                ])
                 .creation_flags(0x08000000) // CREATE_NO_WINDOW
                 .output();
         }
         #[cfg(not(target_os = "windows"))]
         {
             let _ = std::process::Command::new("pkill")
-                .args(["-f", "chrome"])
+                .args(["-f", SCRAPER_PROFILE_MARKER])
                 .output();
         }
         // Give processes time to die
@@ -132,12 +157,12 @@ impl StealthBrowser {
 
         // Create a unique user data directory to avoid profile conflicts
         let user_data_dir =
-            std::env::temp_dir().join(format!("chrome_scraper_{}", std::process::id()));
+            std::env::temp_dir().join(format!("{}{}", SCRAPER_PROFILE_MARKER, std::process::id()));
         let user_data_arg = format!("--user-data-dir={}", user_data_dir.display());
         info!("[STEALTH] Using temp profile: {}", user_data_dir.display());
 
         // Build browser config with stealth options
-        let config = BrowserConfig::builder()
+        let mut builder = BrowserConfig::builder()
             .chrome_executable(chrome_path)
             .window_size(1920, 1080)
             .request_timeout(std::time::Duration::from_secs(120))
@@ -159,11 +184,38 @@ impl StealthBrowser {
             .arg("--metrics-recording-only")
             .arg("--no-first-run")
             .arg("--safebrowsing-disable-auto-update")
-            // Disable GPU to avoid rendering issues
-            .arg("--disable-gpu")
-            .arg("--disable-software-rasterizer")
-            // Randomized user agent
-            .arg("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+            // User agent from the pinned profile. new_stealth_page() then calls
+            // setUserAgentOverride with the matching platform and client-hint
+            // metadata, so the UA, navigator.platform, navigator.userAgentData,
+            // and the Sec-CH-UA-* headers all originate from one identity.
+            .arg(format!(
+                "--user-agent={}",
+                crate::scraping::profile::active().user_agent
+            ));
+
+        // GPU stays enabled by default. Every real browser reports a hardware
+        // WebGL renderer, so a missing one — or SwiftShader — is a strong bot
+        // signal, and the renderer string is exactly the kind of hardware fact
+        // that contradicts the platform this profile claims.
+        // SCRAPER_DISABLE_GPU=1 restores the old behaviour for hosts where GPU
+        // rendering genuinely breaks.
+        if crate::routes::gpu_disabled() {
+            info!("[STEALTH] SCRAPER_DISABLE_GPU set: disabling GPU (detectable)");
+            builder = builder
+                .arg("--disable-gpu")
+                .arg("--disable-software-rasterizer");
+        }
+
+        // Same egress rotation the HTTP fast path uses.
+        if let Some(proxy_url) = crate::scraping::proxy::next() {
+            info!(
+                "[STEALTH] Routing browser via {}",
+                crate::scraping::proxy::redact(&proxy_url)
+            );
+            builder = builder.arg(format!("--proxy-server={}", proxy_url));
+        }
+
+        let config = builder
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build browser config: {}", e))?;
 
@@ -215,7 +267,11 @@ impl StealthBrowser {
         Err(anyhow::anyhow!("Chrome binary not found"))
     }
 
-    /// Create a new stealth page with anti-detection scripts injected
+    /// Create a new stealth page with anti-detection measures registered.
+    ///
+    /// Order matters. Both the UA override and the document-start script are
+    /// registered while the page is still on about:blank, so they are already in
+    /// effect for the first real navigation.
     pub async fn new_stealth_page(&self) -> Result<Page> {
         info!("[STEALTH] Creating new stealth page...");
 
@@ -225,14 +281,83 @@ impl StealthBrowser {
             .await
             .map_err(|e| anyhow::anyhow!("Failed to create new page: {}", e))?;
 
-        // Inject stealth JavaScript before any navigation
-        page.evaluate(STEALTH_JS)
+        Self::apply_user_agent_override(&page).await?;
+
+        // Register the stealth script to run before any page script in every
+        // frame, for every document this page loads. page.evaluate() would run
+        // it against the *current* document only, and only once the call
+        // resolves — too late for Airbnb's own document-start scripts.
+        page.evaluate_on_new_document(STEALTH_JS)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to inject stealth JS: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to register stealth JS: {}", e))?;
 
         info!("[STEALTH] Stealth page created and configured");
 
         Ok(page)
+    }
+
+    /// Set the UA, `navigator.platform`, `navigator.userAgentData`, and the
+    /// `Sec-CH-UA-*` request headers from the pinned profile in one CDP call.
+    ///
+    /// Doing this natively rather than in injected JS matters twice over: Chrome
+    /// applies it below the JS layer, so there is no `Function.prototype
+    /// .toString` tell and no ordering window, and it keeps `userAgentData`
+    /// consistent with `navigator.platform`. Patching only `navigator.platform`
+    /// in JS left `userAgentData.platform` reporting the true host OS — a
+    /// one-line contradiction for any detector that reads both.
+    async fn apply_user_agent_override(page: &Page) -> Result<()> {
+        let profile = crate::scraping::profile::active();
+
+        let mut builder = SetUserAgentOverrideParams::builder()
+            .user_agent(&profile.user_agent)
+            .accept_language(profile.accept_language)
+            .platform(profile.navigator_platform);
+
+        // Only Chromium exposes navigator.userAgentData. Attaching metadata to a
+        // Gecko or WebKit identity would manufacture the very contradiction the
+        // profile exists to avoid.
+        if let Some(brands) = profile.brands.as_ref() {
+            let brand_versions: Vec<UserAgentBrandVersion> = brands
+                .iter()
+                .map(|(brand, version)| UserAgentBrandVersion::new(brand, version))
+                .collect();
+            let full_versions: Vec<UserAgentBrandVersion> = brands
+                .iter()
+                .map(|(brand, _)| UserAgentBrandVersion::new(brand, &profile.full_version))
+                .collect();
+
+            let metadata = UserAgentMetadata::builder()
+                .brands(brand_versions)
+                .full_version_lists(full_versions)
+                .platform(profile.ch_platform)
+                .platform_version(profile.ch_platform_version)
+                .architecture(profile.architecture)
+                .bitness(profile.bitness)
+                .model("")
+                .mobile(false)
+                .build()
+                .map_err(|e| anyhow::anyhow!("Failed to build userAgentMetadata: {}", e))?;
+
+            builder = builder.user_agent_metadata(metadata);
+        }
+
+        let params = builder
+            .build()
+            .map_err(|e| anyhow::anyhow!("Failed to build UA override: {}", e))?;
+
+        // page.set_user_agent() takes the legacy Network-domain params, which
+        // carry no userAgentMetadata; issue the Emulation command directly.
+        page.execute(params)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to apply UA override: {}", e))?;
+
+        info!(
+            "[STEALTH] UA override applied: platform={} client_hints={}",
+            profile.navigator_platform,
+            profile.brands.is_some()
+        );
+
+        Ok(())
     }
 
     /// Navigate to a URL with stealth measures and retry logic
@@ -251,8 +376,13 @@ impl StealthBrowser {
 
             match nav_result {
                 Ok(Ok(_)) => {
-                    // Re-inject stealth JS after navigation (some sites check after load)
-                    page.evaluate(STEALTH_JS).await.ok(); // Ignore errors here
+                    // No re-injection here. The script is registered with
+                    // addScriptToEvaluateOnNewDocument in new_stealth_page(), so
+                    // it has already run before this document's own scripts.
+                    // Re-running it post-load was strictly worse: it could not
+                    // help anything that had already read the real values, and
+                    // re-applying the Function.prototype.toString patch over an
+                    // already-patched toString is how that trick gets noticed.
 
                     // Wait for page to be somewhat loaded
                     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -478,18 +608,27 @@ impl StealthDriver {
         Ok(())
     }
 
-    /// Kill any lingering Chrome processes (platform-specific)
+    /// Kill lingering Chrome processes *this scraper* started.
+    ///
+    /// Scoped by the `--user-data-dir` marker for the same reason as
+    /// [`StealthBrowser::kill_existing_chrome`]: the previous `pkill -f chrome`
+    /// took the operator's browser down with it.
     fn kill_chrome_processes() {
         #[cfg(target_os = "windows")]
         {
-            let _ = std::process::Command::new("taskkill")
-                .args(["/IM", "chrome.exe", "/F"])
+            let _ = std::process::Command::new("wmic")
+                .args([
+                    "process",
+                    "where",
+                    &format!("CommandLine like '%{}%'", SCRAPER_PROFILE_MARKER),
+                    "delete",
+                ])
                 .output();
         }
         #[cfg(not(target_os = "windows"))]
         {
             let _ = std::process::Command::new("pkill")
-                .args(["-f", "chrome"])
+                .args(["-f", SCRAPER_PROFILE_MARKER])
                 .output();
         }
     }
