@@ -2,9 +2,9 @@
 // only visibility was widened so cross-module calls resolve.
 
 use super::*;
-use base64::{Engine as _};
 use crate::models::Coordinates;
 use crate::models::Listing;
+use base64::Engine as _;
 
 // Extract data from page source using regex patterns
 pub(crate) fn extract_title_from_source(html: &str) -> Option<String> {
@@ -16,14 +16,17 @@ pub(crate) fn extract_title_from_source(html: &str) -> Option<String> {
             }
         }
     }
-    
+
     // Try meta og:title
     if let Some(title) = extract_meta_content(html, "og:title") {
         return Some(title);
     }
-    
+
     // Try page title
-    if let Some(captures) = regex::Regex::new(r"<title>([^<]+)</title>").unwrap().captures(html) {
+    if let Some(captures) = regex::Regex::new(r"<title>([^<]+)</title>")
+        .unwrap()
+        .captures(html)
+    {
         if let Some(title) = captures.get(1) {
             let title_text = title.as_str().trim();
             // Extract just the property name part before " - Apartments"
@@ -33,7 +36,7 @@ pub(crate) fn extract_title_from_source(html: &str) -> Option<String> {
             return Some(title_text.to_string());
         }
     }
-    
+
     None
 }
 
@@ -46,17 +49,17 @@ pub(crate) fn extract_picture_url_from_source(html: &str) -> Option<String> {
             }
         }
     }
-    
+
     // Try meta og:image
     if let Some(image_url) = extract_meta_content(html, "og:image") {
         return Some(image_url);
     }
-    
+
     // Try meta twitter:image
     if let Some(image_url) = extract_meta_content(html, "twitter:image") {
         return Some(image_url);
     }
-    
+
     None
 }
 
@@ -82,20 +85,31 @@ pub(crate) fn extract_description_from_source(html: &str) -> Option<String> {
         if let Some(description) = json_ld.get("description").and_then(|v| v.as_str()) {
             let trimmed = description.trim();
             // Validate description is meaningful
-            if !trimmed.is_empty() && trimmed != "null" && trimmed != "undefined" && trimmed.len() >= 10 {
-                debug!("Found valid description in JSON-LD: '{}'", safe_truncate(trimmed, 100));
+            if !trimmed.is_empty()
+                && trimmed != "null"
+                && trimmed != "undefined"
+                && trimmed.len() >= 10
+            {
+                debug!(
+                    "Found valid description in JSON-LD: '{}'",
+                    safe_truncate(trimmed, 100)
+                );
                 return Some(trimmed.to_string());
             }
         }
     }
-    
+
     // Try meta description
     if let Some(description) = extract_meta_content(html, "description") {
         let trimmed = description.trim();
         // Validate description is meaningful
-        if !trimmed.is_empty() && trimmed != "null" && trimmed != "undefined" && trimmed.len() >= 10 {
-            debug!("Found valid description in meta: '{}'", safe_truncate(trimmed, 100));
-            
+        if !trimmed.is_empty() && trimmed != "null" && trimmed != "undefined" && trimmed.len() >= 10
+        {
+            debug!(
+                "Found valid description in meta: '{}'",
+                safe_truncate(trimmed, 100)
+            );
+
             // Extract just the description part, remove the date prefix
             if let Some(pos) = trimmed.find(" - ") {
                 let desc_part = &trimmed[pos + 3..];
@@ -110,7 +124,7 @@ pub(crate) fn extract_description_from_source(html: &str) -> Option<String> {
             return Some(trimmed.to_string());
         }
     }
-    
+
     debug!("No valid description found (empty, null, or too short)");
     None
 }
@@ -140,10 +154,7 @@ pub(crate) fn extract_price_from_source(html: &str) -> Option<String> {
 
         // Check for other price fields in JSON-LD
         if let Some(price_range) = json_ld.get("priceRange").and_then(|p| p.as_str()) {
-            let price_patterns = [
-                r"\$(\d+)",
-                r"(\d+)",
-            ];
+            let price_patterns = [r"\$(\d+)", r"(\d+)"];
             for pattern in price_patterns {
                 if let Ok(regex) = regex::Regex::new(pattern) {
                     if let Some(captures) = regex.captures(price_range) {
@@ -168,13 +179,13 @@ pub(crate) fn extract_price_from_source(html: &str) -> Option<String> {
 
         // Try multiple price patterns with validation
         let price_patterns = [
-            r"for \$(\d+)",              // "for $199"
-            r"unit for \$(\d+)",         // "Entire rental unit for $115"
-            r"\$(\d+)\b",                // "$199" (word boundary to avoid partial matches)
-            r"(\d+) per night",          // "199 per night"
-            r"(\d+)/night",              // "199/night"
-            r"Starting at \$(\d+)",      // "Starting at $199"
-            r"from \$(\d+)",             // "from $199"
+            r"for \$(\d+)",         // "for $199"
+            r"unit for \$(\d+)",    // "Entire rental unit for $115"
+            r"\$(\d+)\b",           // "$199" (word boundary to avoid partial matches)
+            r"(\d+) per night",     // "199 per night"
+            r"(\d+)/night",         // "199/night"
+            r"Starting at \$(\d+)", // "Starting at $199"
+            r"from \$(\d+)",        // "from $199"
         ];
 
         for (i, pattern) in price_patterns.iter().enumerate() {
@@ -190,7 +201,10 @@ pub(crate) fn extract_price_from_source(html: &str) -> Option<String> {
                             info!("Parsed price value: {}", price_val);
                             if (10..=10000).contains(&price_val) {
                                 let price_str = format!("${}", price_num);
-                                info!("Found valid price with pattern '{}': '{}'", pattern, price_str);
+                                info!(
+                                    "Found valid price with pattern '{}': '{}'",
+                                    pattern, price_str
+                                );
                                 return Some(price_str);
                             } else {
                                 warn!("Price {} outside reasonable range (10-10000)", price_val);
@@ -230,9 +244,16 @@ pub(crate) fn extract_price_from_airbnb_json(html: &str) -> Option<String> {
     if !SAVED.swap(true, std::sync::atomic::Ordering::SeqCst) {
         if let Ok(json_str) = serde_json::to_string_pretty(&json_data) {
             let _ = std::fs::create_dir_all("logs");
-            let path = format!("logs/airbnb_json_debug_{}.json", chrono::Utc::now().timestamp());
+            let path = format!(
+                "logs/airbnb_json_debug_{}.json",
+                chrono::Utc::now().timestamp()
+            );
             if std::fs::write(&path, &json_str).is_ok() {
-                info!("Saved Airbnb JSON to {} for debugging ({} bytes)", path, json_str.len());
+                info!(
+                    "Saved Airbnb JSON to {} for debugging ({} bytes)",
+                    path,
+                    json_str.len()
+                );
             }
         }
     }
@@ -247,16 +268,27 @@ pub(crate) fn extract_price_from_airbnb_json(html: &str) -> Option<String> {
             serde_json::Value::Object(map) => {
                 // Check for common price field names
                 let price_fields = [
-                    "price", "priceString", "discountedPrice", "originalPrice",
-                    "displayPrice", "formattedPrice", "priceForDisplay", "total",
-                    "nightlyPrice", "basePrice", "priceLabel", "amount",
+                    "price",
+                    "priceString",
+                    "discountedPrice",
+                    "originalPrice",
+                    "displayPrice",
+                    "formattedPrice",
+                    "priceForDisplay",
+                    "total",
+                    "nightlyPrice",
+                    "basePrice",
+                    "priceLabel",
+                    "amount",
                 ];
 
                 for field in price_fields {
                     if let Some(price_val) = map.get(field) {
                         if let Some(price_str) = price_val.as_str() {
                             // Check if it looks like a price (contains $ or a number)
-                            if price_str.contains('$') || price_str.chars().any(|c| c.is_ascii_digit()) {
+                            if price_str.contains('$')
+                                || price_str.chars().any(|c| c.is_ascii_digit())
+                            {
                                 let cleaned = price_str.trim();
                                 if !cleaned.is_empty() && cleaned != "$0" {
                                     return Some(cleaned.to_string());
@@ -282,12 +314,15 @@ pub(crate) fn extract_price_from_airbnb_json(html: &str) -> Option<String> {
                                 return Some(price.to_string());
                             }
                         }
-                        if let Some(price) = primary.get("discountedPrice").and_then(|p| p.as_str()) {
+                        if let Some(price) = primary.get("discountedPrice").and_then(|p| p.as_str())
+                        {
                             if !price.is_empty() {
                                 return Some(price.to_string());
                             }
                         }
-                        if let Some(access_label) = primary.get("accessibilityLabel").and_then(|p| p.as_str()) {
+                        if let Some(access_label) =
+                            primary.get("accessibilityLabel").and_then(|p| p.as_str())
+                        {
                             // Try to extract price from accessibility label like "$150 per night"
                             if let Some(price) = extract_price_from_text(access_label) {
                                 return Some(price);
@@ -354,9 +389,10 @@ pub(crate) fn extract_price_from_airbnb_json(html: &str) -> Option<String> {
             // Check for PdpFramework data
             if let Some(data) = entry.get("data") {
                 // Try stayProductDetailPage path
-                if let Some(pdp) = data.get("presentation")
-                    .and_then(|p| p.get("stayProductDetailPage")) {
-
+                if let Some(pdp) = data
+                    .get("presentation")
+                    .and_then(|p| p.get("stayProductDetailPage"))
+                {
                     debug!("Found stayProductDetailPage, searching for price...");
 
                     // Look in sections
@@ -397,9 +433,9 @@ pub(crate) fn extract_price_from_airbnb_json(html: &str) -> Option<String> {
 /// Extract price from text using regex patterns
 pub(crate) fn extract_price_from_text(text: &str) -> Option<String> {
     let price_patterns = [
-        r"\$(\d+(?:,\d{3})*(?:\.\d{2})?)",  // $150, $1,500, $150.00
-        r"(\d+(?:,\d{3})*(?:\.\d{2})?) per night",  // 150 per night
-        r"(\d+(?:,\d{3})*(?:\.\d{2})?)/night",  // 150/night
+        r"\$(\d+(?:,\d{3})*(?:\.\d{2})?)",         // $150, $1,500, $150.00
+        r"(\d+(?:,\d{3})*(?:\.\d{2})?) per night", // 150 per night
+        r"(\d+(?:,\d{3})*(?:\.\d{2})?)/night",     // 150/night
     ];
 
     for pattern in price_patterns {
@@ -429,7 +465,7 @@ pub(crate) fn extract_rating_from_source(html: &str) -> Option<String> {
             }
         }
     }
-    
+
     // Try meta og:title which contains "★4.89"
     if let Some(title) = extract_meta_content(html, "og:title") {
         if let Some(captures) = regex::Regex::new(r"★(\d+\.\d+)").unwrap().captures(&title) {
@@ -438,7 +474,7 @@ pub(crate) fn extract_rating_from_source(html: &str) -> Option<String> {
             }
         }
     }
-    
+
     None
 }
 
@@ -451,7 +487,7 @@ pub(crate) fn extract_location_from_source(html: &str) -> Option<String> {
             }
         }
     }
-    
+
     // Try meta og:title which contains location info
     if let Some(title) = extract_meta_content(html, "og:title") {
         if let Some(pos) = title.find(" in ") {
@@ -461,21 +497,21 @@ pub(crate) fn extract_location_from_source(html: &str) -> Option<String> {
             }
         }
     }
-    
+
     None
 }
 
 pub(crate) fn extract_price_from_title(title: &str) -> Option<String> {
     use tracing::debug;
-    
+
     // Try to extract price from title if it contains price information
     let price_patterns = [
-        r"\$(\d+)",           // $199
-        r"(\d+) per night",   // 199 per night
-        r"(\d+)/night",       // 199/night
-        r"from \$(\d+)",      // from $199
+        r"\$(\d+)",         // $199
+        r"(\d+) per night", // 199 per night
+        r"(\d+)/night",     // 199/night
+        r"from \$(\d+)",    // from $199
     ];
-    
+
     for pattern in price_patterns {
         if let Ok(regex) = regex::Regex::new(pattern) {
             if let Some(captures) = regex.captures(title) {
@@ -487,38 +523,38 @@ pub(crate) fn extract_price_from_title(title: &str) -> Option<String> {
             }
         }
     }
-    
+
     debug!("No price found in title: '{}'", title);
     None
 }
 
 pub(crate) fn extract_listing_urls_from_source(html: &str) -> Vec<String> {
     use tracing::{debug, info};
-    
+
     let mut urls = Vec::new();
-    
+
     // Try multiple regex patterns to find listing URLs in the page source
     let patterns = [
-        r#"href="(/rooms/[^"]+)""#,                    // Direct room links
-        r#"href="(/homes/[^"]+)""#,                    // Home links
-        r#""url":"([^"]*(?:/rooms/|/homes/)[^"]*)"#,   // JSON url field
-        r#""@id":"([^"]*(?:/rooms/|/homes/)[^"]*)"#,   // JSON-LD @id field
-        r#"https://www\.airbnb\.com/rooms/[0-9]+"#,    // Full room URLs
-        r#"https://www\.airbnb\.com/homes/[0-9]+"#,    // Full home URLs
+        r#"href="(/rooms/[^"]+)""#,                  // Direct room links
+        r#"href="(/homes/[^"]+)""#,                  // Home links
+        r#""url":"([^"]*(?:/rooms/|/homes/)[^"]*)"#, // JSON url field
+        r#""@id":"([^"]*(?:/rooms/|/homes/)[^"]*)"#, // JSON-LD @id field
+        r#"https://www\.airbnb\.com/rooms/[0-9]+"#,  // Full room URLs
+        r#"https://www\.airbnb\.com/homes/[0-9]+"#,  // Full home URLs
     ];
-    
+
     for (i, pattern) in patterns.iter().enumerate() {
         if let Ok(regex) = regex::Regex::new(pattern) {
             let matches: Vec<_> = regex.captures_iter(html).collect();
             debug!("Pattern {} found {} matches", i + 1, matches.len());
-            
+
             for captures in matches {
                 let url_str = if captures.len() > 1 {
                     captures.get(1).map(|m| m.as_str()).unwrap_or("")
                 } else {
                     captures.get(0).map(|m| m.as_str()).unwrap_or("")
                 };
-                
+
                 if !url_str.is_empty() {
                     let full_url = construct_airbnb_url(url_str);
                     if !urls.contains(&full_url) {
@@ -528,28 +564,31 @@ pub(crate) fn extract_listing_urls_from_source(html: &str) -> Vec<String> {
             }
         }
     }
-    
+
     if !urls.is_empty() {
-        info!("Regex extracted {} unique listing URLs from page source", urls.len());
+        info!(
+            "Regex extracted {} unique listing URLs from page source",
+            urls.len()
+        );
     } else {
         debug!("No listing URLs found in page source using regex");
     }
-    
+
     urls
 }
 
 pub(crate) fn extract_listing_urls_from_json_ld(html: &str) -> Option<Vec<String>> {
     use tracing::{debug, info};
-    
+
     // Extract all JSON-LD blocks and look for listing URLs
     let patterns = [
         r#"<script type="application/ld\+json">([^<]+)</script>"#,
         r#"<script type="application/ld\+json">\s*([^<]+)\s*</script>"#,
         r#"<script[^>]*type="application/ld\+json"[^>]*>([^<]+)</script>"#,
     ];
-    
+
     let mut listing_urls = Vec::new();
-    
+
     for pattern in patterns {
         if let Ok(regex) = regex::Regex::new(pattern) {
             for captures in regex.captures_iter(html) {
@@ -562,7 +601,7 @@ pub(crate) fn extract_listing_urls_from_json_ld(html: &str) -> Option<Vec<String
                         Ok(json_value) => {
                             // Look for listing URLs in various JSON-LD structures
                             extract_urls_from_json_value(&json_value, &mut listing_urls);
-                        },
+                        }
                         Err(e) => {
                             debug!("Failed to parse JSON-LD: {}", e);
                         }
@@ -571,7 +610,7 @@ pub(crate) fn extract_listing_urls_from_json_ld(html: &str) -> Option<Vec<String
             }
         }
     }
-    
+
     if !listing_urls.is_empty() {
         info!("Extracted {} listing URLs from JSON-LD", listing_urls.len());
         Some(listing_urls)
@@ -583,7 +622,7 @@ pub(crate) fn extract_listing_urls_from_json_ld(html: &str) -> Option<Vec<String
 
 pub(crate) fn extract_urls_from_json_value(value: &serde_json::Value, urls: &mut Vec<String>) {
     use tracing::debug;
-    
+
     match value {
         serde_json::Value::Object(obj) => {
             // Look for URL fields
@@ -596,7 +635,7 @@ pub(crate) fn extract_urls_from_json_value(value: &serde_json::Value, urls: &mut
                     }
                 }
             }
-            
+
             // Look for @id fields
             if let Some(id_val) = obj.get("@id") {
                 if let Some(id_str) = id_val.as_str() {
@@ -607,41 +646,42 @@ pub(crate) fn extract_urls_from_json_value(value: &serde_json::Value, urls: &mut
                     }
                 }
             }
-            
+
             // Recursively search in all object values
             for (_, v) in obj {
                 extract_urls_from_json_value(v, urls);
             }
-        },
+        }
         serde_json::Value::Array(arr) => {
             // Recursively search in all array elements
             for item in arr {
                 extract_urls_from_json_value(item, urls);
             }
-        },
+        }
         serde_json::Value::String(s) => {
             // Check if string itself is a listing URL
             if (s.contains("/rooms/") || s.contains("/homes/"))
-                && (s.starts_with("http") || s.starts_with("/")) {
-                    let full_url = construct_airbnb_url(s);
-                    urls.push(full_url);
-                    debug!("Found listing URL in JSON-LD string: {}", s);
-                }
-        },
+                && (s.starts_with("http") || s.starts_with("/"))
+            {
+                let full_url = construct_airbnb_url(s);
+                urls.push(full_url);
+                debug!("Found listing URL in JSON-LD string: {}", s);
+            }
+        }
         _ => {} // Ignore other types
     }
 }
 
 pub(crate) fn extract_json_ld(html: &str) -> Option<serde_json::Value> {
     use tracing::debug;
-    
+
     // Find JSON-LD script tag - try multiple patterns
     let patterns = [
         r#"<script type="application/ld\+json">([^<]+)</script>"#,
         r#"<script type="application/ld\+json">\s*([^<]+)\s*</script>"#,
         r#"<script[^>]*type="application/ld\+json"[^>]*>([^<]+)</script>"#,
     ];
-    
+
     for pattern in patterns {
         if let Ok(regex) = regex::Regex::new(pattern) {
             if let Some(captures) = regex.captures(html) {
@@ -650,12 +690,12 @@ pub(crate) fn extract_json_ld(html: &str) -> Option<serde_json::Value> {
                     // Safely truncate for logging (handle multi-byte UTF-8 chars like emojis)
                     let preview: String = json_text.chars().take(200).collect();
                     debug!("Found JSON-LD content: {}", preview);
-                    
+
                     match serde_json::from_str::<serde_json::Value>(json_text) {
                         Ok(json_value) => {
                             debug!("Successfully parsed JSON-LD");
                             return Some(json_value);
-                        },
+                        }
                         Err(e) => {
                             debug!("Failed to parse JSON-LD: {}", e);
                         }
@@ -664,14 +704,14 @@ pub(crate) fn extract_json_ld(html: &str) -> Option<serde_json::Value> {
             }
         }
     }
-    
+
     debug!("No JSON-LD found in HTML");
     None
 }
 
 pub(crate) fn extract_region_from_url(url: &str) -> Option<String> {
     use tracing::debug;
-    
+
     // Try to extract region from URL patterns or referrer
     // Common patterns in Airbnb search URLs or listing URLs
     if let Ok(parsed_url) = url::Url::parse(url) {
@@ -680,7 +720,7 @@ pub(crate) fn extract_region_from_url(url: &str) -> Option<String> {
             if key == "location" || key == "place_id" || key == "region" {
                 let location = value.to_string();
                 debug!("Found region in URL parameter '{}': '{}'", key, location);
-                
+
                 // Extract city/region name from location string
                 let parts: Vec<&str> = location.split(',').collect();
                 if !parts.is_empty() {
@@ -692,7 +732,7 @@ pub(crate) fn extract_region_from_url(url: &str) -> Option<String> {
                 }
             }
         }
-        
+
         // Check if path contains location info
         let path = parsed_url.path();
         if path.contains("/s/") {
@@ -711,33 +751,38 @@ pub(crate) fn extract_region_from_url(url: &str) -> Option<String> {
             }
         }
     }
-    
+
     debug!("No region found in URL: '{}'", url);
     None
 }
 
 pub(crate) fn extract_region_country_from_source(html: &str) -> (Option<String>, Option<String>) {
     use tracing::debug;
-    
+
     // Try to extract from JSON-LD address
     if let Some(json_ld) = extract_json_ld(html) {
         if let Some(address) = json_ld.get("address") {
-            let region = address.get("addressRegion")
+            let region = address
+                .get("addressRegion")
                 .and_then(|v| v.as_str())
                 .filter(|s| !s.trim().is_empty() && *s != "null" && *s != "undefined")
                 .map(|s| s.trim().to_string());
-            let country = address.get("addressCountry")
+            let country = address
+                .get("addressCountry")
                 .and_then(|v| v.as_str())
                 .filter(|s| !s.trim().is_empty() && *s != "null" && *s != "undefined")
                 .map(|s| s.trim().to_string());
-            
+
             if region.is_some() || country.is_some() {
-                debug!("Found region/country in JSON-LD: {:?}/{:?}", region, country);
+                debug!(
+                    "Found region/country in JSON-LD: {:?}/{:?}",
+                    region, country
+                );
                 return (region, country);
             }
         }
     }
-    
+
     // Try to extract from meta og:title which might contain state/country info
     if let Some(title) = extract_meta_content(html, "og:title") {
         // Pattern: "Rental unit in Traverse City · ★4.89 · 1 bedroom · 3 beds · 1 bath"
@@ -746,32 +791,138 @@ pub(crate) fn extract_region_country_from_source(html: &str) -> (Option<String>,
             let location_part = &title[pos + 4..];
             if let Some(end_pos) = location_part.find(" ·") {
                 let full_location = &location_part[..end_pos];
-                
+
                 // Split by comma to get city, state/region, country
-                let parts: Vec<&str> = full_location.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
-                
+                let parts: Vec<&str> = full_location
+                    .split(',')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
                 match parts.len() {
                     2 => {
                         // "City, State" or "City, Country"
                         let region_or_country = parts[1].to_string();
                         // Comprehensive US states and territories list
                         let us_states = [
-                            "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware",
-                            "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky",
-                            "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi",
-                            "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico",
-                            "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania",
-                            "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont",
-                            "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming", "DC", "District of Columbia",
-                            "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS",
-                            "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM",
-                            "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY"
+                            "Alabama",
+                            "Alaska",
+                            "Arizona",
+                            "Arkansas",
+                            "California",
+                            "Colorado",
+                            "Connecticut",
+                            "Delaware",
+                            "Florida",
+                            "Georgia",
+                            "Hawaii",
+                            "Idaho",
+                            "Illinois",
+                            "Indiana",
+                            "Iowa",
+                            "Kansas",
+                            "Kentucky",
+                            "Louisiana",
+                            "Maine",
+                            "Maryland",
+                            "Massachusetts",
+                            "Michigan",
+                            "Minnesota",
+                            "Mississippi",
+                            "Missouri",
+                            "Montana",
+                            "Nebraska",
+                            "Nevada",
+                            "New Hampshire",
+                            "New Jersey",
+                            "New Mexico",
+                            "New York",
+                            "North Carolina",
+                            "North Dakota",
+                            "Ohio",
+                            "Oklahoma",
+                            "Oregon",
+                            "Pennsylvania",
+                            "Rhode Island",
+                            "South Carolina",
+                            "South Dakota",
+                            "Tennessee",
+                            "Texas",
+                            "Utah",
+                            "Vermont",
+                            "Virginia",
+                            "Washington",
+                            "West Virginia",
+                            "Wisconsin",
+                            "Wyoming",
+                            "DC",
+                            "District of Columbia",
+                            "AL",
+                            "AK",
+                            "AZ",
+                            "AR",
+                            "CA",
+                            "CO",
+                            "CT",
+                            "DE",
+                            "FL",
+                            "GA",
+                            "HI",
+                            "ID",
+                            "IL",
+                            "IN",
+                            "IA",
+                            "KS",
+                            "KY",
+                            "LA",
+                            "ME",
+                            "MD",
+                            "MA",
+                            "MI",
+                            "MN",
+                            "MS",
+                            "MO",
+                            "MT",
+                            "NE",
+                            "NV",
+                            "NH",
+                            "NJ",
+                            "NM",
+                            "NY",
+                            "NC",
+                            "ND",
+                            "OH",
+                            "OK",
+                            "OR",
+                            "PA",
+                            "RI",
+                            "SC",
+                            "SD",
+                            "TN",
+                            "TX",
+                            "UT",
+                            "VT",
+                            "VA",
+                            "WA",
+                            "WV",
+                            "WI",
+                            "WY",
                         ];
                         if us_states.contains(&region_or_country.as_str()) {
                             return (Some(region_or_country), Some("United States".to_string()));
                         } else {
                             // Check for common countries
-                            let countries = ["Canada", "Mexico", "United Kingdom", "France", "Germany", "Spain", "Italy", "Australia", "Japan"];
+                            let countries = [
+                                "Canada",
+                                "Mexico",
+                                "United Kingdom",
+                                "France",
+                                "Germany",
+                                "Spain",
+                                "Italy",
+                                "Australia",
+                                "Japan",
+                            ];
                             if countries.contains(&region_or_country.as_str()) {
                                 return (None, Some(region_or_country));
                             } else {
@@ -779,7 +930,7 @@ pub(crate) fn extract_region_country_from_source(html: &str) -> (Option<String>,
                                 return (Some(region_or_country), None);
                             }
                         }
-                    },
+                    }
                     3 => {
                         // "City, State, Country"
                         let region = parts[1].trim();
@@ -787,15 +938,18 @@ pub(crate) fn extract_region_country_from_source(html: &str) -> (Option<String>,
                         if !region.is_empty() && !country.is_empty() {
                             return (Some(region.to_string()), Some(country.to_string()));
                         }
-                    },
+                    }
                     _ => {}
                 }
             }
         }
     }
-    
+
     // Try to extract from page title
-    if let Some(captures) = regex::Regex::new(r"<title>([^<]+)</title>").unwrap().captures(html) {
+    if let Some(captures) = regex::Regex::new(r"<title>([^<]+)</title>")
+        .unwrap()
+        .captures(html)
+    {
         if let Some(title) = captures.get(1) {
             let title_text = title.as_str();
             // Look for "in City, State, Country" pattern
@@ -803,7 +957,17 @@ pub(crate) fn extract_region_country_from_source(html: &str) -> (Option<String>,
                 return (None, Some("United States".to_string()));
             }
             // Check for other countries
-            let countries = ["Canada", "Mexico", "United Kingdom", "France", "Germany", "Spain", "Italy", "Australia", "Japan"];
+            let countries = [
+                "Canada",
+                "Mexico",
+                "United Kingdom",
+                "France",
+                "Germany",
+                "Spain",
+                "Italy",
+                "Australia",
+                "Japan",
+            ];
             for country in countries {
                 if title_text.contains(country) {
                     return (None, Some(country.to_string()));
@@ -811,48 +975,65 @@ pub(crate) fn extract_region_country_from_source(html: &str) -> (Option<String>,
             }
         }
     }
-    
+
     debug!("No valid region/country found");
     (None, None)
 }
 
 pub(crate) fn extract_meta_content(html: &str, property: &str) -> Option<String> {
     // Try property="og:title" format
-    let property_pattern = format!(r#"<meta property="{}" content="([^"]+)""#, regex::escape(property));
+    let property_pattern = format!(
+        r#"<meta property="{}" content="([^"]+)""#,
+        regex::escape(property)
+    );
     if let Some(captures) = regex::Regex::new(&property_pattern).unwrap().captures(html) {
         if let Some(content) = captures.get(1) {
-            return Some(content.as_str().replace("&quot;", "\"").replace("&amp;", "&"));
+            return Some(
+                content
+                    .as_str()
+                    .replace("&quot;", "\"")
+                    .replace("&amp;", "&"),
+            );
         }
     }
-    
+
     // Try name="description" format
-    let name_pattern = format!(r#"<meta name="{}" content="([^"]+)""#, regex::escape(property));
+    let name_pattern = format!(
+        r#"<meta name="{}" content="([^"]+)""#,
+        regex::escape(property)
+    );
     if let Some(captures) = regex::Regex::new(&name_pattern).unwrap().captures(html) {
         if let Some(content) = captures.get(1) {
-            return Some(content.as_str().replace("&quot;", "\"").replace("&amp;", "&"));
+            return Some(
+                content
+                    .as_str()
+                    .replace("&quot;", "\"")
+                    .replace("&amp;", "&"),
+            );
         }
     }
-    
+
     None
 }
 
 // Extract data from script tag with id="data-deferred-state-0"
 pub(crate) fn extract_airbnb_json_data(html: &str) -> Option<serde_json::Value> {
     use tracing::{debug, info};
-    
+
     // Look for the script tag containing JSON data
-    let pattern = r#"<script id="data-deferred-state-0"[^>]*type="application/json">([^<]+)</script>"#;
+    let pattern =
+        r#"<script id="data-deferred-state-0"[^>]*type="application/json">([^<]+)</script>"#;
     if let Ok(regex) = regex::Regex::new(pattern) {
         if let Some(captures) = regex.captures(html) {
             if let Some(json_str) = captures.get(1) {
                 let json_text = json_str.as_str().trim();
                 debug!("Found Airbnb JSON data, length: {} chars", json_text.len());
-                
+
                 match serde_json::from_str::<serde_json::Value>(json_text) {
                     Ok(json_value) => {
                         info!("Successfully parsed Airbnb JSON data");
                         return Some(json_value);
-                    },
+                    }
                     Err(e) => {
                         debug!("Failed to parse Airbnb JSON data: {}", e);
                     }
@@ -860,7 +1041,7 @@ pub(crate) fn extract_airbnb_json_data(html: &str) -> Option<serde_json::Value> 
             }
         }
     }
-    
+
     debug!("No Airbnb JSON data found in HTML");
     None
 }
@@ -873,7 +1054,7 @@ pub(crate) type RawListingFields = (String, String, String, String, String, Stri
 
 pub(crate) fn extract_listing_from_json(json_data: &serde_json::Value) -> Option<RawListingFields> {
     use tracing::{debug, info};
-    
+
     // Navigate to the search results in the JSON structure
     let search_results = json_data
         .get("niobeClientData")?
@@ -884,21 +1065,22 @@ pub(crate) fn extract_listing_from_json(json_data: &serde_json::Value) -> Option
         .get("results")?
         .get("searchResults")?
         .as_array()?;
-    
+
     if search_results.is_empty() {
         debug!("No search results found in JSON data");
         return None;
     }
-    
+
     // Get the first listing for now (in a full scraper, you'd iterate through all)
     let first_listing = &search_results[0];
-    
+
     // Extract title
     let title = first_listing
         .get("title")?
         .as_str()
-        .unwrap_or("").to_string();
-    
+        .unwrap_or("")
+        .to_string();
+
     // Extract price - try multiple possible price fields
     let price = first_listing
         .get("structuredDisplayPrice")?
@@ -920,20 +1102,21 @@ pub(crate) fn extract_listing_from_json(json_data: &serde_json::Value) -> Option
             debug!("No price found in JSON structure, will use fallback extraction");
             String::new()
         });
-    
+
     // Extract rating
     let rating = first_listing
         .get("avgRatingLocalized")?
         .as_str()
-        .unwrap_or("").to_string();
-    
+        .unwrap_or("")
+        .to_string();
+
     // Extract location from title (e.g., "Condo in Traverse City")
     let location = if title.contains(" in ") {
         title.split(" in ").nth(1).unwrap_or("").to_string()
     } else {
         "".to_string()
     };
-    
+
     // Extract property name/description
     let description = first_listing
         .get("demandStayListing")?
@@ -941,29 +1124,32 @@ pub(crate) fn extract_listing_from_json(json_data: &serde_json::Value) -> Option
         .get("name")?
         .get("localizedStringWithTranslationPreference")?
         .as_str()
-        .unwrap_or("").to_string();
-    
+        .unwrap_or("")
+        .to_string();
+
     // Extract picture URL
     let picture_url = first_listing
         .get("contextualPictures")?
         .get(0)?
         .get("picture")?
         .as_str()
-        .unwrap_or("").to_string();
-    
+        .unwrap_or("")
+        .to_string();
+
     // Extract features (beds, baths, etc.)
     let mut features = Vec::new();
-    
+
     // Add bed info
     if let Some(bed_info) = first_listing
         .get("structuredContent")?
         .get("primaryLine")?
         .get(0)?
         .get("body")?
-        .as_str() {
+        .as_str()
+    {
         features.push(bed_info.to_string());
     }
-    
+
     // Add badges (Superhost, Guest favorite, etc.)
     if let Some(badges) = first_listing.get("badges").and_then(|b| b.as_array()) {
         for badge in badges {
@@ -972,28 +1158,44 @@ pub(crate) fn extract_listing_from_json(json_data: &serde_json::Value) -> Option
             }
         }
     }
-    
+
     // Add payment messages (Free cancellation, etc.)
-    if let Some(payment_msgs) = first_listing.get("paymentMessages").and_then(|p| p.as_array()) {
+    if let Some(payment_msgs) = first_listing
+        .get("paymentMessages")
+        .and_then(|p| p.as_array())
+    {
         for msg in payment_msgs {
             if let Some(msg_text) = msg.get("text").and_then(|t| t.as_str()) {
                 features.push(msg_text.to_string());
             }
         }
     }
-    
-    info!("Extracted from JSON: title='{}', price='{}', rating='{}', features={}", 
-          title, price, rating, features.len());
-    
-    Some((title, description, price, rating, location, picture_url, features))
+
+    info!(
+        "Extracted from JSON: title='{}', price='{}', rating='{}', features={}",
+        title,
+        price,
+        rating,
+        features.len()
+    );
+
+    Some((
+        title,
+        description,
+        price,
+        rating,
+        location,
+        picture_url,
+        features,
+    ))
 }
 
 // Extract all listing URLs from the Airbnb JSON structure
 pub(crate) fn extract_all_listing_urls_from_json(json_data: &serde_json::Value) -> Vec<String> {
     use tracing::{debug, info};
-    
+
     let mut urls = Vec::new();
-    
+
     // Navigate to the search results in the JSON structure
     if let Some(search_results) = json_data
         .get("niobeClientData")
@@ -1003,49 +1205,66 @@ pub(crate) fn extract_all_listing_urls_from_json(json_data: &serde_json::Value) 
         .and_then(|d| d.get("staysSearch"))
         .and_then(|d| d.get("results"))
         .and_then(|d| d.get("searchResults"))
-        .and_then(|d| d.as_array()) {
-        
+        .and_then(|d| d.as_array())
+    {
         info!("Found {} listings in JSON data", search_results.len());
-        
+
         for (i, listing) in search_results.iter().enumerate() {
             // Try to extract the listing ID from various possible fields
             if let Some(listing_id) = listing
                 .get("demandStayListing")
                 .and_then(|l| l.get("id"))
-                .and_then(|id| id.as_str()) {
-                
+                .and_then(|id| id.as_str())
+            {
                 // The ID is base64 encoded, we need to decode it to get the numeric ID
-                if let Ok(decoded_bytes) = base64::engine::general_purpose::STANDARD.decode(listing_id) {
+                if let Ok(decoded_bytes) =
+                    base64::engine::general_purpose::STANDARD.decode(listing_id)
+                {
                     if let Ok(decoded_str) = std::str::from_utf8(&decoded_bytes) {
                         // Extract numeric ID from decoded string like "DemandStayListing:633486763306530765"
                         if let Some(numeric_id) = decoded_str.split(':').nth(1) {
                             let url = format!("https://www.airbnb.com/rooms/{}", numeric_id);
-                            debug!("Extracted URL {}: {} from listing {}", urls.len() + 1, url, i + 1);
+                            debug!(
+                                "Extracted URL {}: {} from listing {}",
+                                urls.len() + 1,
+                                url,
+                                i + 1
+                            );
                             urls.push(url);
                         } else {
-                            debug!("Failed to split decoded string for listing {}: '{}'", i + 1, decoded_str);
+                            debug!(
+                                "Failed to split decoded string for listing {}: '{}'",
+                                i + 1,
+                                decoded_str
+                            );
                         }
                     } else {
                         debug!("Failed to decode base64 to UTF-8 for listing {}", i + 1);
                     }
                 } else {
-                    debug!("Failed to decode base64 for listing {}: '{}'", i + 1, listing_id);
+                    debug!(
+                        "Failed to decode base64 for listing {}: '{}'",
+                        i + 1,
+                        listing_id
+                    );
                 }
             } else {
                 debug!("No demandStayListing.id found for listing {}", i + 1);
             }
         }
-        
+
         if !urls.is_empty() {
-            info!("Successfully extracted {} listing URLs from JSON", urls.len());
+            info!(
+                "Successfully extracted {} listing URLs from JSON",
+                urls.len()
+            );
         } else {
             debug!("No valid listing URLs found in JSON structure");
         }
-        
     } else {
         debug!("Could not navigate to search results in JSON structure");
     }
-    
+
     urls
 }
 
@@ -1054,7 +1273,9 @@ pub(crate) fn extract_listing_id_from_url(url: &str) -> String {
     // Extract from /rooms/12345 pattern
     if let Some(start) = url.find("/rooms/") {
         let rest = &url[start + 7..];
-        let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+        let end = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
         return rest[..end].to_string();
     }
     // Fallback
@@ -1063,7 +1284,9 @@ pub(crate) fn extract_listing_id_from_url(url: &str) -> String {
 
 /// Decode Airbnb's base64 "DemandStayListing:12345" id into the numeric id.
 pub(crate) fn decode_listing_id(encoded: &str) -> Option<String> {
-    let decoded = base64::engine::general_purpose::STANDARD.decode(encoded).ok()?;
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .ok()?;
     let text = std::str::from_utf8(&decoded).ok()?;
     text.split(':').nth(1).map(|s| s.to_string())
 }
@@ -1099,7 +1322,11 @@ pub(crate) fn listing_from_search_result(entry: &serde_json::Value) -> Option<Li
     let numeric_id = decode_listing_id(encoded_id)?;
     let url = format!("https://www.airbnb.com/rooms/{}", numeric_id);
 
-    let title = entry.get("title").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    let title = entry
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
     if title.is_empty() {
         return None;
     }
@@ -1109,7 +1336,8 @@ pub(crate) fn listing_from_search_result(entry: &serde_json::Value) -> Option<Li
         .get("structuredDisplayPrice")
         .and_then(|p| p.get("primaryLine"))
         .and_then(|p| {
-            p.get("price").and_then(|v| v.as_str())
+            p.get("price")
+                .and_then(|v| v.as_str())
                 .or_else(|| p.get("discountedPrice").and_then(|v| v.as_str()))
         })
         .map(|s| s.trim().to_string())
@@ -1118,8 +1346,15 @@ pub(crate) fn listing_from_search_result(entry: &serde_json::Value) -> Option<Li
     let price_numeric = first_number(&price);
 
     // Rating: avgRatingLocalized looks like "4.95 (312)".
-    let rating_localized = entry.get("avgRatingLocalized").and_then(|v| v.as_str()).unwrap_or_default();
-    let rating = rating_localized.split_whitespace().next().unwrap_or_default().to_string();
+    let rating_localized = entry
+        .get("avgRatingLocalized")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let rating = rating_localized
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_string();
     let rating_numeric = first_number(rating_localized);
     let reviews_count = rating_localized
         .split_once('(')
@@ -1137,7 +1372,10 @@ pub(crate) fn listing_from_search_result(entry: &serde_json::Value) -> Option<Li
         .to_string();
 
     // Location parsed from a "<Type> in <Place>" title.
-    let location = title.split_once(" in ").map(|(_, place)| place.to_string()).unwrap_or_default();
+    let location = title
+        .split_once(" in ")
+        .map(|(_, place)| place.to_string())
+        .unwrap_or_default();
 
     // Pictures.
     let mut pictures = Vec::new();
@@ -1167,8 +1405,14 @@ pub(crate) fn listing_from_search_result(entry: &serde_json::Value) -> Option<Li
                 .get("coordinate")
                 .or_else(|| entry.get("coordinates"))
                 .and_then(|c| {
-                    let lat = c.get("latitude").or_else(|| c.get("lat")).and_then(|v| v.as_f64())?;
-                    let lng = c.get("longitude").or_else(|| c.get("lng")).and_then(|v| v.as_f64())?;
+                    let lat = c
+                        .get("latitude")
+                        .or_else(|| c.get("lat"))
+                        .and_then(|v| v.as_f64())?;
+                    let lng = c
+                        .get("longitude")
+                        .or_else(|| c.get("lng"))
+                        .and_then(|v| v.as_f64())?;
                     Some(Coordinates { lat, lng })
                 })
         });
@@ -1234,7 +1478,9 @@ pub(crate) fn listing_from_search_result(entry: &serde_json::Value) -> Option<Li
 /// Airbnb has nested `niobeClientData` differently over time — as `[…, {data}]`
 /// (older) and `[[…, {data}]]` (current) — so probe each container and its
 /// immediate children rather than hard-coding one index path.
-pub(crate) fn find_search_results(json_data: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
+pub(crate) fn find_search_results(
+    json_data: &serde_json::Value,
+) -> Option<&Vec<serde_json::Value>> {
     let niobe = json_data.get("niobeClientData")?.as_array()?;
     let mut candidates: Vec<&serde_json::Value> = Vec::new();
     for item in niobe {
@@ -1288,7 +1534,10 @@ mod extract_tests {
     // silently — pinning the shapes we rely on is the only early warning.
 
     fn ld(body: &str) -> String {
-        format!(r#"<html><head><script type="application/ld+json">{}</script></head></html>"#, body)
+        format!(
+            r#"<html><head><script type="application/ld+json">{}</script></head></html>"#,
+            body
+        )
     }
 
     // ---- extract_json_ld ----
@@ -1323,13 +1572,19 @@ mod extract_tests {
     #[test]
     fn meta_content_reads_property_form() {
         let html = r#"<meta property="og:title" content="Loft in Paris">"#;
-        assert_eq!(extract_meta_content(html, "og:title"), Some("Loft in Paris".into()));
+        assert_eq!(
+            extract_meta_content(html, "og:title"),
+            Some("Loft in Paris".into())
+        );
     }
 
     #[test]
     fn meta_content_reads_name_form() {
         let html = r#"<meta name="description" content="A nice place">"#;
-        assert_eq!(extract_meta_content(html, "description"), Some("A nice place".into()));
+        assert_eq!(
+            extract_meta_content(html, "description"),
+            Some("A nice place".into())
+        );
     }
 
     #[test]
@@ -1355,7 +1610,10 @@ mod extract_tests {
             ld(r#"{"name":"From JSON-LD"}"#),
             r#"<meta property="og:title" content="From og">"#
         );
-        assert_eq!(extract_title_from_source(&html), Some("From JSON-LD".into()));
+        assert_eq!(
+            extract_title_from_source(&html),
+            Some("From JSON-LD".into())
+        );
     }
 
     #[test]
@@ -1364,7 +1622,10 @@ mod extract_tests {
         assert_eq!(extract_title_from_source(og), Some("From og".into()));
 
         let only_title = "<title>From title</title>";
-        assert_eq!(extract_title_from_source(only_title), Some("From title".into()));
+        assert_eq!(
+            extract_title_from_source(only_title),
+            Some("From title".into())
+        );
     }
 
     #[test]
@@ -1376,7 +1637,11 @@ mod extract_tests {
     #[test]
     fn title_ignores_placeholder_json_ld_name() {
         // A lone quote is Airbnb noise, not a title; we must fall through.
-        let html = format!("{}{}", ld(r#"{"name":"\""}"#), r#"<meta property="og:title" content="Real title">"#);
+        let html = format!(
+            "{}{}",
+            ld(r#"{"name":"\""}"#),
+            r#"<meta property="og:title" content="Real title">"#
+        );
         assert_eq!(extract_title_from_source(&html), Some("Real title".into()));
     }
 
@@ -1426,7 +1691,12 @@ mod extract_tests {
 
     #[test]
     fn description_rejects_short_or_placeholder_values() {
-        for bad in [r#"{"description":"null"}"#, r#"{"description":"undefined"}"#, r#"{"description":"tiny"}"#, r#"{"description":""}"#] {
+        for bad in [
+            r#"{"description":"null"}"#,
+            r#"{"description":"undefined"}"#,
+            r#"{"description":"tiny"}"#,
+            r#"{"description":""}"#,
+        ] {
             let html = ld(bad);
             assert!(
                 extract_description_from_source(&html).is_none(),
@@ -1440,8 +1710,14 @@ mod extract_tests {
     #[test]
     fn price_from_text_handles_formats_and_thousands() {
         assert_eq!(extract_price_from_text("$150 night"), Some("$150".into()));
-        assert_eq!(extract_price_from_text("$1,500 total"), Some("$1,500".into()));
-        assert_eq!(extract_price_from_text("120 per night"), Some("$120".into()));
+        assert_eq!(
+            extract_price_from_text("$1,500 total"),
+            Some("$1,500".into())
+        );
+        assert_eq!(
+            extract_price_from_text("120 per night"),
+            Some("$120".into())
+        );
         assert_eq!(extract_price_from_text("95/night"), Some("$95".into()));
     }
 
@@ -1459,8 +1735,14 @@ mod extract_tests {
 
     #[test]
     fn price_from_title_variants() {
-        assert_eq!(extract_price_from_title("Loft — $199 a night"), Some("$199".into()));
-        assert_eq!(extract_price_from_title("199 per night"), Some("$199".into()));
+        assert_eq!(
+            extract_price_from_title("Loft — $199 a night"),
+            Some("$199".into())
+        );
+        assert_eq!(
+            extract_price_from_title("199 per night"),
+            Some("$199".into())
+        );
         assert_eq!(extract_price_from_title("199/night"), Some("$199".into()));
         assert_eq!(extract_price_from_title("no price"), None);
     }
@@ -1500,12 +1782,18 @@ mod extract_tests {
 
     #[test]
     fn listing_id_from_url() {
-        assert_eq!(extract_listing_id_from_url("https://airbnb.com/rooms/12345"), "12345");
+        assert_eq!(
+            extract_listing_id_from_url("https://airbnb.com/rooms/12345"),
+            "12345"
+        );
         assert_eq!(
             extract_listing_id_from_url("https://airbnb.com/rooms/98765?check_in=2026-01-01"),
             "98765"
         );
-        assert_eq!(extract_listing_id_from_url("https://airbnb.com/experiences/1"), "unknown");
+        assert_eq!(
+            extract_listing_id_from_url("https://airbnb.com/experiences/1"),
+            "unknown"
+        );
     }
 
     #[test]

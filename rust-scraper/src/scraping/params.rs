@@ -15,11 +15,21 @@ pub struct GuestParams {
 
 impl GuestParams {
     pub fn new(adults: i32, children: i32, infants: i32, pets: i32) -> Self {
-        Self { adults, children, infants, pets }
+        Self {
+            adults,
+            children,
+            infants,
+            pets,
+        }
     }
 
     pub fn from_total(guests: i32) -> Self {
-        Self { adults: guests, children: 0, infants: 0, pets: 0 }
+        Self {
+            adults: guests,
+            children: 0,
+            infants: 0,
+            pets: 0,
+        }
     }
 }
 
@@ -34,7 +44,11 @@ pub struct AmenityFilter {
 
 impl AmenityFilter {
     pub fn new(hot_tub: bool, pool: bool, waterfront: bool) -> Self {
-        Self { hot_tub, pool, waterfront }
+        Self {
+            hot_tub,
+            pool,
+            waterfront,
+        }
     }
 
     /// Build the URL query string for amenity filters
@@ -76,17 +90,40 @@ impl BoundingBox {
         let mid_lat = (self.sw_lat + self.ne_lat) / 2.0;
         let mid_lng = (self.sw_lng + self.ne_lng) / 2.0;
         [
-            BoundingBox { sw_lat: self.sw_lat, sw_lng: self.sw_lng, ne_lat: mid_lat, ne_lng: mid_lng }, // SW
-            BoundingBox { sw_lat: self.sw_lat, sw_lng: mid_lng, ne_lat: mid_lat, ne_lng: self.ne_lng }, // SE
-            BoundingBox { sw_lat: mid_lat, sw_lng: self.sw_lng, ne_lat: self.ne_lat, ne_lng: mid_lng }, // NW
-            BoundingBox { sw_lat: mid_lat, sw_lng: mid_lng, ne_lat: self.ne_lat, ne_lng: self.ne_lng }, // NE
+            BoundingBox {
+                sw_lat: self.sw_lat,
+                sw_lng: self.sw_lng,
+                ne_lat: mid_lat,
+                ne_lng: mid_lng,
+            }, // SW
+            BoundingBox {
+                sw_lat: self.sw_lat,
+                sw_lng: mid_lng,
+                ne_lat: mid_lat,
+                ne_lng: self.ne_lng,
+            }, // SE
+            BoundingBox {
+                sw_lat: mid_lat,
+                sw_lng: self.sw_lng,
+                ne_lat: self.ne_lat,
+                ne_lng: mid_lng,
+            }, // NW
+            BoundingBox {
+                sw_lat: mid_lat,
+                sw_lng: mid_lng,
+                ne_lat: self.ne_lat,
+                ne_lng: self.ne_lng,
+            }, // NE
         ]
     }
 
     /// Derive a padded bounding box from the coordinates of harvested listings.
     /// Returns None if too few listings carry coordinates to bound an area.
     pub(crate) fn from_listings(listings: &[Listing]) -> Option<BoundingBox> {
-        let coords: Vec<&Coordinates> = listings.iter().filter_map(|l| l.coordinates.as_ref()).collect();
+        let coords: Vec<&Coordinates> = listings
+            .iter()
+            .filter_map(|l| l.coordinates.as_ref())
+            .collect();
         if coords.len() < 2 {
             return None;
         }

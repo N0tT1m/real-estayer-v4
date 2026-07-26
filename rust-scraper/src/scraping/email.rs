@@ -2,8 +2,8 @@
 // only visibility was widened so cross-module calls resolve.
 
 use anyhow::Result;
-use mail_send::SmtpClientBuilder;
 use mail_send::mail_builder::MessageBuilder;
+use mail_send::SmtpClientBuilder;
 
 // Send email once scraper completes. All configuration comes from environment
 // variables so the binary ships no credentials. If SMTP_HOST or SMTP_USER is
@@ -62,7 +62,12 @@ pub async fn send_email() -> Result<()> {
         .html_body("<h1>Scraping has completed</h1>")
         .text_body("Scraping has completed, you should now see new listing available.");
 
-    tracing::info!("Connecting to SMTP {}:{} (implicit_tls: {})", host, port, implicit_tls);
+    tracing::info!(
+        "Connecting to SMTP {}:{} (implicit_tls: {})",
+        host,
+        port,
+        implicit_tls
+    );
 
     let mut client = SmtpClientBuilder::new(host.as_str(), port)
         .implicit_tls(implicit_tls)

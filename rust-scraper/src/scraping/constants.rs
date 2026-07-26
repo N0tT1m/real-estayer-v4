@@ -1,7 +1,6 @@
 // Split out of the former monolithic scraping.rs. Code is unchanged;
 // only visibility was widened so cross-module calls resolve.
 
-
 pub(crate) const MAX_CONCURRENT_SCRAPES: usize = 1; // Reduced to 1 for stability - multiple browsers cause session conflicts
 pub(crate) const AIRBNB_BASE_URL: &str = "https://www.airbnb.com/";
 
@@ -18,7 +17,13 @@ pub const USER_AGENTS: &[&str] = &[
 
 // Browser viewport sizes for realistic sessions
 pub const VIEWPORT_SIZES: &[(u32, u32)] = &[
-    (1920, 1080), (1366, 768), (1536, 864), (1440, 900), (1280, 720), (1600, 900), (2560, 1440)
+    (1920, 1080),
+    (1366, 768),
+    (1536, 864),
+    (1440, 900),
+    (1280, 720),
+    (1600, 900),
+    (2560, 1440),
 ];
 
 // Accept headers that real browsers send
@@ -32,7 +37,7 @@ pub const ACCEPT_HEADERS: &[&str] = &[
 pub const SEC_CH_UA_VALUES: &[&str] = &[
     "\"Google Chrome\";v=\"131\", \"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"",
     "\"Google Chrome\";v=\"130\", \"Chromium\";v=\"130\", \"Not_A Brand\";v=\"99\"",
-    "\"Firefox\";v=\"133\", \"Not A(Brand\";v=\"24\", \"Chromium\";v=\"133\""
+    "\"Firefox\";v=\"133\", \"Not A(Brand\";v=\"24\", \"Chromium\";v=\"133\"",
 ];
 
 /// Airbnb never returns more than ~270-300 results for one search query. When a

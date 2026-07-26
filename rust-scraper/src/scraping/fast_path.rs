@@ -2,9 +2,9 @@
 // only visibility was widened so cross-module calls resolve.
 
 use super::*;
-use anyhow::Result;
 use crate::models::Listing;
 use crate::stealth_browser::StealthDriver;
+use anyhow::Result;
 use futures::stream::StreamExt;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
@@ -26,15 +26,21 @@ pub(crate) fn build_search_url(
         "adults={}&children={}&infants={}&pets={}",
         guests.adults, guests.children, guests.infants, guests.pets
     );
-    let amenity_params_str = amenity_filter.map(|f| f.to_url_params()).unwrap_or_default();
+    let amenity_params_str = amenity_filter
+        .map(|f| f.to_url_params())
+        .unwrap_or_default();
     let mut url = if let (Some(checkin), Some(checkout)) = (check_in, check_out) {
         format!(
             "{}s/{}/homes?refinement_paths%5B%5D=%2Fhomes&query={}&\
              search_mode=regular_search&price_filter_input_type=2&channel=EXPLORE&\
              date_picker_type=calendar&checkin={}&checkout={}&\
              source=structured_search_input_header&search_type=unknown&{}",
-            AIRBNB_BASE_URL, urlencoding::encode(location), urlencoding::encode(location),
-            checkin, checkout, guest_params_str
+            AIRBNB_BASE_URL,
+            urlencoding::encode(location),
+            urlencoding::encode(location),
+            checkin,
+            checkout,
+            guest_params_str
         )
     } else {
         format!(
@@ -42,7 +48,9 @@ pub(crate) fn build_search_url(
              search_mode=regular_search&price_filter_input_type=2&channel=EXPLORE&\
              date_picker_type=flexible_dates&source=structured_search_input_header&\
              search_type=unknown&{}",
-            AIRBNB_BASE_URL, urlencoding::encode(location), urlencoding::encode(location),
+            AIRBNB_BASE_URL,
+            urlencoding::encode(location),
+            urlencoding::encode(location),
             guest_params_str
         )
     };
@@ -64,13 +72,21 @@ pub(crate) fn build_map_search_url(
         "adults={}&children={}&infants={}&pets={}",
         guests.adults, guests.children, guests.infants, guests.pets
     );
-    let amenity_params_str = amenity_filter.map(|f| f.to_url_params()).unwrap_or_default();
+    let amenity_params_str = amenity_filter
+        .map(|f| f.to_url_params())
+        .unwrap_or_default();
     let mut url = format!(
         "{}s/{}/homes?refinement_paths%5B%5D=%2Fhomes&query={}&search_by_map=true&\
          search_mode=regular_search&channel=EXPLORE&source=structured_search_input_header&\
          search_type=user_map_move&ne_lat={}&ne_lng={}&sw_lat={}&sw_lng={}&zoom=12&{}",
-        AIRBNB_BASE_URL, urlencoding::encode(location), urlencoding::encode(location),
-        bbox.ne_lat, bbox.ne_lng, bbox.sw_lat, bbox.sw_lng, guest_params_str
+        AIRBNB_BASE_URL,
+        urlencoding::encode(location),
+        urlencoding::encode(location),
+        bbox.ne_lat,
+        bbox.ne_lng,
+        bbox.sw_lat,
+        bbox.sw_lng,
+        guest_params_str
     );
     if !amenity_params_str.is_empty() {
         url.push('&');
@@ -90,7 +106,9 @@ pub(crate) async fn harvest_search_page(driver: &StealthDriver, url: &str) -> Ve
     }
     sleep(Duration::from_secs(5)).await;
     for i in 1..=5 {
-        let _ = driver.execute_script(&format!("window.scrollBy(0, {});", 800 * i)).await;
+        let _ = driver
+            .execute_script(&format!("window.scrollBy(0, {});", 800 * i))
+            .await;
         sleep(Duration::from_millis(1200)).await;
     }
     sleep(Duration::from_secs(2)).await;
@@ -137,13 +155,29 @@ pub(crate) async fn collect_listings_tiled(
             added += 1;
         }
     }
-    info!("[TILE] depth={} returned={} new={} total={}", depth, returned, added, out.len());
+    info!(
+        "[TILE] depth={} returned={} new={} total={}",
+        depth,
+        returned,
+        added,
+        out.len()
+    );
 
     if returned >= TILE_SPLIT_THRESHOLD && depth < MAX_TILE_DEPTH {
-        info!("[TILE] tile at depth {} looks truncated ({} results) - subdividing", depth, returned);
+        info!(
+            "[TILE] tile at depth {} looks truncated ({} results) - subdividing",
+            depth, returned
+        );
         for sub in bbox.quarters() {
             Box::pin(collect_listings_tiled(
-                driver, location, sub, guests, amenity_filter, depth + 1, seen, out,
+                driver,
+                location,
+                sub,
+                guests,
+                amenity_filter,
+                depth + 1,
+                seen,
+                out,
             ))
             .await;
         }
@@ -167,7 +201,10 @@ pub(crate) fn build_http_client() -> Result<reqwest::Client> {
             headers.insert(name, val);
         }
     }
-    headers.insert(reqwest::header::ACCEPT_ENCODING, HeaderValue::from_static("identity"));
+    headers.insert(
+        reqwest::header::ACCEPT_ENCODING,
+        HeaderValue::from_static("identity"),
+    );
     let client = reqwest::Client::builder()
         .default_headers(headers)
         .timeout(Duration::from_secs(30))
@@ -205,7 +242,11 @@ pub(crate) async fn enrich_listing_http(client: &reqwest::Client, mut listing: L
                         listing.description = d;
                     }
                 }
-                debug!("[ENRICH] {} -> {} features", listing.url, listing.features.len());
+                debug!(
+                    "[ENRICH] {} -> {} features",
+                    listing.url,
+                    listing.features.len()
+                );
             }
             Err(e) => warn!("[ENRICH] Failed to read body for {}: {}", listing.url, e),
         },
@@ -223,11 +264,18 @@ pub async fn enrich_listings_parallel(listings: Vec<Listing>, concurrency: usize
     let client = match build_http_client() {
         Ok(c) => c,
         Err(e) => {
-            warn!("[ENRICH] Could not build HTTP client, skipping enrichment: {}", e);
+            warn!(
+                "[ENRICH] Could not build HTTP client, skipping enrichment: {}",
+                e
+            );
             return listings;
         }
     };
-    info!("[ENRICH] Enriching {} listings with concurrency {}", listings.len(), concurrency);
+    info!(
+        "[ENRICH] Enriching {} listings with concurrency {}",
+        listings.len(),
+        concurrency
+    );
     let enriched = futures::stream::iter(listings.into_iter().map(|listing| {
         let client = client.clone();
         async move {
@@ -266,9 +314,19 @@ pub async fn scrape_city_fast(
     use tracing::{info, warn};
 
     // Phase 1: name-based search harvest.
-    let base_url = build_search_url(location, check_in, check_out, &guests, amenity_filter.as_ref());
+    let base_url = build_search_url(
+        location,
+        check_in,
+        check_out,
+        &guests,
+        amenity_filter.as_ref(),
+    );
     let mut base = harvest_search_page(driver, &base_url).await;
-    info!("[FAST] Phase 1 harvested {} listings for {}", base.len(), location);
+    info!(
+        "[FAST] Phase 1 harvested {} listings for {}",
+        base.len(),
+        location
+    );
 
     // Phase 3: subdivide by map bounding box for fuller coverage.
     let mut listings = if tiled {
@@ -278,7 +336,14 @@ pub async fn scrape_city_fast(
                 let mut seen: HashSet<String> = base.iter().map(|l| l.url.clone()).collect();
                 let mut out = std::mem::take(&mut base);
                 collect_listings_tiled(
-                    driver, location, bbox, &guests, amenity_filter.as_ref(), 0, &mut seen, &mut out,
+                    driver,
+                    location,
+                    bbox,
+                    &guests,
+                    amenity_filter.as_ref(),
+                    0,
+                    &mut seen,
+                    &mut out,
                 )
                 .await;
                 info!("[FAST] Phase 3 produced {} unique listings", out.len());
@@ -326,17 +391,29 @@ pub fn preset_bbox(name: &str) -> Option<BoundingBox> {
         // minute or two and exercises harvest + a split or two — used by the
         // admin "Test" button to confirm the pipeline before a big run.
         "test" => Some(BoundingBox {
-            sw_lat: 30.20, sw_lng: -97.85, ne_lat: 30.35, ne_lng: -97.68,
+            sw_lat: 30.20,
+            sw_lng: -97.85,
+            ne_lat: 30.35,
+            ne_lng: -97.68,
         }),
         // Continental United States (excludes Alaska/Hawaii).
         "usa" | "us" | "continental-us" => Some(BoundingBox {
-            sw_lat: 24.5, sw_lng: -125.0, ne_lat: 49.5, ne_lng: -66.9,
+            sw_lat: 24.5,
+            sw_lng: -125.0,
+            ne_lat: 49.5,
+            ne_lng: -66.9,
         }),
         "north-america" | "na" => Some(BoundingBox {
-            sw_lat: 14.0, sw_lng: -168.0, ne_lat: 72.0, ne_lng: -52.0,
+            sw_lat: 14.0,
+            sw_lng: -168.0,
+            ne_lat: 72.0,
+            ne_lng: -52.0,
         }),
         "world" => Some(BoundingBox {
-            sw_lat: -56.0, sw_lng: -180.0, ne_lat: 72.0, ne_lng: 180.0,
+            sw_lat: -56.0,
+            sw_lng: -180.0,
+            ne_lat: 72.0,
+            ne_lng: 180.0,
         }),
         _ => None,
     }
@@ -394,7 +471,9 @@ pub(crate) async fn tile_and_store(
 
     info!(
         "[TILE] depth={} returned={} fresh={} | tiles={} inserted={}",
-        depth, returned, fresh_count,
+        depth,
+        returned,
+        fresh_count,
         tiles_processed.load(AtomicOrdering::SeqCst),
         inserted_total.load(AtomicOrdering::SeqCst)
     );
@@ -403,8 +482,17 @@ pub(crate) async fn tile_and_store(
     if returned >= TILE_SPLIT_THRESHOLD && depth < max_depth {
         for sub in bbox.quarters() {
             Box::pin(tile_and_store(
-                driver, location, sub, guests, amenity_filter,
-                depth + 1, max_depth, enrich, seen, inserted_total, tiles_processed,
+                driver,
+                location,
+                sub,
+                guests,
+                amenity_filter,
+                depth + 1,
+                max_depth,
+                enrich,
+                seen,
+                inserted_total,
+                tiles_processed,
             ))
             .await;
         }
@@ -437,13 +525,25 @@ pub async fn scrape_region_tiled(
     );
     let mut seen: HashSet<String> = HashSet::new();
     tile_and_store(
-        driver, location, bbox, &guests, amenity_filter.as_ref(),
-        0, max_depth, enrich, &mut seen, inserted_total, tiles_processed,
+        driver,
+        location,
+        bbox,
+        &guests,
+        amenity_filter.as_ref(),
+        0,
+        max_depth,
+        enrich,
+        &mut seen,
+        inserted_total,
+        tiles_processed,
     )
     .await;
     let inserted = inserted_total.load(AtomicOrdering::SeqCst);
     let tiles = tiles_processed.load(AtomicOrdering::SeqCst);
-    info!("[REGION] Complete: {} listings inserted across {} tiles", inserted, tiles);
+    info!(
+        "[REGION] Complete: {} listings inserted across {} tiles",
+        inserted, tiles
+    );
     Ok((inserted, tiles))
 }
 
@@ -451,8 +551,8 @@ pub async fn scrape_region_tiled(
 mod fast_path_tests {
     use super::*;
     // Test-only: these were covered by the old monolith's file-wide imports.
-    use base64::Engine as _;
     use crate::models::Coordinates;
+    use base64::Engine as _;
 
     #[test]
     fn first_number_parses_prices_and_ratings() {
@@ -467,13 +567,21 @@ mod fast_path_tests {
     fn decode_listing_id_extracts_numeric_id() {
         let encoded = base64::engine::general_purpose::STANDARD
             .encode("DemandStayListing:633486763306530765");
-        assert_eq!(decode_listing_id(&encoded), Some("633486763306530765".to_string()));
+        assert_eq!(
+            decode_listing_id(&encoded),
+            Some("633486763306530765".to_string())
+        );
         assert_eq!(decode_listing_id("not base64!!!"), None);
     }
 
     #[test]
     fn bounding_box_quarters_partition_without_gaps() {
-        let bbox = BoundingBox { sw_lat: 0.0, sw_lng: 0.0, ne_lat: 4.0, ne_lng: 8.0 };
+        let bbox = BoundingBox {
+            sw_lat: 0.0,
+            sw_lng: 0.0,
+            ne_lat: 4.0,
+            ne_lng: 8.0,
+        };
         let quarters = bbox.quarters();
         // Every quarter is half the size in each dimension.
         for q in &quarters {
@@ -490,9 +598,15 @@ mod fast_path_tests {
     #[test]
     fn bounding_box_from_listings_needs_two_coords() {
         let mut a = Listing_stub();
-        a.coordinates = Some(Coordinates { lat: 10.0, lng: 20.0 });
+        a.coordinates = Some(Coordinates {
+            lat: 10.0,
+            lng: 20.0,
+        });
         let mut b = Listing_stub();
-        b.coordinates = Some(Coordinates { lat: 12.0, lng: 24.0 });
+        b.coordinates = Some(Coordinates {
+            lat: 12.0,
+            lng: 24.0,
+        });
         let bbox = BoundingBox::from_listings(&[a.clone(), b]).expect("two coords -> bbox");
         assert!(bbox.sw_lat < 10.0 && bbox.ne_lat > 12.0); // padded outward
         assert!(bbox.sw_lng < 20.0 && bbox.ne_lng > 24.0);
@@ -502,8 +616,8 @@ mod fast_path_tests {
 
     #[test]
     fn extract_all_listings_from_json_builds_full_listings() {
-        let encoded_id = base64::engine::general_purpose::STANDARD
-            .encode("DemandStayListing:12345");
+        let encoded_id =
+            base64::engine::general_purpose::STANDARD.encode("DemandStayListing:12345");
         // Real current shape: niobeClientData is [[ _, {data} ]] and the
         // coordinate is nested under demandStayListing.location.coordinate.
         let json = serde_json::json!({

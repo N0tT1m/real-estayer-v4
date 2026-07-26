@@ -16,24 +16,24 @@
 //! Everything is re-exported below, so `crate::scraping::X` resolves exactly
 //! as it did when this was one file.
 
-mod constants;
-mod browser;
-mod extract;
 mod amenities;
-mod params;
-mod email;
-mod fast_path;
+mod browser;
 mod browser_flow;
+mod constants;
+mod email;
+mod extract;
+mod fast_path;
+mod params;
 mod stealth_flow;
 
 // Re-exported so `crate::scraping::X` keeps resolving exactly as it did
 // when this module was a single file.
-pub use constants::*;
-pub use browser::*;
-pub use extract::*;
 pub(crate) use amenities::*;
-pub use params::*;
-pub use email::*;
-pub use fast_path::*;
+pub use browser::*;
 pub use browser_flow::*;
+pub use constants::*;
+pub use email::*;
+pub use extract::*;
+pub use fast_path::*;
+pub use params::*;
 pub use stealth_flow::*;

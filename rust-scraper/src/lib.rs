@@ -3,11 +3,11 @@
 // middleware stack without spinning up a real listener or depending on
 // MongoDB/Chrome.
 
-pub mod models;
 pub mod database;
-pub mod stealth_browser;
+pub mod models;
 pub mod routes;
 pub mod scraping;
+pub mod stealth_browser;
 pub mod watchlist;
 
 use axum::{
@@ -72,12 +72,18 @@ pub fn build_app(api_key: ApiKey, allowed_origins: Vec<HeaderValue>) -> Router {
     let cors = if allowed_origins.is_empty() {
         CorsLayer::new()
             .allow_methods([Method::GET, Method::POST])
-            .allow_headers([header::CONTENT_TYPE, header::HeaderName::from_static("x-api-key")])
+            .allow_headers([
+                header::CONTENT_TYPE,
+                header::HeaderName::from_static("x-api-key"),
+            ])
     } else {
         CorsLayer::new()
             .allow_origin(AllowOrigin::list(allowed_origins))
             .allow_methods([Method::GET, Method::POST])
-            .allow_headers([header::CONTENT_TYPE, header::HeaderName::from_static("x-api-key")])
+            .allow_headers([
+                header::CONTENT_TYPE,
+                header::HeaderName::from_static("x-api-key"),
+            ])
     };
 
     Router::new()
@@ -89,7 +95,10 @@ pub fn build_app(api_key: ApiKey, allowed_origins: Vec<HeaderValue>) -> Router {
         .route("/get-all-listings", get(routes::get_all_listings))
         .route("/filters", get(routes::filters))
         .route("/get-listings/{city}/{limit}", get(routes::get_listings))
-        .route("/get-listings/{city}", get(routes::get_listings_without_limit))
+        .route(
+            "/get-listings/{city}",
+            get(routes::get_listings_without_limit),
+        )
         .route("/get-listing/{listing_id}", get(routes::get_listing))
         .route("/info", get(routes::info))
         .route("/health", get(routes::health))

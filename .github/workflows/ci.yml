@@ -103,10 +103,19 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust-scraper
+
+      # The Go job has gated gofmt from the start; Rust formatting was not
+      # gated, and 18 files silently drifted before anyone noticed. Same rule
+      # both sides now. Runs before the build so a formatting failure is
+      # reported in seconds rather than after a full compile.
+      - name: Rustfmt
+        run: cargo fmt --check
 
       # Now clean (0 warnings, including test targets): every prior warning was
       # either fixed or carries an #[allow] with its justification, so anything

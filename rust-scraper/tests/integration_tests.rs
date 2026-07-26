@@ -36,9 +36,16 @@ async fn send(req: Request<Body>) -> (StatusCode, String) {
 
 #[tokio::test]
 async fn health_is_public() {
-    let req = Request::builder().uri("/health").body(Body::empty()).unwrap();
+    let req = Request::builder()
+        .uri("/health")
+        .body(Body::empty())
+        .unwrap();
     let (status, _) = send(req).await;
-    assert_eq!(status, StatusCode::OK, "health must not require the API key");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "health must not require the API key"
+    );
 }
 
 #[tokio::test]

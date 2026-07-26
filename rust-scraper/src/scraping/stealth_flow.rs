@@ -2,11 +2,11 @@
 // only visibility was widened so cross-module calls resolve.
 
 use super::*;
-use anyhow::Result;
 use crate::models::Listing;
 use crate::stealth_browser::StealthDriver;
+use anyhow::Result;
 use std::collections::HashSet;
-use tokio::time::{sleep, Duration, timeout};
+use tokio::time::{sleep, timeout, Duration};
 
 /// Get listing URLs using the stealth browser (CDP-based, harder to detect)
 /// Build the search URL for the stealth WebDriver path.
@@ -31,7 +31,9 @@ pub(crate) fn build_stealth_search_url(
         "adults={}&children={}&infants={}&pets={}",
         guests.adults, guests.children, guests.infants, guests.pets
     );
-    let amenity_params_str = amenity_filter.map(|f| f.to_url_params()).unwrap_or_default();
+    let amenity_params_str = amenity_filter
+        .map(|f| f.to_url_params())
+        .unwrap_or_default();
     let encoded = urlencoding::encode(location);
 
     let base_url = match (check_in, check_out) {
@@ -77,20 +79,25 @@ pub async fn get_place_urls_stealth(
     guest_params: Option<GuestParams>,
     amenity_filter: Option<AmenityFilter>,
 ) -> Result<Vec<String>> {
-    use tracing::{info, debug, warn, error, span, Level};
+    use tracing::{debug, error, info, span, warn, Level};
 
     let span = span!(Level::INFO, "get_place_urls_stealth", location = %location);
     let _enter = span.enter();
 
-    info!("[STEALTH] Starting URL collection for location: {}", location);
+    info!(
+        "[STEALTH] Starting URL collection for location: {}",
+        location
+    );
 
     let guests = guest_params.unwrap_or_else(|| GuestParams::new(2, 0, 0, 0));
 
     // Log active filters
     if let Some(ref filter) = amenity_filter {
         if filter.has_filters() {
-            info!("[STEALTH] Active amenity filters - Hot tub: {}, Pool: {}, Waterfront: {}",
-                filter.hot_tub, filter.pool, filter.waterfront);
+            info!(
+                "[STEALTH] Active amenity filters - Hot tub: {}, Pool: {}, Waterfront: {}",
+                filter.hot_tub, filter.pool, filter.waterfront
+            );
         }
     }
 
@@ -160,8 +167,11 @@ pub async fn get_place_urls_stealth(
                 for url in regex_urls {
                     urls.insert(url);
                 }
-                info!("[STEALTH] Regex extraction added {} more URLs (total: {})",
-                      urls.len() - before, urls.len());
+                info!(
+                    "[STEALTH] Regex extraction added {} more URLs (total: {})",
+                    urls.len() - before,
+                    urls.len()
+                );
             }
 
             // Also try extracting URLs via JavaScript
@@ -187,8 +197,11 @@ pub async fn get_place_urls_stealth(
                             urls.insert(url.to_string());
                         }
                     }
-                    info!("[STEALTH] JS extraction added {} more URLs (total: {})",
-                          urls.len() - before, urls.len());
+                    info!(
+                        "[STEALTH] JS extraction added {} more URLs (total: {})",
+                        urls.len() - before,
+                        urls.len()
+                    );
                 }
             }
         }
@@ -201,7 +214,10 @@ pub async fn get_place_urls_stealth(
     const MAX_PAGES: usize = 15;
     let mut page_number = 1;
 
-    info!("[STEALTH] Starting pagination check. Current URLs: {}", urls.len());
+    info!(
+        "[STEALTH] Starting pagination check. Current URLs: {}",
+        urls.len()
+    );
 
     while page_number < MAX_PAGES && urls.len() < 500 {
         // Check if there's a next page using multiple selectors
@@ -263,7 +279,10 @@ pub async fn get_place_urls_stealth(
                     if found {
                         info!("[STEALTH] Pagination found: {:?}", value);
                     } else {
-                        info!("[STEALTH] No pagination element found on page {}", page_number);
+                        info!(
+                            "[STEALTH] No pagination element found on page {}",
+                            page_number
+                        );
                     }
                     found
                 } else {
@@ -346,8 +365,12 @@ pub async fn get_place_urls_stealth(
                 urls.insert(url);
             }
 
-            info!("[STEALTH] Page {} added {} new URLs (total: {})",
-                  page_number, urls.len() - before, urls.len());
+            info!(
+                "[STEALTH] Page {} added {} new URLs (total: {})",
+                page_number,
+                urls.len() - before,
+                urls.len()
+            );
 
             if urls.len() == before {
                 info!("[STEALTH] No new URLs on page {}, stopping", page_number);
@@ -357,7 +380,10 @@ pub async fn get_place_urls_stealth(
     }
 
     let url_list: Vec<String> = urls.into_iter().collect();
-    info!("[STEALTH] URL collection complete. Total unique URLs: {}", url_list.len());
+    info!(
+        "[STEALTH] URL collection complete. Total unique URLs: {}",
+        url_list.len()
+    );
 
     // Log first few URLs
     for (i, url) in url_list.iter().take(5).enumerate() {
@@ -369,7 +395,7 @@ pub async fn get_place_urls_stealth(
 
 /// Scrape individual listing details using stealth browser
 pub async fn scrape_place_details_stealth(driver: &StealthDriver, url: &str) -> Result<Listing> {
-    use tracing::{info, debug, warn, error, span, Level};
+    use tracing::{debug, error, info, span, warn, Level};
 
     let span = span!(Level::INFO, "scrape_place_details_stealth", url = %url);
     let _enter = span.enter();
@@ -402,10 +428,18 @@ pub async fn scrape_place_details_stealth(driver: &StealthDriver, url: &str) -> 
     info!("[STEALTH] Step 3: Scrolling...");
     let mut scroll_failed = false;
     for i in 0..3 {
-        match timeout(Duration::from_secs(30), driver.execute_script("window.scrollBy(0, 500);")).await {
-            Ok(_) => {},
+        match timeout(
+            Duration::from_secs(30),
+            driver.execute_script("window.scrollBy(0, 500);"),
+        )
+        .await
+        {
+            Ok(_) => {}
             Err(_) => {
-                warn!("[STEALTH] Scroll {} timed out after 30s - skipping remaining scrolls", i + 1);
+                warn!(
+                    "[STEALTH] Scroll {} timed out after 30s - skipping remaining scrolls",
+                    i + 1
+                );
                 scroll_failed = true;
                 break;
             }
@@ -423,11 +457,11 @@ pub async fn scrape_place_details_stealth(driver: &StealthDriver, url: &str) -> 
         Ok(Ok(source)) => {
             info!("[STEALTH] Got page source: {} bytes", source.len());
             source
-        },
+        }
         Ok(Err(e)) => {
             error!("[STEALTH] Failed to get page source: {}", e);
             return Err(e);
-        },
+        }
         Err(_) => {
             error!("[STEALTH] Get page source timed out after 30s");
             return Err(anyhow::anyhow!("Get page source timed out"));
@@ -442,20 +476,15 @@ pub async fn scrape_place_details_stealth(driver: &StealthDriver, url: &str) -> 
     let title = extract_title_from_source(&page_source)
         .unwrap_or_else(|| format!("Airbnb Listing {}", listing_id));
 
-    let description = extract_description_from_source(&page_source)
-        .unwrap_or_default();
+    let description = extract_description_from_source(&page_source).unwrap_or_default();
 
-    let picture_url = extract_picture_url_from_source(&page_source)
-        .unwrap_or_default();
+    let picture_url = extract_picture_url_from_source(&page_source).unwrap_or_default();
 
-    let price = extract_price_from_source(&page_source)
-        .unwrap_or_default();
+    let price = extract_price_from_source(&page_source).unwrap_or_default();
 
-    let location = extract_location_from_source(&page_source)
-        .unwrap_or_default();
+    let location = extract_location_from_source(&page_source).unwrap_or_default();
 
-    let rating = extract_rating_from_source(&page_source)
-        .unwrap_or_default();
+    let rating = extract_rating_from_source(&page_source).unwrap_or_default();
 
     let features = extract_amenities_from_source(&page_source);
 
@@ -465,7 +494,8 @@ pub async fn scrape_place_details_stealth(driver: &StealthDriver, url: &str) -> 
     let (region, country) = extract_region_country_from_source(&page_source);
 
     // Parse numeric price
-    let price_numeric = price.trim_start_matches('$')
+    let price_numeric = price
+        .trim_start_matches('$')
         .replace(',', "")
         .parse::<f64>()
         .ok();
@@ -473,12 +503,17 @@ pub async fn scrape_place_details_stealth(driver: &StealthDriver, url: &str) -> 
     // Parse numeric rating
     let rating_numeric = rating.parse::<f64>().ok();
 
-    info!("[STEALTH] Extracted: title='{}', price='{}', rating='{}'",
-          title, price, rating);
+    info!(
+        "[STEALTH] Extracted: title='{}', price='{}', rating='{}'",
+        title, price, rating
+    );
 
     // Validate we got meaningful data
     if title.is_empty() {
-        warn!("[STEALTH] Failed to extract title for listing: {}", full_url);
+        warn!(
+            "[STEALTH] Failed to extract title for listing: {}",
+            full_url
+        );
         return Err(anyhow::anyhow!("Failed to extract listing title"));
     }
 
@@ -519,7 +554,13 @@ mod stealth_url_tests {
     // output so the extraction is demonstrably behaviour preserving.
     #[test]
     fn dated_stealth_url_is_exact() {
-        let got = build_stealth_search_url("Paris", Some("2026-09-10"), Some("2026-09-17"), &guests(), None);
+        let got = build_stealth_search_url(
+            "Paris",
+            Some("2026-09-10"),
+            Some("2026-09-17"),
+            &guests(),
+            None,
+        );
         let want = format!(
             "{}s/Paris/homes?refinement_paths%5B%5D=%2Fhomes&\
              query=Paris&\
@@ -552,7 +593,10 @@ mod stealth_url_tests {
     #[test]
     fn amenity_filters_are_appended_only_when_set() {
         let none = build_stealth_search_url("Paris", None, None, &guests(), None);
-        assert!(!none.ends_with('&'), "no trailing separator when unfiltered");
+        assert!(
+            !none.ends_with('&'),
+            "no trailing separator when unfiltered"
+        );
 
         let empty = AmenityFilter::new(false, false, false);
         assert_eq!(
@@ -572,14 +616,23 @@ mod stealth_url_tests {
     fn stealth_encodes_query_once_unlike_legacy() {
         let url = build_stealth_search_url("New York", None, None, &guests(), None);
         assert!(url.contains("s/New%20York/homes"), "{url}");
-        assert!(url.contains("query=New%20York"), "stealth single-encodes: {url}");
-        assert!(!url.contains("query=New%2520York"), "must not double-encode: {url}");
+        assert!(
+            url.contains("query=New%20York"),
+            "stealth single-encodes: {url}"
+        );
+        assert!(
+            !url.contains("query=New%2520York"),
+            "must not double-encode: {url}"
+        );
     }
 
     #[test]
     fn guest_breakdown_is_carried_through() {
         let g = GuestParams::new(4, 2, 1, 3);
         let url = build_stealth_search_url("Paris", None, None, &g, None);
-        assert!(url.contains("adults=4&children=2&infants=1&pets=3"), "{url}");
+        assert!(
+            url.contains("adults=4&children=2&infants=1&pets=3"),
+            "{url}"
+        );
     }
 }
