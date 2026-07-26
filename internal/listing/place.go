@@ -1,6 +1,9 @@
 package listing
 
-import "strings"
+import (
+	_ "embed"
+	"strings"
+)
 
 // Scraped listings arrive with a free-text `location` ("Indianapolis, Indiana",
 // "Toronto, Canada", "East Austin") but frequently without `region` or
@@ -90,21 +93,33 @@ var caProvinces = map[string]string{
 	"nunavut": "Nunavut", "nu": "Nunavut",
 }
 
-// countryAliases normalises the country spellings the scraper has emitted to
-// the canonical names the repository's filters query on.
-var countryAliases = map[string]string{
-	"usa": "United States", "us": "United States",
-	"u.s.": "United States", "u.s.a.": "United States",
-	"united states":            "United States",
-	"united states of america": "United States",
-	// Deliberately NO "ca" alias for Canada: as the trailing segment of a
-	// location it means California far more often ("San Diego, CA"), and
-	// countries are matched before states, so the alias would file every
-	// Californian listing under Canada.
-	"canada": "Canada",
-	"mexico": "Mexico", "méxico": "Mexico",
-	"united kingdom": "United Kingdom", "uk": "United Kingdom",
-}
+//go:embed countries.txt
+var countriesData string
+
+// countryAliases maps every accepted spelling (lowercased) to its canonical
+// country name, loaded from the shared table so the Rust scraper and this
+// package cannot disagree about what "Türkiye" or "Holland" normalise to.
+var countryAliases = func() map[string]string {
+	m := make(map[string]string, 512)
+	for _, line := range strings.Split(countriesData, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		canon, aliases, _ := strings.Cut(line, "|")
+		canon = strings.TrimSpace(canon)
+		if canon == "" {
+			continue
+		}
+		m[strings.ToLower(canon)] = canon
+		for _, a := range strings.Split(aliases, ",") {
+			if a = strings.TrimSpace(a); a != "" {
+				m[strings.ToLower(a)] = canon
+			}
+		}
+	}
+	return m
+}()
 
 // ParsePlace derives city, region and country from a location string.
 //
@@ -129,13 +144,21 @@ func ParsePlace(location string) (city, region, country string) {
 
 	if c, ok := countryAliases[last]; ok {
 		country = c
-		// "Toronto, Ontario, Canada" — the middle segment is the region.
+		// "Toronto, Ontario, Canada" / "Barcelona, Catalonia, Spain" — the
+		// middle segment is the subdivision. Canonicalise it where we have a
+		// table (US/CA, where Airbnb also abbreviates), otherwise keep it
+		// as written: we cannot enumerate every country's subdivisions, and
+		// the string Airbnb chose is better than discarding it.
 		if len(parts) >= 3 {
-			mid := strings.ToLower(parts[len(parts)-2])
-			if r, ok := usStates[mid]; ok && country == "United States" {
-				region = r
-			} else if r, ok := caProvinces[mid]; ok && country == "Canada" {
-				region = r
+			raw := parts[len(parts)-2]
+			mid := strings.ToLower(raw)
+			switch {
+			case country == "United States":
+				region = usStates[mid]
+			case country == "Canada":
+				region = caProvinces[mid]
+			default:
+				region = raw
 			}
 		}
 		return city, region, country

@@ -27,9 +27,23 @@ func TestParsePlace(t *testing.T) {
 		{"Zilker", "Zilker", "", ""},
 		{"Travis Heights", "Travis Heights", "", ""},
 
-		// Unknown trailing segment: keep the city, record nothing we'd have
-		// to invent.
-		{"Paris, France", "Paris", "", ""},
+		// Global coverage: the scraper targets every region, not just North
+		// America, so any recognised country must resolve.
+		{"Paris, France", "Paris", "", "France"},
+		{"Barcelona, Spain", "Barcelona", "", "Spain"},
+		{"Kyoto, Japan", "Kyoto", "", "Japan"},
+		{"Cartagena, Colombia", "Cartagena", "", "Colombia"},
+		{"Cape Town, South Africa", "Cape Town", "", "South Africa"},
+		{"Amsterdam, Holland", "Amsterdam", "", "Netherlands"},
+		{"Istanbul, Türkiye", "Istanbul", "", "Turkey"},
+		{"Edinburgh, Scotland", "Edinburgh", "", "United Kingdom"},
+
+		// Subdivisions outside US/CA are kept as written: we cannot enumerate
+		// every country's regions, and Airbnb's own string beats discarding it.
+		{"Barcelona, Catalonia, Spain", "Barcelona", "Catalonia", "Spain"},
+		{"Kyoto, Kansai, Japan", "Kyoto", "Kansai", "Japan"},
+
+		// Genuinely unknown trailing segment still records nothing.
 		{"Somewhere, Atlantis", "Somewhere", "", ""},
 
 		{"", "", "", ""},
