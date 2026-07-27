@@ -9,10 +9,37 @@ import (
 	"time"
 )
 
+// KeyFunc derives the bucket a request counts against.
+type KeyFunc func(*http.Request) string
+
+// KeyByIP is the default: one bucket per client IP.
+func KeyByIP(r *http.Request) string { return clientIP(r) }
+
+// KeyByUserOrIP buckets authenticated callers by user ID and everyone else by
+// IP. Use it on routes behind RequireAuth where the resource being protected
+// is per-account — AI generation, paid upstream calls — rather than per-host.
+// IP keying is wrong there in both directions: it throttles a whole NAT
+// collectively, and it lets one account multiply its quota by rotating
+// addresses. The prefixes keep a user ID from ever colliding with an IP.
+func KeyByUserOrIP(r *http.Request) string {
+	if id := GetUserID(r.Context()); id != "" {
+		return "u:" + id
+	}
+	return "ip:" + clientIP(r)
+}
+
 // RateLimit is a simple token-bucket limiter keyed by client IP. Use it on
 // sensitive endpoints like login/register. Rate is per minute; burst allows
 // short spikes. The bucket map is cleaned up lazily.
 func RateLimit(ratePerMinute, burst int) func(http.Handler) http.Handler {
+	return RateLimitKeyed(ratePerMinute, burst, KeyByIP)
+}
+
+// RateLimitKeyed is RateLimit with a caller-chosen bucket key.
+func RateLimitKeyed(ratePerMinute, burst int, key KeyFunc) func(http.Handler) http.Handler {
+	if key == nil {
+		key = KeyByIP
+	}
 	rl := &rateLimiter{
 		buckets: make(map[string]*bucket),
 		rate:    float64(ratePerMinute) / 60.0,
@@ -21,7 +48,7 @@ func RateLimit(ratePerMinute, burst int) func(http.Handler) http.Handler {
 	go rl.reap()
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !rl.allow(clientIP(r)) {
+			if !rl.allow(key(r)) {
 				w.Header().Set("Retry-After", "60")
 				if strings.HasPrefix(r.URL.Path, "/api/") {
 					w.Header().Set("Content-Type", "application/json")

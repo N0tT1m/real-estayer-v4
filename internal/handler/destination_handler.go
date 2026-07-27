@@ -19,6 +19,10 @@ type DestinationHandler struct {
 	destService      *service.DestinationService
 	discoveryService *service.DestinationDiscoveryService
 	scraperService   *service.ScraperService
+	// suggestService is held only to ask whether the activity finder is
+	// configured, so the explore page can hide the panel entirely rather than
+	// offering a control that 503s. The endpoint itself is served by Handler.
+	suggestService *service.DestinationSuggestService
 }
 
 func NewDestinationHandler(
@@ -26,12 +30,14 @@ func NewDestinationHandler(
 	destService *service.DestinationService,
 	discoveryService *service.DestinationDiscoveryService,
 	scraperService *service.ScraperService,
+	suggestService *service.DestinationSuggestService,
 ) *DestinationHandler {
 	return &DestinationHandler{
 		tmpl:             tmpl,
 		destService:      destService,
 		discoveryService: discoveryService,
 		scraperService:   scraperService,
+		suggestService:   suggestService,
 	}
 }
 
@@ -86,6 +92,10 @@ func (h *DestinationHandler) ExplorePage(w http.ResponseWriter, r *http.Request)
 		"Filter":       filter,
 		"Categories":   categories,
 		"Regions":      regions,
+		// Drives the "what do you want to do" panel. False hides it outright,
+		// which is the fail-soft rule: an unconfigured integration shows no
+		// control rather than one that errors when clicked.
+		"AISuggest": h.suggestService != nil && h.suggestService.Configured(),
 	}
 
 	// RenderWithRequest populates data["User"] from the request context itself,

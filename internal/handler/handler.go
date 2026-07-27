@@ -93,6 +93,10 @@ type EnrichDeps struct {
 	Nature       *service.NatureService
 	Visa         *service.VisaService
 	Transit      *service.TransitService
+	// DestinationSuggest is the one member here that calls a model rather than
+	// a keyed third-party API, but it shares the group's shape: read-only, and
+	// unavailable rather than fatal when unconfigured.
+	DestinationSuggest *service.DestinationSuggestService
 }
 
 // HandlerDeps is the dependency bag for NewHandler, and is embedded in Handler
