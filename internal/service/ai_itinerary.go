@@ -29,9 +29,34 @@ type AIItineraryService struct {
 
 var ErrAIItineraryNotConfigured = errors.New("ai: set ANTHROPIC_API_KEY, or AI_BASE_URL for a local OpenAI-compatible endpoint")
 
+// ErrInvalidItineraryRequest wraps caller-input problems so handlers can
+// answer 400. Without it these surfaced as 502 Bad Gateway — a blank
+// destination read to the client as though the upstream model had failed.
+var ErrInvalidItineraryRequest = errors.New("invalid itinerary request")
+
 // anthropicBaseURL is the hosted API. A non-empty AI_BASE_URL replaces it and
 // switches the wire format to OpenAI-compatible chat completions.
 const anthropicBaseURL = "https://api.anthropic.com"
+
+// AIClientTimeout bounds a single call to the model.
+//
+// It must stay BELOW the router's global middleware.Timeout in
+// cmd/server/main.go, currently 60s. That timeout cancels the request context,
+// which chatText passes to http.NewRequestWithContext — so a client timeout
+// above it can never fire. This was 120s, which meant a slow model produced a
+// context cancellation at 60s rather than this client's own error, and the
+// caller saw a dropped connection instead of a timeout it could report.
+//
+// The full ordering the AI routes depend on:
+//
+//	AIClientTimeout (55s) < middleware.Timeout (60s) < ExtendWriteDeadline (90s)
+//
+// so the model call gives up first, the 504 is written second, and the write
+// deadline is last and wide enough to get that 504 onto the wire.
+//
+// A local model that cannot answer inside this budget needs to be a smaller
+// model — raising this alone just moves the failure back to the 60s ceiling.
+const AIClientTimeout = 55 * time.Second
 
 // NewAIItineraryService wires the service.
 //
@@ -57,7 +82,7 @@ func NewAIItineraryService(apiKey, model, baseURL string) *AIItineraryService {
 		apiKey:  apiKey,
 		model:   model,
 		baseURL: baseURL,
-		client:  &http.Client{Timeout: 120 * time.Second}, // local models can be slow
+		client:  &http.Client{Timeout: AIClientTimeout},
 	}
 }
 
@@ -233,10 +258,10 @@ func (s *AIItineraryService) Generate(ctx context.Context, req ItineraryRequest)
 		return nil, ErrAIItineraryNotConfigured
 	}
 	if req.Destination == "" {
-		return nil, errors.New("destination is required")
+		return nil, fmt.Errorf("%w: destination is required", ErrInvalidItineraryRequest)
 	}
 	if req.EndDate.Before(req.StartDate) {
-		return nil, errors.New("end date before start")
+		return nil, fmt.Errorf("%w: end date is before start date", ErrInvalidItineraryRequest)
 	}
 	nights := int(req.EndDate.Sub(req.StartDate).Hours()/24) + 1
 	if nights < 1 {
@@ -316,10 +341,10 @@ func (s *AIItineraryService) Refine(ctx context.Context, turn RefinementTurn) (*
 		return nil, ErrAIItineraryNotConfigured
 	}
 	if turn.Prior == nil {
-		return nil, errors.New("prior itinerary required")
+		return nil, fmt.Errorf("%w: prior itinerary required", ErrInvalidItineraryRequest)
 	}
 	if strings.TrimSpace(turn.Feedback) == "" {
-		return nil, errors.New("feedback required")
+		return nil, fmt.Errorf("%w: feedback required", ErrInvalidItineraryRequest)
 	}
 
 	system := `You revise travel itineraries. The user will send a JSON itinerary (see schema below) and feedback. Return ONLY the revised itinerary as JSON in the same schema — no prose, no markdown.

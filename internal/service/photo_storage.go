@@ -161,10 +161,39 @@ func (s *S3PhotoStorage) Save(ctx context.Context, userID, filename string, read
 
 // ---------- Helpers ----------
 
+// imageExtensions is the set of extensions an upload may keep. Anything else
+// is rewritten from the sniffed content type.
+//
+// The upload handler already rejects non-images by magic bytes, but it accepts
+// the client's *filename* — so a genuine PNG called "x.html" would be stored
+// as .html and served back from /uploads as text/html. A PNG that is also
+// valid HTML is a well-known polyglot, which turns a photo upload into stored
+// XSS on our own origin. The extension has to be derived, not trusted.
+var imageExtensions = map[string]bool{
+	".jpg": true, ".jpeg": true, ".png": true, ".gif": true,
+	".webp": true, ".avif": true, ".bmp": true,
+}
+
+// mimeExtensions wraps mime.ExtensionsByType, which needs the bare type
+// without any "; charset=..." parameters DetectContentType may have appended.
+func mimeExtensions(contentType string) []string {
+	if i := strings.Index(contentType, ";"); i >= 0 {
+		contentType = contentType[:i]
+	}
+	exts, _ := mime.ExtensionsByType(strings.TrimSpace(contentType))
+	return exts
+}
+
 func sanitizeFilename(name, contentType string) (base, ext string) {
 	name = filepath.Base(name)
 	ext = strings.ToLower(filepath.Ext(name))
 	base = strings.TrimSuffix(name, ext)
+
+	if !imageExtensions[ext] {
+		// Drop it and fall through to the content-type lookup below, which
+		// works off the sniffed type rather than anything the client said.
+		ext = ""
+	}
 	base = strings.Map(func(r rune) rune {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
@@ -176,8 +205,15 @@ func sanitizeFilename(name, contentType string) (base, ext string) {
 		base = "photo"
 	}
 	if ext == "" {
-		if exts, _ := mime.ExtensionsByType(contentType); len(exts) > 0 {
-			ext = exts[0]
+		// Derive from the sniffed type instead. Re-check the result: the mime
+		// database is platform-dependent, and ".bin" served as
+		// application/octet-stream downloads rather than executes, which is
+		// the safe way to fail.
+		for _, candidate := range mimeExtensions(contentType) {
+			if imageExtensions[strings.ToLower(candidate)] {
+				ext = strings.ToLower(candidate)
+				break
+			}
 		}
 	}
 	if ext == "" {

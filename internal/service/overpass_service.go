@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -48,6 +50,22 @@ func NewOverpassService() *OverpassService {
 	}
 }
 
+const (
+	// defaultRadiusM applies when a caller passes nothing sensible.
+	defaultRadiusM = 1500
+	// maxRadiusM is the ceiling. Beyond this the public Overpass instance
+	// starts answering 504 for the broader categories (beach, hiking).
+	maxRadiusM = 10000
+)
+
+// ErrUnsupportedCategory means the caller named a category buildOverpassQuery
+// doesn't know — a client mistake, worth a 400.
+var ErrUnsupportedCategory = errors.New("overpass: unsupported category")
+
+// ErrUpstreamBusy means the public Overpass instance rate-limited us or timed
+// the query out. Nothing is wrong with the request; it is worth retrying.
+var ErrUpstreamBusy = errors.New("overpass: upstream busy")
+
 // Nearby returns POIs within `radiusM` metres of (lat,lng) for the given
 // category.
 //
@@ -58,12 +76,20 @@ func NewOverpassService() *OverpassService {
 // The full list lives in buildOverpassQuery; anything else is an error rather
 // than an empty result, so a typo in a caller is loud.
 func (s *OverpassService) Nearby(ctx context.Context, category string, lat, lng float64, radiusM int) ([]Place, error) {
-	if radiusM <= 0 || radiusM > 10000 {
-		radiusM = 1500
+	// An out-of-range radius used to fall all the way back to 1500 m, so
+	// asking for 12 km silently searched 1.5 km and looked like "nothing here".
+	// Clamp to the ceiling instead, and say so.
+	switch {
+	case radiusM <= 0:
+		radiusM = defaultRadiusM
+	case radiusM > maxRadiusM:
+		slog.Debug("overpass: radius clamped to ceiling",
+			"requested_m", radiusM, "used_m", maxRadiusM, "category", category)
+		radiusM = maxRadiusM
 	}
 	q := buildOverpassQuery(category, lat, lng, radiusM)
 	if q == "" {
-		return nil, fmt.Errorf("overpass: unsupported category %q", category)
+		return nil, fmt.Errorf("%w: %q", ErrUnsupportedCategory, category)
 	}
 	key := fmt.Sprintf("%s|%.4f|%.4f|%d", category, lat, lng, radiusM)
 	if v, ok := s.cache[key]; ok && time.Now().Before(v.expiresAt) {
@@ -84,6 +110,13 @@ func (s *OverpassService) Nearby(ctx context.Context, category string, lat, lng 
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
+		// Distinguish "we asked wrong" from "the public instance is busy".
+		// Overpass answers 429 when rate-limiting and 504 when a query is too
+		// heavy; both were reaching the browser as HTTP 400, which blamed the
+		// user for an upstream condition they can only wait out.
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusGatewayTimeout {
+			return nil, fmt.Errorf("%w: status %d", ErrUpstreamBusy, resp.StatusCode)
+		}
 		return nil, fmt.Errorf("overpass: status %d", resp.StatusCode)
 	}
 

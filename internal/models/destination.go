@@ -57,6 +57,16 @@ type DestinationHighlight struct {
 	Icon        string `bson:"icon" json:"icon"`
 }
 
+// DestinationFilterAvailability reports which of the optional array-backed
+// filters have any data behind them. The seeder populates categories but not
+// best_for or best_months, so those two controls could only ever return an
+// empty list — the explore page hides them rather than offering a filter that
+// silently matches nothing.
+type DestinationFilterAvailability struct {
+	BestFor bool
+	Months  bool
+}
+
 type DestinationFilter struct {
 	Category  string
 	Region    string

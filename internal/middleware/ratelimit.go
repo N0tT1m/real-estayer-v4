@@ -115,8 +115,10 @@ func (rl *rateLimiter) reap() {
 }
 
 func clientIP(r *http.Request) string {
-	// chi's middleware.RealIP sets r.RemoteAddr to the real client IP when a
-	// trusted proxy header is present, so RemoteAddr is authoritative here.
+	// TrustedProxyIP has already decided whether any forwarding header was
+	// believable and rewritten RemoteAddr if so, which makes RemoteAddr
+	// authoritative here. Never read X-Forwarded-For directly at this layer —
+	// that is exactly the spoof the middleware exists to prevent.
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr

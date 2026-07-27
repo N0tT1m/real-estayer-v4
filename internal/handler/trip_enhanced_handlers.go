@@ -407,6 +407,21 @@ type aiItineraryReq struct {
 	Pace        string    `json:"pace"`
 }
 
+// aiItineraryError maps a service error to a status. Both AI itinerary
+// handlers share it so they cannot drift: previously a blank destination
+// returned 502 Bad Gateway, blaming the upstream model for what was plainly
+// bad input.
+func (h *Handler) aiItineraryError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, service.ErrAIItineraryNotConfigured):
+		h.jsonError(w, http.StatusServiceUnavailable, "AI itinerary is not configured on this server")
+	case errors.Is(err, service.ErrInvalidItineraryRequest):
+		h.jsonError(w, http.StatusBadRequest, err.Error())
+	default:
+		h.jsonError(w, http.StatusBadGateway, err.Error())
+	}
+}
+
 func (h *Handler) AIItinerary(w http.ResponseWriter, r *http.Request) {
 	var req aiItineraryReq
 	if err := h.parseJSON(r, &req); err != nil {
@@ -422,11 +437,7 @@ func (h *Handler) AIItinerary(w http.ResponseWriter, r *http.Request) {
 		Pace:        req.Pace,
 	})
 	if err != nil {
-		if errors.Is(err, service.ErrAIItineraryNotConfigured) {
-			h.jsonError(w, http.StatusServiceUnavailable, "AI itinerary is not configured on this server")
-			return
-		}
-		h.jsonError(w, http.StatusBadGateway, err.Error())
+		h.aiItineraryError(w, err)
 		return
 	}
 	h.jsonResponse(w, http.StatusOK, out)
@@ -442,7 +453,16 @@ func (h *Handler) PlacesNearby(w http.ResponseWriter, r *http.Request) {
 	radius, _ := parseIntParam(q.Get("radius"))
 	out, err := h.Enrich.Places.Nearby(r.Context(), category, lat, lng, radius)
 	if err != nil {
-		h.jsonError(w, http.StatusBadRequest, err.Error())
+		switch {
+		case errors.Is(err, service.ErrUnsupportedCategory):
+			h.jsonError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, service.ErrUpstreamBusy):
+			// The caller did nothing wrong and the condition is transient.
+			w.Header().Set("Retry-After", "30")
+			h.jsonError(w, http.StatusServiceUnavailable, "map data provider is busy, try again shortly")
+		default:
+			h.jsonError(w, http.StatusBadGateway, err.Error())
+		}
 		return
 	}
 	h.jsonResponse(w, http.StatusOK, map[string]interface{}{"places": out})

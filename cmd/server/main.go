@@ -159,6 +159,7 @@ func main() {
 			Users:  repos.User,
 			Audit:  auditService,
 			Photos: photoStorage,
+			DB:     db,
 		},
 		Listings: handler.ListingDeps{
 			Listing:      listingService,
@@ -216,10 +217,17 @@ func main() {
 	errorHook := authMiddleware.WebhookErrorHook(cfg.ErrorWebhookURL, nil)
 
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+	// Not chi's RealIP: that one is deprecated as spoofable and would let a
+	// caller reset their own rate-limit bucket with a forged header. This
+	// honours forwarding headers only from TRUSTED_PROXY_CIDRS, and ignores
+	// them completely when that is unset.
+	r.Use(authMiddleware.TrustedProxyIP(cfg.TrustedProxyCIDRs))
 	r.Use(authMiddleware.RequestLogger())
 	r.Use(metrics.Middleware())
 	r.Use(authMiddleware.Recoverer(h.ServerError, errorHook))
+	// Above the routes so every response carries them, including static files,
+	// error pages, and anything a panic short-circuits.
+	r.Use(authMiddleware.SecurityHeaders(cfg.IsProduction()))
 	r.Use(middleware.Timeout(60 * time.Second))
 
 	allowedOrigins := cfg.AllowedOrigins

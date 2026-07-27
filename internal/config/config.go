@@ -20,8 +20,13 @@ type Config struct {
 
 	// Security
 	AllowedOrigins []string
-	ScraperAPIKey  string
-	AdminBootstrap []string // emails that should be promoted to admin on registration
+	// TrustedProxyCIDRs lists the networks whose X-Forwarded-For headers may
+	// be believed. Empty — the default — means forwarding headers are ignored
+	// entirely, which is correct for a direct or LAN deployment and is what
+	// stops anyone from spoofing their way past the rate limiters.
+	TrustedProxyCIDRs []string
+	ScraperAPIKey     string
+	AdminBootstrap    []string // emails that should be promoted to admin on registration
 
 	// Database
 	MongoURI      string
@@ -111,6 +116,7 @@ func Load() (*Config, error) {
 		Port:                getEnv("PORT", "8347"),
 		SessionSecret:       os.Getenv("SESSION_SECRET"),
 		AllowedOrigins:      splitCSV(getEnv("ALLOWED_ORIGINS", "http://localhost:8347")),
+		TrustedProxyCIDRs:   splitCSV(os.Getenv("TRUSTED_PROXY_CIDRS")),
 		ScraperAPIKey:       strings.TrimSpace(os.Getenv("SCRAPER_API_KEY")),
 		AdminBootstrap:      splitCSV(os.Getenv("ADMIN_BOOTSTRAP_EMAILS")),
 		MongoURI:            getEnv("MONGODB_URI", "mongodb://localhost:27017/real_estayer"),

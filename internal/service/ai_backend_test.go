@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The two backends speak different wire formats. These pin both shapes, since
@@ -190,5 +191,26 @@ func TestReceiptOCRRejectsOpenAIBackend(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "vision") {
 		t.Errorf("err = %v, want it to name the vision requirement", err)
+	}
+}
+
+// The AI client timeout has to stay under the router's global
+// middleware.Timeout in cmd/server/main.go. chatText builds its request with
+// http.NewRequestWithContext, so once that ceiling cancels the request context
+// the client's own timeout can never fire — the caller gets a cancelled
+// context instead of a timeout it can report. This was 120s against a 60s
+// ceiling, which is why a slow local model surfaced as a dropped connection.
+// If the ceiling in main.go moves, move this with it.
+func TestAIClientTimeoutFitsUnderRouterTimeout(t *testing.T) {
+	const routerTimeout = 60 * time.Second // middleware.Timeout in cmd/server/main.go
+
+	if AIClientTimeout >= routerTimeout {
+		t.Fatalf("AIClientTimeout = %v, must be < the %v router timeout or it can never fire",
+			AIClientTimeout, routerTimeout)
+	}
+
+	svc := NewAIItineraryService("", "some-model", "http://127.0.0.1:1/v1")
+	if svc.client.Timeout != AIClientTimeout {
+		t.Errorf("client.Timeout = %v, want AIClientTimeout (%v)", svc.client.Timeout, AIClientTimeout)
 	}
 }

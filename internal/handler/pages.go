@@ -1,12 +1,16 @@
 package handler
 
 import (
+	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/realestayer/v4/internal/models"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
 )
 
 // Home renders the home page
@@ -238,9 +242,33 @@ func (h *Handler) BookingConfirmationPage(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// Health check page
+// Health reports whether this instance can actually serve traffic, which
+// means reaching MongoDB — every meaningful route reads from it.
+//
+// This used to write "OK" unconditionally, so Docker's HEALTHCHECK and any
+// load balancer in front would keep a instance in rotation with a dead
+// database. A liveness probe that cannot fail is not a probe.
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
-	_, _ = w.Write([]byte("OK"))
+	// Well inside the 15s WriteTimeout: a health check that hangs is itself a
+	// failure mode, so bound it tighter than the request would be.
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+
+	if h.Core.DB != nil {
+		if err := h.Core.DB.Client.Ping(ctx, readpref.Primary()); err != nil {
+			slog.Warn("health: database ping failed", "error", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"status": "degraded",
+				"error":  "database unreachable",
+			})
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 // ScrapePage renders the public scraping page

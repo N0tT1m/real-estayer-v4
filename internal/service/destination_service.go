@@ -414,6 +414,12 @@ func (s *DestinationService) GetDestinationsByCategory(ctx context.Context, cate
 	return s.repo.FindByCategory(ctx, category, limit)
 }
 
+// GetFilterAvailability reports which optional filters have data behind them,
+// so the explore page can hide controls that could only ever match nothing.
+func (s *DestinationService) GetFilterAvailability(ctx context.Context) (models.DestinationFilterAvailability, error) {
+	return s.repo.FilterAvailability(ctx)
+}
+
 func (s *DestinationService) GetCategories(ctx context.Context) ([]string, error) {
 	return s.repo.GetCategories(ctx)
 }
