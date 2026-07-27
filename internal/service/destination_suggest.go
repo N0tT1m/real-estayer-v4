@@ -93,6 +93,10 @@ type ActivityMatch struct {
 	// its budget figure is synthesised rather than curated, so it is a
 	// weaker number than the one on an established row.
 	Discovered bool `json:"discovered,omitempty"`
+	// AwaitingReview means there is no destinations row behind this match yet
+	// — it sits in the admin queue. The UI must not link it to /explore/<name>,
+	// which would 404.
+	AwaitingReview bool `json:"awaiting_review,omitempty"`
 }
 
 // ActivitySuggestions is the response. Dropped is deliberately visible rather
@@ -350,34 +354,37 @@ func (s *DestinationSuggestService) resolveUngrounded(ctx context.Context, out *
 			defer func() { <-sem }()
 
 			name := strings.TrimSpace(u.pick.Name)
-			dest, err := s.discovery.ResolveAndInsertByName(dctx, name)
+			found, err := s.discovery.ResolveForSuggestion(dctx, name, req.Activities)
 			if err != nil {
 				slog.Debug("suggest: discovery failed", "name", name, "error", err)
 			}
 
 			mu.Lock()
 			defer mu.Unlock()
-			if dest == nil || !suggestionSatisfies(*dest, req) {
+			if found == nil || !suggestionSatisfies(found.Destination, req) {
 				out.Dropped = append(out.Dropped, name)
 				return
 			}
 			// Canonicalisation can land two different picks on the same row
-			// ("Banff" and "Banff National Park"), and a discovered row can
+			// ("Banff" and "Banff National Park"), and a resolved row can
 			// collide with a catalog match already held.
-			key := normalizeName(dest.Name)
+			key := normalizeName(found.Destination.Name)
 			if seen[key] {
 				return
 			}
 			seen[key] = true
 
 			out.Matches[u.slot] = ActivityMatch{
-				Destination: *dest,
-				Why:         strings.TrimSpace(u.pick.Why),
-				Activities:  trimmedNonEmpty(u.pick.Activities),
-				Timing:      strings.TrimSpace(u.pick.Timing),
-				Discovered:  true,
+				Destination:    found.Destination,
+				Why:            strings.TrimSpace(u.pick.Why),
+				Activities:     trimmedNonEmpty(u.pick.Activities),
+				Timing:         strings.TrimSpace(u.pick.Timing),
+				Discovered:     found.Awaiting,
+				AwaitingReview: found.Awaiting,
 			}
-			out.DiscoveredCount++
+			if found.Awaiting {
+				out.DiscoveredCount++
+			}
 		}(u)
 	}
 	wg.Wait()

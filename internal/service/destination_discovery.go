@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson/primitive"
+
 	"github.com/realestayer/v4/internal/models"
 	"github.com/realestayer/v4/internal/provider/wikipedia"
 	"github.com/realestayer/v4/internal/repository"
@@ -29,20 +31,27 @@ import (
 // admin picks which ones to keep, POSTs /discover/confirm, and we upsert them
 // into the destinations collection.
 type DestinationDiscoveryService struct {
-	repo     *repository.DestinationRepository
-	wikidata *WikidataService
-	wiki     *wikipedia.Client
+	repo      *repository.DestinationRepository
+	candidate *repository.DestinationCandidateRepository
+	wikidata  *WikidataService
+	wiki      *wikipedia.Client
 }
 
+// NewDestinationDiscoveryService wires discovery. candidate may be nil, which
+// disables the activity finder's review queue and with it its ability to
+// answer with places outside the catalog; the region-based admin flow above is
+// unaffected.
 func NewDestinationDiscoveryService(
 	repo *repository.DestinationRepository,
+	candidate *repository.DestinationCandidateRepository,
 	wikidata *WikidataService,
 	wiki *wikipedia.Client,
 ) *DestinationDiscoveryService {
 	return &DestinationDiscoveryService{
-		repo:     repo,
-		wikidata: wikidata,
-		wiki:     wiki,
+		repo:      repo,
+		candidate: candidate,
+		wikidata:  wikidata,
+		wiki:      wiki,
 	}
 }
 
@@ -241,39 +250,56 @@ func (s *DestinationDiscoveryService) buildCandidate(ctx context.Context, p Disc
 	return cand
 }
 
-// minSitelinksForAutoInsert is the popularity floor for a place added without
-// a human in the loop. The admin discovery flow can afford a floor of 3
-// because someone reviews the list before confirming; ResolveAndInsertByName
-// has no such review, so it asks for a place documented in a handful of
-// languages rather than one obscure stub. Under this, a model that reaches for
-// a hamlet would quietly grow the catalog with rows nobody wants.
-const minSitelinksForAutoInsert = 5
+// minSitelinksForQueue is the popularity floor for entering the review queue.
+// The admin region flow can afford a floor of 3 because someone reads the list
+// before confirming anything; this path files rows unattended, and a queue
+// full of hamlets is a queue nobody works through. Review is a check on
+// quality, not a substitute for one.
+const minSitelinksForQueue = 5
 
-// ResolveAndInsertByName verifies one free-text place name against Wikidata
-// and, when it turns out to be a real and reasonably documented place, enriches
-// and stores it as a destination — returning the stored row.
+// SuggestedPlace is a place the activity finder can show. Awaiting is true
+// when it came from the review queue rather than the catalog, which means it
+// has no destinations row and nothing may link to it yet.
+type SuggestedPlace struct {
+	Destination models.Destination
+	Awaiting    bool
+}
+
+// ResolveForSuggestion verifies one free-text place name against Wikidata and
+// returns something the finder can show — without adding anything to the
+// catalog.
 //
-// This is the unattended counterpart to Discover + ConfirmAndInsert, and it
-// exists for the activity finder. That flow regularly produces the name of a
-// place that genuinely suits the request but is absent from the seeded
-// catalog; without this, the only options are to drop it or to trust the model
-// enough to render an unverified row. Wikidata is what makes the third path
-// safe: the model supplies a name, and every fact attached to it comes from
-// Wikidata and Wikipedia.
+// The split matters. Answering a search with a place we do not cover is the
+// point of the finder, but publishing that place into /explore for everyone is
+// a separate decision with a much higher bar, and it belongs to an admin. So a
+// resolved place is filed in the review queue and handed straight back to the
+// person who searched; only approval moves it into the catalog.
 //
-// Returns (nil, nil) when the name does not resolve or falls under the
-// popularity floor, so callers can report it as dropped.
-func (s *DestinationDiscoveryService) ResolveAndInsertByName(ctx context.Context, name string) (*models.Destination, error) {
+// Returns (nil, nil) when the name does not resolve, falls under the
+// popularity floor, or names a place a reviewer has already rejected — callers
+// report all three as dropped. Rejection is deliberately sticky: a place
+// refused once should not reappear in results every time the model names it.
+func (s *DestinationDiscoveryService) ResolveForSuggestion(ctx context.Context, name string, activities []string) (*SuggestedPlace, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, nil
 	}
 
-	// A stored row always wins. It may have been curated by an admin or
-	// enriched by another flow, and re-deriving it from Wikidata would
-	// overwrite that with the generic version.
+	// A catalog row always wins. It may have been curated by an admin or
+	// enriched by another flow, and re-deriving it from Wikidata would show
+	// the generic version instead.
 	if existing, err := s.repo.FindByName(ctx, name); err == nil && existing != nil {
-		return existing, nil
+		return &SuggestedPlace{Destination: *existing}, nil
+	}
+	if s.candidate == nil {
+		return nil, nil
+	}
+
+	// Check the queue before spending any network calls: a place suggested
+	// last week is already resolved, and this is the common case once the
+	// queue has warmed up.
+	if known, err := s.candidate.FindByNormalizedName(ctx, normalizeName(name)); err == nil && known != nil {
+		return s.seenAgain(ctx, known)
 	}
 
 	place, err := s.wikidata.PlaceByName(ctx, name)
@@ -293,28 +319,167 @@ func (s *DestinationDiscoveryService) ResolveAndInsertByName(ctx context.Context
 			}
 		}
 	}
-	if place == nil || place.SitelinkCount < minSitelinksForAutoInsert {
+	if place == nil || place.SitelinkCount < minSitelinksForQueue {
 		return nil, nil
 	}
 
-	// PlaceByName may have canonicalised the name, which can collide with a
-	// row the caller's spelling missed.
-	if place.Name != name {
+	// PlaceByName canonicalises the name, which can land on a catalog row or a
+	// queue entry the caller's spelling missed.
+	if canonical := normalizeName(place.Name); canonical != normalizeName(name) {
 		if existing, err := s.repo.FindByName(ctx, place.Name); err == nil && existing != nil {
-			return existing, nil
+			return &SuggestedPlace{Destination: *existing}, nil
+		}
+		if known, err := s.candidate.FindByNormalizedName(ctx, canonical); err == nil && known != nil {
+			return s.seenAgain(ctx, known)
 		}
 	}
 
 	cand := s.buildCandidate(ctx, *place, 0)
-	if _, _, err := s.ConfirmAndInsert(ctx, []DiscoveryCandidate{cand}); err != nil {
-		return nil, err
+	stored, err := s.candidate.RecordSuggestion(ctx, candidateToQueueRow(cand, place.SitelinkCount, activities))
+	if err != nil {
+		return nil, fmt.Errorf("queue %q: %w", cand.Name, err)
+	}
+	return s.fromQueue(ctx, stored)
+}
+
+// seenAgain notes another search landing on a place already queued, then
+// returns it. The increment lives here rather than in fromQueue because
+// fromQueue also runs immediately after RecordSuggestion, which has already
+// counted the sighting.
+func (s *DestinationDiscoveryService) seenAgain(ctx context.Context, c *models.DestinationCandidate) (*SuggestedPlace, error) {
+	if updated, err := s.candidate.NoteSuggested(ctx, c.ID); err != nil {
+		slog.Debug("candidate count update failed", "name", c.Name, "error", err)
+	} else if updated != nil {
+		c = updated
+	}
+	return s.fromQueue(ctx, c)
+}
+
+// fromQueue turns a queue row into a result, applying the review decision:
+// approved rows have a catalog entry to return instead, rejected rows return
+// nothing at all.
+func (s *DestinationDiscoveryService) fromQueue(ctx context.Context, c *models.DestinationCandidate) (*SuggestedPlace, error) {
+	switch c.Status {
+	case models.CandidateRejected:
+		return nil, nil
+	case models.CandidateApproved:
+		// Normally the catalog lookup upstream already caught this. Falling
+		// through to the candidate covers the window where a row was approved
+		// but the destination was later deactivated or renamed.
+		if existing, err := s.repo.FindByName(ctx, c.Name); err == nil && existing != nil {
+			return &SuggestedPlace{Destination: *existing}, nil
+		}
+	}
+	return &SuggestedPlace{Destination: c.AsDestination(), Awaiting: true}, nil
+}
+
+// candidateToQueueRow maps an enriched discovery candidate onto a queue row,
+// synthesising the same budget and popularity figures ConfirmAndInsert would,
+// so approving a candidate is a move between collections rather than a
+// re-derivation that could produce different numbers.
+func candidateToQueueRow(c DiscoveryCandidate, sitelinks int, activities []string) *models.DestinationCandidate {
+	region := c.Region
+	if region == "" {
+		region = regionForCountry(c.CountryCode)
+	}
+	country := c.Country
+	if country == "" {
+		country = isoCountryNames[c.CountryCode]
+	}
+	if country == "" {
+		country = c.CountryCode
+	}
+	categories := c.Categories
+	if len(categories) == 0 {
+		categories = []string{"city"}
 	}
 
-	stored, err := s.repo.FindByName(ctx, cand.Name)
-	if err != nil {
-		return nil, fmt.Errorf("reload %q after insert: %w", cand.Name, err)
+	return &models.DestinationCandidate{
+		NormalizedName:  normalizeName(c.Name),
+		Name:            c.Name,
+		Country:         country,
+		CountryCode:     c.CountryCode,
+		Region:          region,
+		Description:     c.Description,
+		ImageURL:        c.ImageURL,
+		Latitude:        c.Latitude,
+		Longitude:       c.Longitude,
+		Categories:      categories,
+		AvgDailyBudget:  cityBudget(c.Name, region),
+		PopularityScore: cityPopularity(c.Name),
+		WikidataID:      c.WikidataID,
+		ArticleTitle:    c.ArticleTitle,
+		WikipediaURL:    c.WikipediaURL,
+		SitelinkCount:   sitelinks,
+		Status:          models.CandidatePending,
+		FirstActivities: activities,
 	}
-	return stored, nil
+}
+
+// ErrCandidateAlreadyReviewed means the row was not pending when the decision
+// landed — someone else got there first. Surfaced rather than swallowed
+// because approving twice would insert the destination twice.
+var ErrCandidateAlreadyReviewed = errors.New("destination candidate already reviewed")
+
+// ReviewCandidate applies an admin decision. Approving inserts the place into
+// the destinations collection and marks the queue row; rejecting only marks
+// it, which permanently suppresses the place from suggestions.
+func (s *DestinationDiscoveryService) ReviewCandidate(ctx context.Context, id primitive.ObjectID, approve bool, reviewer string) (*models.DestinationCandidate, error) {
+	if s.candidate == nil {
+		return nil, errors.New("destination candidate queue not configured")
+	}
+
+	status := models.CandidateRejected
+	if approve {
+		status = models.CandidateApproved
+	}
+
+	// Claim the row first. If this returns nothing the row was not pending,
+	// so a concurrent approval has already inserted the destination and this
+	// call must not insert it again.
+	claimed, err := s.candidate.SetStatus(ctx, id, models.CandidatePending, status, reviewer)
+	if err != nil {
+		return nil, err
+	}
+	if claimed == nil {
+		return nil, ErrCandidateAlreadyReviewed
+	}
+	if !approve {
+		return claimed, nil
+	}
+
+	dest := &models.Destination{
+		Name:            claimed.Name,
+		Country:         claimed.Country,
+		CountryCode:     claimed.CountryCode,
+		Region:          claimed.Region,
+		Description:     claimed.Description,
+		ImageURL:        claimed.ImageURL,
+		Latitude:        claimed.Latitude,
+		Longitude:       claimed.Longitude,
+		Categories:      claimed.Categories,
+		AvgDailyBudget:  claimed.AvgDailyBudget,
+		Currency:        "USD",
+		PopularityScore: claimed.PopularityScore,
+		Active:          true,
+	}
+	if err := s.repo.Upsert(ctx, dest); err != nil {
+		// Hand the row back to the queue so the decision can be retried
+		// rather than being lost as approved-but-absent.
+		if _, rErr := s.candidate.SetStatus(ctx, id, status, models.CandidatePending, ""); rErr != nil {
+			slog.Warn("candidate rollback failed", "name", claimed.Name, "error", rErr)
+		}
+		return nil, fmt.Errorf("insert approved destination %q: %w", claimed.Name, err)
+	}
+	return claimed, nil
+}
+
+// PendingCandidates returns the review queue.
+func (s *DestinationDiscoveryService) PendingCandidates(ctx context.Context, limit int) ([]models.DestinationCandidate, error) {
+	if s.candidate == nil {
+		return nil, errors.New("destination candidate queue not configured")
+	}
+	return s.candidate.ListByStatus(ctx, models.CandidatePending, limit)
 }
 
 // ConfirmAndInsert upserts the given candidates into the destinations

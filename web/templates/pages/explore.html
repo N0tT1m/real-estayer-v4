@@ -109,8 +109,13 @@
 
             <div x-show="ai.matches.length" class="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
                 <template x-for="m in ai.matches" :key="m.destination.id || m.destination.name">
-                    <a :href="'/explore/' + encodeURIComponent(m.destination.name)"
-                       class="group block border border-[color:var(--re-border)] rounded-xl overflow-hidden hover:shadow-lift hover:-translate-y-0.5 transition-all fade-in bg-[color:var(--re-surface)]">
+                    <!-- A place awaiting review has no destinations row behind
+                         it, so /explore/<name> would 404. Binding href to null
+                         drops the attribute entirely, leaving a card that reads
+                         the same but doesn't pretend to lead anywhere. -->
+                    <a :href="m.awaiting_review ? null : '/explore/' + encodeURIComponent(m.destination.name)"
+                       :class="m.awaiting_review ? 'cursor-default' : 'hover:shadow-lift hover:-translate-y-0.5'"
+                       class="group block border border-[color:var(--re-border)] rounded-xl overflow-hidden transition-all fade-in bg-[color:var(--re-surface)]">
                         <div class="aspect-[16/9] overflow-hidden bg-[color:var(--re-surface-muted)]">
                             <img :src="m.destination.image_url || placeholderImage(m.destination.name)"
                                  :alt="m.destination.name" loading="lazy"
@@ -122,12 +127,13 @@
                                 <h4 class="font-display text-lg font-medium" x-text="m.destination.name"></h4>
                                 <span class="text-xs text-soft" x-text="m.destination.country"></span>
                             </div>
-                            <!-- Flagged because a newly found place has a
-                                 synthesised budget rather than a curated one,
-                                 so its $/day is a weaker number than the rest. -->
-                            <span x-show="m.discovered" x-cloak
+                            <!-- Flagged for two reasons: the place has no guide
+                                 page yet, and its $/day is synthesised rather
+                                 than curated, so it's a weaker number than the
+                                 one on an established destination. -->
+                            <span x-show="m.awaiting_review" x-cloak
                                   class="inline-block mt-1 px-2 py-0.5 rounded-full bg-primary-50 text-primary-700 text-[11px] font-medium uppercase tracking-wide">
-                                New find
+                                New find — no guide yet
                             </span>
                             <p class="text-sm text-muted mt-1" x-text="m.why"></p>
 
@@ -159,8 +165,10 @@
 
             <p x-show="ai.discovered" x-cloak class="mt-4 text-xs text-soft">
                 <span x-text="ai.discovered"></span>
-                <span x-text="ai.discovered === 1 ? ' place was' : ' places were'"></span>
-                new to us and have been added — details come from Wikipedia.
+                <span x-text="ai.discovered === 1 ? ' place is' : ' places are'"></span>
+                new to us — details come from Wikipedia, and
+                <span x-text="ai.discovered === 1 ? 'it doesn\'t have' : 'they don\'t have'"></span>
+                a full guide until we've had a look.
             </p>
 
             <!-- Surfaced rather than hidden. Now that off-catalog names get

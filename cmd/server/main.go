@@ -77,6 +77,7 @@ func main() {
 	providerRegistry.RegisterFlight("duffel", duffelClient)
 
 	destRepo := repository.NewDestinationRepository(db.Database)
+	destCandidateRepo := repository.NewDestinationCandidateRepository(db.Database)
 
 	mailerClient := mailer.New(mailer.Config{
 		Host:        cfg.Email.SMTPHost,
@@ -127,7 +128,7 @@ func main() {
 	// Built before the suggest service because that one uses it to turn an
 	// off-catalog suggestion into a real destination row, not just for the
 	// admin discovery endpoints.
-	discoveryService := service.NewDestinationDiscoveryService(destRepo, wikidataService, wikipedia.NewClient())
+	discoveryService := service.NewDestinationDiscoveryService(destRepo, destCandidateRepo, wikidataService, wikipedia.NewClient())
 	// Shared by the API handler and the explore page, which needs it only to
 	// decide whether to render the activity finder at all.
 	destSuggestService := service.NewDestinationSuggestService(aiItineraryService, destService, discoveryService)
@@ -491,6 +492,10 @@ func main() {
 			r.Post("/destinations/reseed", destHandler.AdminReseedDestinations)
 			r.Post("/destinations/discover", destHandler.AdminDiscoverDestinations)
 			r.Post("/destinations/discover/confirm", destHandler.AdminConfirmDiscovered)
+			// Review queue for places the activity finder surfaced that we
+			// don't cover. Nothing reaches /explore without passing through it.
+			r.Get("/destinations/candidates", destHandler.AdminListCandidates)
+			r.Post("/destinations/candidates/{id}/review", destHandler.AdminReviewCandidate)
 		})
 	})
 

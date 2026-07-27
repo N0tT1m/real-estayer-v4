@@ -3,13 +3,16 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 
+	"github.com/realestayer/v4/internal/middleware"
 	"github.com/realestayer/v4/internal/models"
 	"github.com/realestayer/v4/internal/service"
 )
@@ -435,4 +438,76 @@ func (h *DestinationHandler) SearchAPI(w http.ResponseWriter, r *http.Request) {
 		"total":        total,
 		"seeding":      seeding,
 	})
+}
+
+// AdminListCandidates returns the activity finder's review queue: real places
+// the finder surfaced that are not in the catalog, waiting on a decision.
+// GET /api/v1/admin/destinations/candidates?limit=100
+func (h *DestinationHandler) AdminListCandidates(w http.ResponseWriter, r *http.Request) {
+	if h.discoveryService == nil {
+		http.Error(w, "discovery service not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	candidates, err := h.discoveryService.PendingCandidates(r.Context(), limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"candidates": candidates,
+		"total":      len(candidates),
+	})
+}
+
+// AdminReviewCandidate accepts or refuses one queued place. Approving inserts
+// it into the destinations collection; refusing suppresses it from future
+// suggestions permanently.
+// POST /api/v1/admin/destinations/candidates/{id}/review  {"approve":true}
+func (h *DestinationHandler) AdminReviewCandidate(w http.ResponseWriter, r *http.Request) {
+	if h.discoveryService == nil {
+		http.Error(w, "discovery service not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	id, err := primitive.ObjectIDFromHex(chi.URLParam(r, "id"))
+	if err != nil {
+		http.Error(w, "invalid candidate id", http.StatusBadRequest)
+		return
+	}
+
+	var body struct {
+		Approve bool `json:"approve"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	reviewed, err := h.discoveryService.ReviewCandidate(r.Context(), id, body.Approve, middleware.GetUserID(r.Context()))
+	switch {
+	case errors.Is(err, service.ErrCandidateAlreadyReviewed):
+		// 409 rather than 404: the row exists, someone else just decided it.
+		http.Error(w, "this candidate was already reviewed", http.StatusConflict)
+		return
+	case err != nil:
+		slog.Warn("candidate review failed", "id", id.Hex(), "approve", body.Approve, "error", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// A newly approved destination has no listings behind it, same as the
+	// region discovery flow — kick off a scrape so it isn't an empty page.
+	if body.Approve && h.scraperService != nil {
+		h.scrapeDiscoveredAsync([]service.DiscoveryCandidate{{
+			Name:        reviewed.Name,
+			Country:     reviewed.Country,
+			CountryCode: reviewed.CountryCode,
+			Region:      reviewed.Region,
+		}}, reviewed.Region)
+	}
+
+	respondJSON(w, http.StatusOK, reviewed)
 }
