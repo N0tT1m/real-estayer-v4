@@ -173,6 +173,21 @@ func TestMatchPicksIgnoresBlankNames(t *testing.T) {
 	}
 }
 
+// A queued place has no destinations row, so the UI must be told not to link
+// it. Both flags travel together and the count only moves for queued places —
+// a catalog hit reached through discovery is not a new find.
+func TestActivityMatchFlagsDistinguishQueuedFromCatalog(t *testing.T) {
+	queued := ActivityMatch{Discovered: true, AwaitingReview: true}
+	if !queued.AwaitingReview {
+		t.Error("a queued place must be marked as awaiting review")
+	}
+
+	established := ActivityMatch{Destination: models.Destination{Name: "Lisbon"}}
+	if established.Discovered || established.AwaitingReview {
+		t.Error("a catalog match must carry neither flag")
+	}
+}
+
 // Without a discovery service the finder must still answer, using the catalog
 // alone — the fail-soft rule every optional integration follows.
 func TestResolveUngroundedWithoutDiscoveryDropsAndKeepsCatalogMatches(t *testing.T) {

@@ -559,6 +559,73 @@
                 </div>
             </div>
 
+            <!-- Review queue: places the /explore activity finder surfaced
+                 that aren't in the catalog. They're already shown to whoever
+                 searched; approving is what puts them in /explore for
+                 everyone. -->
+            <div class="bg-white rounded-xl shadow-sm p-6 mt-8">
+                <div class="flex items-start justify-between mb-4">
+                    <div>
+                        <h2 class="text-lg font-semibold text-gray-900 mb-1">
+                            Pending from activity searches
+                            <span x-show="queue.length" class="ml-1 text-xs align-middle px-2 py-0.5 rounded-full bg-amber-100 text-amber-800" x-text="queue.length"></span>
+                        </h2>
+                        <p class="text-sm text-gray-500">Real places the <em>/explore</em> finder matched to someone's activities but that we don't cover. Details come from Wikidata and Wikipedia. Approving adds the destination and starts a scrape; rejecting stops it being suggested again.</p>
+                    </div>
+                    <button @click="loadQueue" :disabled="queueLoading" class="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                        <span x-show="!queueLoading">Refresh</span>
+                        <span x-show="queueLoading">Loading…</span>
+                    </button>
+                </div>
+
+                <div x-show="queueError" class="mb-4 p-3 rounded-lg bg-red-50 border border-red-200">
+                    <p class="text-sm text-red-700" x-text="queueError"></p>
+                </div>
+
+                <div x-show="!queueLoading && !queue.length" x-cloak class="text-sm text-gray-500 text-center py-8">
+                    Nothing waiting. Places show up here when the activity finder answers with somewhere we don't cover.
+                </div>
+
+                <div x-show="queue.length" x-cloak class="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[650px] overflow-y-auto pr-1">
+                    <template x-for="c in queue" :key="c.id">
+                        <div class="flex gap-3 p-3 border border-gray-200 rounded-lg">
+                            <div class="h-20 w-20 flex-shrink-0 rounded-md bg-gray-100 overflow-hidden">
+                                <template x-if="c.image_url">
+                                    <img :src="c.image_url" :alt="c.name" class="h-full w-full object-cover" loading="lazy" @error="c.image_url = ''">
+                                </template>
+                                <template x-if="!c.image_url">
+                                    <div class="h-full w-full flex items-center justify-center text-gray-400 text-xs">no image</div>
+                                </template>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-2">
+                                    <h3 class="font-medium text-gray-900 truncate" x-text="c.name"></h3>
+                                    <span x-show="c.suggested_count > 1" class="text-[10px] uppercase tracking-wide px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded"
+                                          x-text="'×' + c.suggested_count"></span>
+                                </div>
+                                <p class="text-xs text-gray-500 truncate" x-text="(c.country || c.country_code || '—') + (c.region ? ' · ' + c.region : '')"></p>
+                                <p class="text-xs text-gray-600 mt-1 line-clamp-2" x-text="c.description"></p>
+                                <!-- The search that surfaced it explains the
+                                     pick far better than the summary does. -->
+                                <p x-show="c.first_activities && c.first_activities.length" class="text-xs text-gray-400 mt-1 italic truncate"
+                                   x-text="'found via: ' + (c.first_activities || []).join(', ')"></p>
+                                <div class="flex items-center gap-3 mt-1.5 text-xs text-gray-400">
+                                    <span title="Wikipedia sitelink count">🔗 <span x-text="c.sitelink_count"></span></span>
+                                    <span x-show="c.avg_daily_budget">~$<span x-text="c.avg_daily_budget"></span>/day</span>
+                                    <a :href="c.wikipedia_url" target="_blank" class="text-primary-600 hover:underline">wiki</a>
+                                </div>
+                                <div class="flex items-center gap-2 mt-2">
+                                    <button @click="reviewCandidate(c, true)" :disabled="c._busy"
+                                            class="px-3 py-1 text-xs bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50">Approve</button>
+                                    <button @click="reviewCandidate(c, false)" :disabled="c._busy"
+                                            class="px-3 py-1 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50">Reject</button>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
             <!-- Discover Destinations by Region -->
             <div class="bg-white rounded-xl shadow-sm p-6 mt-8">
                 <div class="flex items-start justify-between mb-4">
@@ -764,6 +831,11 @@ function adminDashboard() {
             region: ''
         },
 
+        // Review queue for places the /explore activity finder surfaced.
+        queue: [],
+        queueLoading: false,
+        queueError: null,
+
         // Region-based discovery (Wikidata SPARQL + Wikipedia pageviews)
         discovering: false,
         discoverAttempted: false,
@@ -802,6 +874,7 @@ function adminDashboard() {
             await this.loadListings();
             await this.loadUsers();
             await this.loadJobs();
+            await this.loadQueue();
 
             // Poll for scraper status every 10 seconds
             setInterval(() => this.checkScraperStatus(), 10000);
@@ -1162,6 +1235,45 @@ function adminDashboard() {
                 this.addDestError = e.message;
             } finally {
                 this.addingDest = false;
+            }
+        },
+
+        async loadQueue() {
+            this.queueLoading = true;
+            this.queueError = null;
+            try {
+                const res = await fetch('/api/v1/admin/destinations/candidates');
+                if (!res.ok) throw new Error(await res.text() || 'Could not load the queue');
+                const data = await res.json();
+                this.queue = data.candidates || [];
+            } catch (e) {
+                this.queueError = e.message;
+            } finally {
+                this.queueLoading = false;
+            }
+        },
+
+        async reviewCandidate(c, approve) {
+            if (c._busy) return;
+            c._busy = true;
+            this.queueError = null;
+            try {
+                const res = await fetch(`/api/v1/admin/destinations/candidates/${c.id}/review`, {
+                    method: 'POST',
+                    headers: window.csrfHeaders({ 'Content-Type': 'application/json' }),
+                    body: JSON.stringify({ approve })
+                });
+                // 409 means another admin already decided this one, so the row
+                // is stale rather than the action having failed. Drop it.
+                if (res.status === 409) {
+                    this.queue = this.queue.filter(x => x.id !== c.id);
+                    return;
+                }
+                if (!res.ok) throw new Error(await res.text() || 'Review failed');
+                this.queue = this.queue.filter(x => x.id !== c.id);
+            } catch (e) {
+                this.queueError = e.message;
+                c._busy = false;
             }
         },
 
