@@ -86,12 +86,23 @@ func (h *DestinationHandler) ExplorePage(w http.ResponseWriter, r *http.Request)
 	categories := []string{"beach", "city", "nature", "adventure", "cultural", "romantic", "luxury", "island"}
 	regions := []string{"Europe", "Asia", "North America", "South America", "Africa", "Oceania", "Middle East"}
 
+	// Same fail-soft rule as AISuggest below: a filter with no data behind it
+	// is hidden rather than offered as a control that always returns nothing.
+	// A lookup failure hides them too — the grid above it has already failed
+	// in that case, so this is the quiet option.
+	availability, err := h.destService.GetFilterAvailability(ctx)
+	if err != nil {
+		slog.Warn("explore: GetFilterAvailability failed", "error", err)
+	}
+
 	data := map[string]interface{}{
 		"Destinations": destinations,
 		"Total":        total,
 		"Filter":       filter,
 		"Categories":   categories,
 		"Regions":      regions,
+		"HasBestFor":   availability.BestFor,
+		"HasMonths":    availability.Months,
 		// Drives the "what do you want to do" panel. False hides it outright,
 		// which is the fail-soft rule: an unconfigured integration shows no
 		// control rather than one that errors when clicked.

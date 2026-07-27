@@ -51,6 +51,77 @@ func TestSanitizeFilename(t *testing.T) {
 	}
 }
 
+// The upload handler rejects non-images by magic bytes but accepts the client's
+// *filename*, so a genuine PNG called "x.html" would be stored as .html and
+// served back from /uploads as text/html. A PNG that is also valid HTML is a
+// well-known polyglot, which turns a photo upload into stored XSS on our own
+// origin. The extension has to be derived, never trusted.
+func TestSanitizeFilenameRejectsADangerousExtension(t *testing.T) {
+	cases := []struct {
+		name        string
+		filename    string
+		contentType string
+	}{
+		{"html polyglot", "polyglot.html", "image/png"},
+		{"svg carries script", "drawing.svg", "image/png"},
+		{"server-side script", "shell.php", "image/jpeg"},
+		{"uppercase is not a bypass", "POLYGLOT.HTML", "image/png"},
+		{"double extension", "photo.png.html", "image/png"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, ext := sanitizeFilename(tc.filename, tc.contentType)
+			if ext == ".html" || ext == ".htm" || ext == ".svg" || ext == ".php" {
+				t.Fatalf("kept the client's extension %q for %q", ext, tc.filename)
+			}
+			if !imageExtensions[ext] && ext != ".bin" {
+				t.Errorf("ext = %q; want an image extension or the .bin fallback", ext)
+			}
+		})
+	}
+}
+
+// Dropping a bad extension must not mean dropping the real one: an ordinary
+// upload has to keep the extension that matches its bytes.
+func TestSanitizeFilenameKeepsGenuineImageExtensions(t *testing.T) {
+	cases := map[string]string{
+		"holiday.jpg":  ".jpg",
+		"holiday.jpeg": ".jpeg",
+		"holiday.PNG":  ".png",
+		"holiday.webp": ".webp",
+		"holiday.gif":  ".gif",
+	}
+	for filename, want := range cases {
+		if _, ext := sanitizeFilename(filename, "image/jpeg"); ext != want {
+			t.Errorf("sanitizeFilename(%q) ext = %q, want %q", filename, ext, want)
+		}
+	}
+}
+
+// When neither the filename nor the sniffed type yields an image extension,
+// the result must be .bin — served as application/octet-stream, it downloads
+// rather than executes, which is the safe way to fail.
+func TestSanitizeFilenameFallsBackToBin(t *testing.T) {
+	if _, ext := sanitizeFilename("mystery.html", "application/octet-stream"); ext != ".bin" {
+		t.Errorf("ext = %q, want .bin", ext)
+	}
+}
+
+// DetectContentType may append "; charset=utf-8"; mime.ExtensionsByType wants
+// the bare type, so the parameter has to be stripped before the lookup.
+func TestMimeExtensionsIgnoresParameters(t *testing.T) {
+	exts := mimeExtensions("image/png; charset=binary")
+	found := false
+	for _, e := range exts {
+		if strings.EqualFold(e, ".png") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("mimeExtensions did not resolve a parameterised type: %v", exts)
+	}
+}
+
 func TestSanitizePath(t *testing.T) {
 	if sanitizePath("../../etc/passwd") == "../../etc/passwd" {
 		t.Errorf("sanitizePath should strip path separators")

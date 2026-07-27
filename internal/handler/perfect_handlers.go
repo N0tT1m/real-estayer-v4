@@ -345,11 +345,7 @@ func (h *Handler) AIItineraryRefine(w http.ResponseWriter, r *http.Request) {
 		Prior: req.Prior, Feedback: req.Feedback,
 	})
 	if err != nil {
-		if errors.Is(err, service.ErrAIItineraryNotConfigured) {
-			h.jsonError(w, http.StatusServiceUnavailable, "AI not configured")
-			return
-		}
-		h.jsonError(w, http.StatusBadGateway, err.Error())
+		h.aiItineraryError(w, err)
 		return
 	}
 	h.jsonResponse(w, http.StatusOK, out)

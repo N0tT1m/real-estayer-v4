@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/realestayer/v4/internal/config"
+	"github.com/realestayer/v4/internal/database"
 	"github.com/realestayer/v4/internal/middleware"
 	"github.com/realestayer/v4/internal/repository"
 	"github.com/realestayer/v4/internal/service"
@@ -38,6 +39,10 @@ type CoreDeps struct {
 	Users  *repository.UserRepository
 	Audit  *service.AuditService
 	Photos service.PhotoStorage
+	// DB backs the health check, which has to answer "can this instance reach
+	// the database" rather than "is this process running". Handlers should
+	// still go through a repository for everything else.
+	DB *database.DB
 }
 
 // ListingDeps covers property search, scraping, and price tracking — the
@@ -355,8 +360,22 @@ func (h *Handler) jsonError(w http.ResponseWriter, status int, message string) {
 }
 
 // parseJSON parses JSON request body
+// maxJSONBody caps every request body decoded through parseJSON. The largest
+// legitimate payload here is an itinerary being sent back for refinement, or a
+// pasted confirmation email — both comfortably under 100 KB. File uploads set
+// their own, larger caps and never come through this path.
+const maxJSONBody = 1 << 20 // 1 MiB
+
 func (h *Handler) parseJSON(r *http.Request, v interface{}) error {
-	return json.NewDecoder(r.Body).Decode(v)
+	// Bounded before the decoder ever allocates. Without this, ~150 JSON
+	// routes would each stream an unbounded body into memory; ReadTimeout
+	// bounds how long a client may take, not how much it can send.
+	//
+	// The nil ResponseWriter is deliberate and safe: MaxBytesReader uses it
+	// only to mark the connection as un-reusable, through a type assertion
+	// that a nil interface simply fails. Passing it would mean changing all
+	// 32 call sites for no behavioural gain.
+	return json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxJSONBody)).Decode(v)
 }
 
 // getUserID returns the current user's ID

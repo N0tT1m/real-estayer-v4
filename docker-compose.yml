@@ -106,12 +106,16 @@ services:
 
   mongodb:
     image: mongo:7.0.14
-    # Exposed on all interfaces so an off-box rust-scraper can write directly
-    # into the same collection the Go app reads from. Fine for LAN-only dev.
-    # In production this should stay on the compose network and the scraper
-    # should authenticate (or write through an HTTP API).
+    # Bind address is explicit because the safe default and the useful default
+    # differ. Loopback keeps an unauthenticated Mongo off the network, which is
+    # what a fresh install should get. Deployments where the rust-scraper runs
+    # off-box and writes directly into the same collection need it reachable,
+    # and set MONGO_BIND_IP=0.0.0.0 to say so deliberately.
+    #
+    # Either way this database has no credentials, so exposing it is a decision
+    # to make once and write down — not a default to inherit by accident.
     ports:
-      - "0.0.0.0:27017:27017"
+      - "${MONGO_BIND_IP:-127.0.0.1}:27017:27017"
     volumes:
       - mongodb_data:/data/db
     restart: unless-stopped

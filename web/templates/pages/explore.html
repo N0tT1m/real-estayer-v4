@@ -184,6 +184,7 @@
                         </select>
                     </div>
 
+                    {{if .HasBestFor}}
                     <div>
                         <label class="block text-xs font-medium text-soft uppercase tracking-wide mb-1">Best For</label>
                         <select x-model="filters.best_for" @change="reload(true)"
@@ -195,7 +196,9 @@
                             <option value="group">Group</option>
                         </select>
                     </div>
+                    {{end}}
 
+                    {{if .HasMonths}}
                     <div>
                         <label class="block text-xs font-medium text-soft uppercase tracking-wide mb-1">Travel Month</label>
                         <select x-model="filters.month" @change="reload(true)"
@@ -206,6 +209,7 @@
                             </template>
                         </select>
                     </div>
+                    {{end}}
 
                     <div>
                         <label class="block text-xs font-medium text-soft uppercase tracking-wide mb-1">Daily Budget (USD)</label>
@@ -354,6 +358,13 @@
 <script>
 function exploreView() {
     return {
+        // Filters whose controls the server hid because no destination carries
+        // the field. Kept here too so a deep-link like ?best_for=couples can't
+        // apply a filter the user has no control to clear.
+        unavailableFilters: [
+            {{if not .HasBestFor}}'best_for',{{end}}
+            {{if not .HasMonths}}'month',{{end}}
+        ],
         view: 'grid',
         loading: true,
         loadingMore: false,
@@ -385,6 +396,7 @@ function exploreView() {
             // browser navigation work.
             const p = new URLSearchParams(window.location.search);
             for (const key of Object.keys(this.filters)) {
+                if (this.unavailableFilters.includes(key)) continue;
                 const v = p.get(key);
                 if (v !== null && v !== '') this.filters[key] = v;
             }
