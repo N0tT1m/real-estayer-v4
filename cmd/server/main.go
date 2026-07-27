@@ -123,11 +123,15 @@ func main() {
 	unsplashService := service.NewUnsplashService(cfg.UnsplashKey)
 	airportService := service.NewAirportService()
 	destService := service.NewDestinationService(destRepo, geocodingService, airportService)
+	wikidataService := service.NewWikidataService()
+	// Built before the suggest service because that one uses it to turn an
+	// off-catalog suggestion into a real destination row, not just for the
+	// admin discovery endpoints.
+	discoveryService := service.NewDestinationDiscoveryService(destRepo, wikidataService, wikipedia.NewClient())
 	// Shared by the API handler and the explore page, which needs it only to
 	// decide whether to render the activity finder at all.
-	destSuggestService := service.NewDestinationSuggestService(aiItineraryService, destService)
+	destSuggestService := service.NewDestinationSuggestService(aiItineraryService, destService, discoveryService)
 	flightStatusService := service.NewFlightStatusService(cfg.AviationStackAPIKey)
-	wikidataService := service.NewWikidataService()
 	natureService := service.NewNatureService(cfg.EBirdAPIKey)
 	emailParser := service.NewEmailParserService(aiItineraryService)
 	conflictChecker := service.NewConflictChecker()
@@ -208,7 +212,6 @@ func main() {
 		Flight: flightService,
 	})
 
-	discoveryService := service.NewDestinationDiscoveryService(destRepo, wikidataService, wikipedia.NewClient())
 	destHandler := handler.NewDestinationHandler(h.Templates(), destService, discoveryService, scraperService, destSuggestService)
 
 	r := chi.NewRouter()
