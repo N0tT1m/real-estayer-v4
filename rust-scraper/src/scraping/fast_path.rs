@@ -95,6 +95,32 @@ pub(crate) fn build_map_search_url(
     url
 }
 
+// Compile-time guards on the pacing budget. Enrichment is the only traffic the
+// scraper emits that does not go through Chrome — no browser TLS fingerprint,
+// no cookies, no JS — so it is what Airbnb 503s first. Raising either of these
+// re-creates the burst that got the scraper blocked, so make it a build
+// failure rather than something to notice in review.
+const _: () = assert!(
+    ENRICH_CONCURRENCY <= 3,
+    "enrichment is un-fingerprinted HTTP; keep concurrency low"
+);
+const _: () = assert!(
+    ENRICH_JITTER_MS.0 >= 1_000,
+    "sub-second enrichment jitter sustains a request rate Airbnb blocks"
+);
+
+/// Sleep a random duration inside `(min, max)` milliseconds.
+///
+/// Every wait in the scrape  goes through this rather than a constant. Fixed
+/// delays make inter-request intervals identical run to run, which is a
+/// fingerprint on its own — the length of the pause matters less than its
+/// regularity.
+async fn human_pause(range: (u64, u64)) {
+    let (min, max) = range;
+    let span = max.saturating_sub(min).max(1);
+    sleep(Duration::from_millis(min + fastrand::u64(0..span))).await;
+}
+
 /// Navigate to a search URL, scroll to load lazy content, and harvest every
 /// listing present in the embedded JSON, along with Airbnb's next-page cursor.
 /// Callers want `harvest_search_all_pages`; this is one page of that walk.
@@ -108,14 +134,18 @@ async fn harvest_search_page_paged(
         warn!("[FAST] Failed to navigate to {}: {}", url, e);
         return (Vec::new(), Vec::new(), None);
     }
-    sleep(Duration::from_secs(5)).await;
-    for i in 1..=5 {
+    human_pause(PAGE_SETTLE_MS).await;
+    // Vary both the number of scroll steps and their size: a fixed 5 x 800px
+    // sequence is as identifiable as a fixed delay.
+    let steps = 3 + fastrand::usize(0..4);
+    for _ in 0..steps {
+        let amount = 450 + fastrand::u32(0..700);
         let _ = driver
-            .execute_script(&format!("window.scrollBy(0, {});", 800 * i))
+            .execute_script(&format!("window.scrollBy(0, {amount});"))
             .await;
-        sleep(Duration::from_millis(1200)).await;
+        human_pause(SCROLL_PAUSE_MS).await;
     }
-    sleep(Duration::from_secs(2)).await;
+    human_pause(SCROLL_PAUSE_MS).await;
     match driver.page_source().await {
         Ok(html) => match extract_airbnb_json_data(&html) {
             Some(json) => (
@@ -277,6 +307,9 @@ pub(crate) async fn harvest_search_all_pages(
             );
             break;
         }
+        // Pause before requesting the next page. Without this the walk fires
+        // 15 navigations back to back at a constant cadence.
+        human_pause(BETWEEN_PAGES_MS).await;
         let url = format!(
             "{}&cursor={}&pagination_search=true",
             base_url,
@@ -524,6 +557,21 @@ pub(crate) async fn enrich_listing_http(client: &reqwest::Client, mut listing: L
 }
 
 /// Phase 2: enrich listings over bounded, parallel HTTP fetches.
+/// Whether a listing still needs its detail page fetched.
+///
+/// The search JSON already carries title, price, rating, location, photos and
+/// often some amenities; enrichment exists to add the amenity list, house
+/// details and description. Fetching every listing regardless meant ~230 bare
+/// HTTP requests per tile — the scrape's most block-prone traffic — to
+/// re-download fields we already had.
+///
+/// region/country are deliberately NOT part of this test: `fill_place` derives
+/// them from the location string after enrichment, so a missing region is no
+/// longer a reason to spend a request.
+fn needs_enrichment(l: &Listing) -> bool {
+    l.features.is_empty() || l.description.is_empty()
+}
+
 pub async fn enrich_listings_parallel(listings: Vec<Listing>, concurrency: usize) -> Vec<Listing> {
     use tracing::{info, warn};
     if listings.is_empty() {
@@ -539,25 +587,37 @@ pub async fn enrich_listings_parallel(listings: Vec<Listing>, concurrency: usize
             return listings;
         }
     };
+    let total = listings.len();
+    let (needy, mut complete): (Vec<Listing>, Vec<Listing>) =
+        listings.into_iter().partition(needs_enrichment);
     info!(
-        "[ENRICH] Enriching {} listings with concurrency {}",
-        listings.len(),
-        concurrency
+        "[ENRICH] {} of {} listings need enrichment (concurrency {}); {} already complete",
+        needy.len(),
+        total,
+        concurrency,
+        complete.len()
     );
-    let enriched = futures::stream::iter(listings.into_iter().map(|listing| {
+    let enriched = futures::stream::iter(needy.into_iter().map(|listing| {
         let client = client.clone();
         async move {
             let result = enrich_listing_http(&client, listing).await;
-            // Polite jitter between requests.
-            sleep(Duration::from_millis(150 + fastrand::u64(0..350))).await;
+            // Jitter between requests. These are bare HTTP, not browser
+            // navigations, so they are the most suspicious traffic the
+            // scraper emits and get the longest pause.
+            human_pause(ENRICH_JITTER_MS).await;
             result
         }
     }))
     .buffer_unordered(concurrency)
     .collect::<Vec<_>>()
     .await;
-    info!("[ENRICH] Enrichment complete: {} listings", enriched.len());
-    enriched
+    info!(
+        "[ENRICH] Enrichment complete: {} fetched, {} skipped",
+        enriched.len(),
+        complete.len()
+    );
+    complete.extend(enriched);
+    complete
 }
 
 /// High-level fast scrape: Phase 1 harvest, optional Phase 3 tiling for full
@@ -1093,5 +1153,46 @@ mod block_detection_tests {
             detect_block("<html><body>No results found</body></html>"),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod pacing_tests {
+    use super::*;
+
+    // A constant delay is a fingerprint however long it is, so every pacing
+    // constant must describe a range.
+    #[test]
+    fn every_pause_is_a_range() {
+        for (name, (min, max)) in [
+            ("PAGE_SETTLE_MS", PAGE_SETTLE_MS),
+            ("SCROLL_PAUSE_MS", SCROLL_PAUSE_MS),
+            ("BETWEEN_PAGES_MS", BETWEEN_PAGES_MS),
+            ("ENRICH_JITTER_MS", ENRICH_JITTER_MS),
+        ] {
+            assert!(max > min, "{name} is a constant, not a range");
+        }
+    }
+
+    #[test]
+    fn needs_enrichment_skips_complete_listings() {
+        let mut l: Listing = serde_json::from_value(serde_json::json!({
+            "url": "u", "title": "t", "picture_url": "p",
+            "description": "a place", "price": "$1", "rating": "5",
+            "location": "Austin, TX",
+            "features": ["WiFi"], "house_details": [],
+        }))
+        .expect("listing fixture");
+        assert!(
+            !needs_enrichment(&l),
+            "complete listing must not be fetched"
+        );
+
+        l.description = String::new();
+        assert!(needs_enrichment(&l), "missing description must be fetched");
+
+        l.description = "a place".into();
+        l.features = vec![];
+        assert!(needs_enrichment(&l), "missing features must be fetched");
     }
 }

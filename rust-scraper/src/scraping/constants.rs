@@ -50,5 +50,26 @@ pub(crate) const MAX_TILE_DEPTH: usize = 6;
 /// cap; the limit is a runaway guard, not the normal stopping condition
 /// (an absent next-page cursor is).
 pub(crate) const MAX_SEARCH_PAGES: usize = 16;
-/// Concurrent HTTP enrichment fetches. Unlike browsers, these don't conflict.
-pub(crate) const ENRICH_CONCURRENCY: usize = 10;
+/// Concurrent HTTP enrichment fetches.
+///
+/// Was 10. Enrichment is the only part of the scrape that does NOT go through
+/// Chrome — it is bare reqwest, so it carries no browser TLS fingerprint, no
+/// cookies and runs no JS. Airbnb 503s that shape of traffic quickly: a dozen
+/// such requests from a clean IP was enough to earn a site-wide block during
+/// diagnosis. Pagination then multiplied it from 18 to ~230 fetches per tile.
+///
+/// Two at a time with seconds of jitter puts the rate back near what a person
+/// opening listings in tabs would produce.
+pub(crate) const ENRICH_CONCURRENCY: usize = 2;
+/// Jitter between enrichment fetches. Was 150-500ms, which at concurrency 10
+/// sustained roughly 9 requests/second.
+pub(crate) const ENRICH_JITTER_MS: (u64, u64) = (1_500, 4_000);
+/// Settle time after a search page navigation, before reading the DOM.
+pub(crate) const PAGE_SETTLE_MS: (u64, u64) = (3_500, 7_000);
+/// Pause between scroll steps while lazy content loads.
+pub(crate) const SCROLL_PAUSE_MS: (u64, u64) = (700, 1_900);
+/// Gap between consecutive pages of the same search. The old monolithic
+/// scraper slept 20s between pages and randomised every other delay; the fast
+/// path replaced that with a fixed 13s cadence, and a constant inter-request
+/// period is itself a bot signal regardless of how long it is.
+pub(crate) const BETWEEN_PAGES_MS: (u64, u64) = (4_000, 11_000);
