@@ -18,29 +18,57 @@ func testCatalog() []models.Destination {
 	}
 }
 
-// The whole point of the grounding step: a place the model invents must never
-// reach the caller, and the invention must be visible rather than silently
-// swallowed.
-func TestMatchPicksDropsPlacesNotInCatalog(t *testing.T) {
+// The catalog is a preference, not a whitelist. matchPicks resolves what it
+// can locally and hands everything else to discovery rather than declaring it
+// invented — the earlier behaviour, which dropped a correct "Hossegor" for
+// surfing, is what made the finder look like it only knew the seeded cities.
+func TestMatchPicksDefersOffCatalogNamesToDiscovery(t *testing.T) {
 	picks := []suggestPick{
 		{Name: "Lisbon", Why: "surf breaks nearby"},
 		{Name: "Hossegor", Why: "world-class beach break"}, // real place, not in catalog
 		{Name: "Atlantis", Why: "hallucinated"},
 	}
 
-	got := matchPicks(testCatalog(), picks, 5)
+	got, ungrounded := matchPicks(testCatalog(), picks, 5)
 
-	if len(got.Matches) != 1 {
-		t.Fatalf("matches = %d, want only the catalog entry: %+v", len(got.Matches), got.Matches)
+	if len(ungrounded) != 2 {
+		t.Fatalf("ungrounded = %+v, want both off-catalog names deferred", ungrounded)
+	}
+	if ungrounded[0].pick.Name != "Hossegor" || ungrounded[1].pick.Name != "Atlantis" {
+		t.Errorf("ungrounded names = %q, %q", ungrounded[0].pick.Name, ungrounded[1].pick.Name)
+	}
+	// Nothing is dropped here — only discovery can decide that.
+	if len(got.Dropped) != 0 {
+		t.Errorf("dropped = %v, want the verdict left to discovery", got.Dropped)
 	}
 	if got.Matches[0].Destination.Name != "Lisbon" {
-		t.Errorf("matched %q, want Lisbon", got.Matches[0].Destination.Name)
-	}
-	if len(got.Dropped) != 2 {
-		t.Fatalf("dropped = %v, want both off-catalog names reported", got.Dropped)
+		t.Errorf("first match = %q, want Lisbon", got.Matches[0].Destination.Name)
 	}
 	if got.CatalogSize != 3 {
 		t.Errorf("catalog_size = %d, want 3", got.CatalogSize)
+	}
+}
+
+// The deferred picks hold their place in the model's ranking. Discovery runs
+// concurrently, so without reserved slots the results would come back ordered
+// by whichever Wikidata lookup returned first.
+func TestMatchPicksReservesSlotsInModelOrder(t *testing.T) {
+	picks := []suggestPick{
+		{Name: "Hossegor"},
+		{Name: "Lisbon"},
+		{Name: "Chamonix"},
+	}
+
+	got, ungrounded := matchPicks(testCatalog(), picks, 5)
+
+	if len(got.Matches) != 3 {
+		t.Fatalf("matches = %d, want a slot per pick", len(got.Matches))
+	}
+	if got.Matches[1].Destination.Name != "Lisbon" {
+		t.Errorf("catalog match landed at the wrong index: %+v", got.Matches)
+	}
+	if len(ungrounded) != 2 || ungrounded[0].slot != 0 || ungrounded[1].slot != 2 {
+		t.Errorf("slots = %+v, want the off-catalog picks to hold indexes 0 and 2", ungrounded)
 	}
 }
 
@@ -48,7 +76,7 @@ func TestMatchPicksDropsPlacesNotInCatalog(t *testing.T) {
 // model only supplies prose. A pick carries no coordinates or airport code, so
 // if those survive, they came from the catalog.
 func TestMatchPicksTakesFactsFromCatalogNotModel(t *testing.T) {
-	got := matchPicks(testCatalog(), []suggestPick{{
+	got, _ := matchPicks(testCatalog(), []suggestPick{{
 		Name: "Lisbon", Why: "good waves", Activities: []string{"surf at Carcavelos"}, Timing: "spring",
 	}}, 5)
 
@@ -73,7 +101,7 @@ func TestMatchPicksNameMatchingIsForgiving(t *testing.T) {
 		{Name: "  ho chi minh   city "},
 		{Name: "REYKJAVIK"},
 	}
-	got := matchPicks(testCatalog(), picks, 5)
+	got, _ := matchPicks(testCatalog(), picks, 5)
 
 	if len(got.Matches) != 2 {
 		t.Fatalf("matches = %d, want both resolved; dropped=%v", len(got.Matches), got.Dropped)
@@ -91,7 +119,7 @@ func TestMatchPicksResolvesCountryQualifiedNames(t *testing.T) {
 		{Name: "Lisbon, Portugal"},
 		{Name: "Ho Chi Minh City, Vietnam"},
 	}
-	got := matchPicks(testCatalog(), picks, 5)
+	got, _ := matchPicks(testCatalog(), picks, 5)
 
 	if len(got.Dropped) != 0 {
 		t.Fatalf("dropped = %v, want country-qualified names resolved", got.Dropped)
@@ -112,7 +140,7 @@ func TestMatchPicksPrefixDoesNotCaptureDifferentCity(t *testing.T) {
 		{Name: "Porto Alegre", Country: "Brazil"},
 	}
 
-	got := matchPicks(catalog, []suggestPick{{Name: "Porto Alegre, Brazil"}}, 5)
+	got, _ := matchPicks(catalog, []suggestPick{{Name: "Porto Alegre, Brazil"}}, 5)
 	if len(got.Matches) != 1 {
 		t.Fatalf("matches = %d, dropped = %v", len(got.Matches), got.Dropped)
 	}
@@ -126,7 +154,7 @@ func TestMatchPicksDeduplicatesAndRespectsLimit(t *testing.T) {
 		{Name: "Lisbon"}, {Name: "lisbon"}, {Name: "Reykjavik"}, {Name: "Ho Chi Minh City"},
 	}
 
-	got := matchPicks(testCatalog(), picks, 2)
+	got, _ := matchPicks(testCatalog(), picks, 2)
 	if len(got.Matches) != 2 {
 		t.Fatalf("matches = %d, want the limit honoured", len(got.Matches))
 	}
@@ -136,12 +164,102 @@ func TestMatchPicksDeduplicatesAndRespectsLimit(t *testing.T) {
 }
 
 func TestMatchPicksIgnoresBlankNames(t *testing.T) {
-	got := matchPicks(testCatalog(), []suggestPick{{Name: "   "}, {Name: ""}}, 5)
+	got, _ := matchPicks(testCatalog(), []suggestPick{{Name: "   "}, {Name: ""}}, 5)
 	if len(got.Matches) != 0 {
 		t.Errorf("matches = %+v, want none", got.Matches)
 	}
 	if len(got.Dropped) != 0 {
 		t.Errorf("dropped = %v, want blanks ignored rather than reported", got.Dropped)
+	}
+}
+
+// Without a discovery service the finder must still answer, using the catalog
+// alone — the fail-soft rule every optional integration follows.
+func TestResolveUngroundedWithoutDiscoveryDropsAndKeepsCatalogMatches(t *testing.T) {
+	s := &DestinationSuggestService{}
+	out, ungrounded := matchPicks(testCatalog(), []suggestPick{
+		{Name: "Lisbon"}, {Name: "Hossegor"},
+	}, 5)
+
+	s.resolveUngrounded(t.Context(), out, ungrounded, ActivitySuggestRequest{}, 5)
+
+	if len(out.Matches) != 1 || out.Matches[0].Destination.Name != "Lisbon" {
+		t.Fatalf("matches = %+v, want the catalog match to survive", out.Matches)
+	}
+	if len(out.Dropped) != 1 || out.Dropped[0] != "Hossegor" {
+		t.Errorf("dropped = %v, want the unresolvable name reported", out.Dropped)
+	}
+	if out.DiscoveredCount != 0 {
+		t.Errorf("discovered_count = %d, want 0", out.DiscoveredCount)
+	}
+}
+
+// Unfilled slots must collapse without disturbing the order of the ones that
+// resolved.
+func TestCompactMatchesPreservesOrder(t *testing.T) {
+	out := &ActivitySuggestions{Matches: []ActivityMatch{
+		{Destination: models.Destination{Name: "Chamonix"}},
+		{}, // discovery failed here
+		{Destination: models.Destination{Name: "Lisbon"}},
+	}}
+
+	compactMatches(out, 5)
+
+	if len(out.Matches) != 2 {
+		t.Fatalf("matches = %+v, want the empty slot removed", out.Matches)
+	}
+	if out.Matches[0].Destination.Name != "Chamonix" || out.Matches[1].Destination.Name != "Lisbon" {
+		t.Errorf("order not preserved: %+v", out.Matches)
+	}
+}
+
+func TestCompactMatchesHonoursLimit(t *testing.T) {
+	out := &ActivitySuggestions{Matches: []ActivityMatch{
+		{Destination: models.Destination{Name: "A"}},
+		{Destination: models.Destination{Name: "B"}},
+		{Destination: models.Destination{Name: "C"}},
+	}}
+	compactMatches(out, 2)
+	if len(out.Matches) != 2 {
+		t.Errorf("matches = %d, want the limit honoured", len(out.Matches))
+	}
+}
+
+// A discovered row never went through the Mongo query that enforced the
+// caller's constraints, so it has to be checked here or the budget ceiling
+// becomes advisory.
+func TestSuggestionSatisfiesEnforcesCallerConstraints(t *testing.T) {
+	zermatt := models.Destination{Name: "Zermatt", Region: "Europe", AvgDailyBudget: 300}
+
+	if suggestionSatisfies(zermatt, ActivitySuggestRequest{MaxBudget: 80}) {
+		t.Error("a $300/day place must not survive an $80/day ceiling")
+	}
+	if !suggestionSatisfies(zermatt, ActivitySuggestRequest{MaxBudget: 300}) {
+		t.Error("a place exactly at the ceiling should pass")
+	}
+	if suggestionSatisfies(zermatt, ActivitySuggestRequest{Region: "Asia"}) {
+		t.Error("region mismatch must be rejected")
+	}
+	if !suggestionSatisfies(zermatt, ActivitySuggestRequest{Region: "europe"}) {
+		t.Error("region match should be case-insensitive")
+	}
+	if !suggestionSatisfies(zermatt, ActivitySuggestRequest{}) {
+		t.Error("an unconstrained request should accept anything")
+	}
+}
+
+// The prompt is what lifts the catalog from a whitelist to a preference. If
+// this wording regresses, the model goes back to answering only with seeded
+// cities and the feature silently narrows again.
+func TestSuggestSystemPromptAllowsOffCatalogPlaces(t *testing.T) {
+	if !strings.Contains(suggestSystemPrompt, "not in it, name that place anyway") {
+		t.Errorf("prompt must invite off-catalog answers:\n%s", suggestSystemPrompt)
+	}
+	if strings.Contains(suggestSystemPrompt, "Choose ONLY from the CATALOG") {
+		t.Errorf("prompt still confines the model to the catalog:\n%s", suggestSystemPrompt)
+	}
+	if !strings.Contains(suggestSystemPrompt, "English Wikipedia article") {
+		t.Errorf("prompt must ask for verifiable places:\n%s", suggestSystemPrompt)
 	}
 }
 
@@ -175,7 +293,7 @@ func TestBuildSuggestPromptOmitsUnsetConstraints(t *testing.T) {
 }
 
 func TestSuggestUnconfiguredFailsFast(t *testing.T) {
-	s := NewDestinationSuggestService(NewAIItineraryService("", "", ""), nil)
+	s := NewDestinationSuggestService(NewAIItineraryService("", "", ""), nil, nil)
 	if _, err := s.Suggest(t.Context(), ActivitySuggestRequest{Activities: []string{"surf"}}); err != ErrAIItineraryNotConfigured {
 		t.Errorf("err = %v, want ErrAIItineraryNotConfigured", err)
 	}

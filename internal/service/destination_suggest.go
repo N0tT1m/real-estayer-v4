@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/realestayer/v4/internal/models"
 )
@@ -24,20 +27,33 @@ var ErrInvalidSuggestRequest = errors.New("invalid suggestion request")
 // which is the inverse of AIItineraryService: that one needs the destination
 // up front and plans activities inside it.
 //
-// The model is never allowed to invent a place. It is handed the destination
-// catalog and asked to choose from it, and anything it names that is not in
-// the catalog is dropped rather than returned. Every actionable field —
-// coordinates, airport code, daily budget — is read from the database row;
-// the model contributes only the prose explaining why the place fits. This
+// The model is never allowed to invent a place, but it is also not confined to
+// the places we happen to have stored. Those are different constraints, and
+// conflating them is what made an earlier version of this feel like it only
+// knew 97 cities: the catalog was used as a whitelist, so a model that
+// correctly answered "Banff" for skiing had that answer thrown away. The
+// catalog is now a preference, not a boundary. A name that matches it is used
+// verbatim; a name that does not is verified against Wikidata and stored as a
+// real destination before being returned, and only a name that survives
+// neither is dropped.
+//
+// The invariant that matters is unchanged and is about provenance, not about
+// membership: every actionable field — coordinates, country, daily budget — is
+// read from a database row or from Wikidata, never from the model. The model
+// contributes the name and the prose explaining why the place fits. This
 // matters more with a local model than a hosted one: a 27B model will
 // cheerfully invent a dive site, a national park, or a season.
 type DestinationSuggestService struct {
-	ai    *AIItineraryService
-	dests *DestinationService
+	ai        *AIItineraryService
+	dests     *DestinationService
+	discovery *DestinationDiscoveryService
 }
 
-func NewDestinationSuggestService(ai *AIItineraryService, dests *DestinationService) *DestinationSuggestService {
-	return &DestinationSuggestService{ai: ai, dests: dests}
+// NewDestinationSuggestService wires the finder. discovery may be nil, in
+// which case the service degrades to catalog-only matching rather than
+// failing — the same fail-soft rule every optional integration follows.
+func NewDestinationSuggestService(ai *AIItineraryService, dests *DestinationService, discovery *DestinationDiscoveryService) *DestinationSuggestService {
+	return &DestinationSuggestService{ai: ai, dests: dests, discovery: discovery}
 }
 
 // Configured reports whether both halves are available. Without the catalog
@@ -65,23 +81,31 @@ type ActivitySuggestRequest struct {
 	Limit      int      `json:"limit,omitempty"`
 }
 
-// ActivityMatch pairs a real catalog destination with the model's reasoning
-// about it. Destination is the stored row verbatim.
+// ActivityMatch pairs a real destination with the model's reasoning about it.
+// Destination is the stored row verbatim.
 type ActivityMatch struct {
 	Destination models.Destination `json:"destination"`
 	Why         string             `json:"why"`
 	Activities  []string           `json:"activities,omitempty"`
 	Timing      string             `json:"timing,omitempty"`
+	// Discovered marks a place that was not in the catalog when this search
+	// ran and was resolved through Wikidata to answer it. Worth surfacing:
+	// its budget figure is synthesised rather than curated, so it is a
+	// weaker number than the one on an established row.
+	Discovered bool `json:"discovered,omitempty"`
 }
 
 // ActivitySuggestions is the response. Dropped is deliberately visible rather
-// than swallowed: it is the honest signal that the model reached for something
-// outside the catalog, and it doubles as a shortlist of cities worth adding
-// through the admin discovery flow.
+// than swallowed: with discovery in the path, a name lands there only when
+// neither the catalog nor Wikidata could confirm the place exists, which makes
+// it a genuine "the model made this up" signal rather than a coverage gap.
 type ActivitySuggestions struct {
-	Matches     []ActivityMatch `json:"matches"`
-	Dropped     []string        `json:"dropped,omitempty"`
-	CatalogSize int             `json:"catalog_size"`
+	Matches []ActivityMatch `json:"matches"`
+	Dropped []string        `json:"dropped,omitempty"`
+	// CatalogSize is the catalog the model chose from, before any discovery.
+	CatalogSize int `json:"catalog_size"`
+	// DiscoveredCount is how many matches came from outside it.
+	DiscoveredCount int `json:"discovered_count,omitempty"`
 }
 
 // Suggest picks destinations from the catalog that suit the requested
@@ -140,16 +164,21 @@ func (s *DestinationSuggestService) Suggest(ctx context.Context, req ActivitySug
 		return nil, fmt.Errorf("suggest parse failed: %w (raw: %.200s)", err, cleaned)
 	}
 
-	return matchPicks(catalog, wire.Picks, limit), nil
+	out, ungrounded := matchPicks(catalog, wire.Picks, limit)
+	s.resolveUngrounded(ctx, out, ungrounded, req, limit)
+	return out, nil
 }
 
-const suggestSystemPrompt = `You match travellers to destinations they could actually book.
-You will be given a numbered CATALOG of destinations and a list of activities.
+const suggestSystemPrompt = `You match travellers to destinations they could actually go to.
+You will be given a CATALOG of destinations we already cover, and a list of activities.
 Respond ONLY with a JSON object, no prose:
-{"picks":[{"name":"<exact name from the CATALOG>","why":"<1-2 sentences on why this suits the activities>","activities":["<specific thing to do there>"],"timing":"<when to go / season caveat, one line>"}]}
+{"picks":[{"name":"<destination name>","why":"<1-2 sentences on why this suits the activities>","activities":["<specific thing to do there>"],"timing":"<when to go / season caveat, one line>"}]}
 Rules:
-- Choose ONLY from the CATALOG. Copy names character-for-character.
-- If fewer catalog entries genuinely suit the activities than requested, return fewer. Do not pad the list.
+- Prefer a CATALOG entry whenever one genuinely suits the request, and copy its name character-for-character.
+- The CATALOG is not the whole world. If the best place for these activities is not in it, name that place anyway rather than substituting a worse catalog entry. Answering "Banff" for skiing is better than answering a city that merely has an airport.
+- Every name must be a real, well-known place that has an English Wikipedia article. Give the common English name of the place on its own — no country suffix, no descriptive phrases, no invented resorts or venues.
+- Name a place at the scale a traveller would go to: a town, city, island, park, or region. Not a single hotel, dive shop, trail, or ski lift.
+- If fewer places genuinely suit the activities than requested, return fewer. Do not pad the list.
 - Rank best match first.
 - "activities" must be concrete and specific to that place, not restatements of the request.
 - Never invent venues, operators, or prices. If unsure of a specific, describe the activity generically.
@@ -166,7 +195,7 @@ func buildSuggestPrompt(catalog []models.Destination, activities []string, req A
 	// the name and failed to match the "Quito" row — three of four picks were
 	// wrongly dropped. Keep the name in its own column and commas out of the
 	// separator.
-	sb.WriteString("CATALOG (one per line, fields separated by |, the NAME is the first field):\n")
+	sb.WriteString("CATALOG — destinations we already cover. Prefer these, but do not be limited to them (one per line, fields separated by |, the NAME is the first field):\n")
 	for _, d := range catalog {
 		fmt.Fprintf(&sb, "- %s", d.Name)
 		if d.Country != "" {
@@ -203,16 +232,24 @@ type suggestPick struct {
 	Timing     string   `json:"timing"`
 }
 
-// matchPicks resolves the model's chosen names against the catalog. This is
-// the grounding step: a name that is not in the catalog is reported in
-// Dropped, never returned as a result.
-func matchPicks(catalog []models.Destination, picks []suggestPick, limit int) *ActivitySuggestions {
+// matchPicks resolves the model's chosen names against the catalog, returning
+// the grounded matches plus the picks it could not place.
+//
+// Grounding here is only the cheap half — a name already in the catalog needs
+// no network call. The picks it hands back are candidates for discovery, not
+// yet failures; resolveUngrounded decides which of them are real.
+//
+// A placeholder slot is appended to Matches for each ungrounded pick so the
+// model's ranking survives: discovery is concurrent and would otherwise
+// reorder the results by whichever Wikidata lookup finished first.
+func matchPicks(catalog []models.Destination, picks []suggestPick, limit int) (*ActivitySuggestions, []ungroundedPick) {
 	byName := make(map[string]*models.Destination, len(catalog))
 	for i := range catalog {
 		byName[normalizeName(catalog[i].Name)] = &catalog[i]
 	}
 
 	out := &ActivitySuggestions{CatalogSize: len(catalog)}
+	var ungrounded []ungroundedPick
 	seen := make(map[string]bool, limit)
 	for _, p := range picks {
 		name := strings.TrimSpace(p.Name)
@@ -221,7 +258,16 @@ func matchPicks(catalog []models.Destination, picks []suggestPick, limit int) *A
 		}
 		dest, key, ok := resolve(byName, name)
 		if !ok {
-			out.Dropped = append(out.Dropped, name)
+			key = normalizeName(name)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			ungrounded = append(ungrounded, ungroundedPick{pick: p, slot: len(out.Matches)})
+			out.Matches = append(out.Matches, ActivityMatch{})
+			if len(out.Matches) >= limit {
+				break
+			}
 			continue
 		}
 		if seen[key] {
@@ -239,7 +285,135 @@ func matchPicks(catalog []models.Destination, picks []suggestPick, limit int) *A
 			break
 		}
 	}
-	return out
+	return out, ungrounded
+}
+
+// ungroundedPick is a pick awaiting discovery, tagged with the position it
+// holds in the result list.
+type ungroundedPick struct {
+	pick suggestPick
+	slot int
+}
+
+// discoveryConcurrency bounds the parallel Wikidata/Wikipedia lookups. Each
+// resolution is several sequential HTTP calls against public endpoints that
+// ask callers to be gentle, and a request only ever has a handful of names to
+// resolve, so there is nothing to gain from going wider.
+const discoveryConcurrency = 4
+
+// discoveryBudget caps the whole discovery phase. The model call ahead of it
+// already spends 10-30s against a local model, and the endpoint runs under a
+// 90s write deadline; this keeps a slow Wikidata from eating the difference.
+// Whatever has not resolved when it expires is reported as dropped.
+const discoveryBudget = 40 * time.Second
+
+// resolveUngrounded fills the placeholder slots left by matchPicks, verifying
+// each name against Wikidata and storing it as a destination if it is real.
+// Names that do not resolve, or that resolve to somewhere violating a
+// constraint the caller set, collapse out of the result and are reported in
+// Dropped.
+//
+// Errors are deliberately not propagated. A Wikidata outage should cost the
+// off-catalog half of the answer, not the catalog matches already in hand.
+func (s *DestinationSuggestService) resolveUngrounded(ctx context.Context, out *ActivitySuggestions, ungrounded []ungroundedPick, req ActivitySuggestRequest, limit int) {
+	if len(ungrounded) == 0 {
+		return
+	}
+	if s.discovery == nil {
+		for _, u := range ungrounded {
+			out.Dropped = append(out.Dropped, strings.TrimSpace(u.pick.Name))
+		}
+		compactMatches(out, limit)
+		return
+	}
+
+	dctx, cancel := context.WithTimeout(ctx, discoveryBudget)
+	defer cancel()
+
+	var (
+		mu   sync.Mutex
+		wg   sync.WaitGroup
+		sem  = make(chan struct{}, discoveryConcurrency)
+		seen = make(map[string]bool, len(ungrounded))
+	)
+	for i := range out.Matches {
+		if out.Matches[i].Destination.Name != "" {
+			seen[normalizeName(out.Matches[i].Destination.Name)] = true
+		}
+	}
+
+	for _, u := range ungrounded {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(u ungroundedPick) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			name := strings.TrimSpace(u.pick.Name)
+			dest, err := s.discovery.ResolveAndInsertByName(dctx, name)
+			if err != nil {
+				slog.Debug("suggest: discovery failed", "name", name, "error", err)
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			if dest == nil || !suggestionSatisfies(*dest, req) {
+				out.Dropped = append(out.Dropped, name)
+				return
+			}
+			// Canonicalisation can land two different picks on the same row
+			// ("Banff" and "Banff National Park"), and a discovered row can
+			// collide with a catalog match already held.
+			key := normalizeName(dest.Name)
+			if seen[key] {
+				return
+			}
+			seen[key] = true
+
+			out.Matches[u.slot] = ActivityMatch{
+				Destination: *dest,
+				Why:         strings.TrimSpace(u.pick.Why),
+				Activities:  trimmedNonEmpty(u.pick.Activities),
+				Timing:      strings.TrimSpace(u.pick.Timing),
+				Discovered:  true,
+			}
+			out.DiscoveredCount++
+		}(u)
+	}
+	wg.Wait()
+
+	compactMatches(out, limit)
+}
+
+// suggestionSatisfies re-checks the constraints that Mongo enforced on the
+// catalog against a row that never went through that query. A discovered
+// place has a synthesised budget, so this is a sanity floor rather than a
+// precise filter — but returning a $300/day city to someone who asked for
+// $80/day is worse than returning one fewer result.
+func suggestionSatisfies(d models.Destination, req ActivitySuggestRequest) bool {
+	if req.MaxBudget > 0 && d.AvgDailyBudget > req.MaxBudget {
+		return false
+	}
+	if r := strings.TrimSpace(req.Region); r != "" && !strings.EqualFold(d.Region, r) {
+		return false
+	}
+	return true
+}
+
+// compactMatches drops the placeholder slots left by picks that never
+// resolved, preserving the model's ranking among those that did.
+func compactMatches(out *ActivitySuggestions, limit int) {
+	kept := out.Matches[:0]
+	for _, m := range out.Matches {
+		if m.Destination.Name == "" {
+			continue
+		}
+		kept = append(kept, m)
+	}
+	out.Matches = kept
+	if len(out.Matches) > limit {
+		out.Matches = out.Matches[:limit]
+	}
 }
 
 // resolve looks a model-supplied name up in the catalog index, returning the

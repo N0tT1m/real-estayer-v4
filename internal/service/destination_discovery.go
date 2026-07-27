@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -188,50 +190,131 @@ func (s *DestinationDiscoveryService) enrichAndFinalize(ctx context.Context, ran
 		go func(i int, r rankedCandidate) {
 			defer wg.Done()
 			defer func() { <-sem }()
-
-			p := r.place
-			cand := DiscoveryCandidate{
-				WikidataID:    p.QID,
-				Name:          p.Name,
-				Description:   p.Description,
-				WikipediaURL:  p.WikipediaURL,
-				ArticleTitle:  p.ArticleTitle,
-				Latitude:      p.Latitude,
-				Longitude:     p.Longitude,
-				CountryCode:   p.CountryCode,
-				Country:       isoCountryNames[p.CountryCode],
-				Region:        regionForCountry(p.CountryCode),
-				SitelinkCount: p.SitelinkCount,
-				PageViewsYear: r.views,
-				Categories:    []string{"city"},
-			}
-			if cand.Country == "" {
-				cand.Country = p.CountryCode
-			}
-
-			if p.ArticleTitle != "" {
-				if info, err := s.wiki.GetCitySummary(enrichCtx, p.ArticleTitle); err == nil && info != nil {
-					if info.Description != "" {
-						cand.Description = info.Description
-					}
-					if info.ImageURL != "" {
-						cand.ImageURL = info.ImageURL
-					}
-				}
-			}
-
-			// Mark already-in-DB so the UI can dim the row and pre-skip it on
-			// confirm. Cheap query per row; for a 30-row batch this is ~30
-			// indexed point reads and not worth batching.
-			if existing, err := s.repo.FindByName(enrichCtx, p.Name); err == nil && existing != nil {
-				cand.AlreadyExists = true
-			}
-
-			out[i] = cand
+			out[i] = s.buildCandidate(enrichCtx, r.place, r.views)
 		}(i, r)
 	}
 	wg.Wait()
 	return out
+}
+
+// buildCandidate turns one raw SPARQL row into a UI-ready candidate: country
+// and region resolved from the ISO code, description and hero image pulled
+// from Wikipedia, and the already-in-DB flag set.
+func (s *DestinationDiscoveryService) buildCandidate(ctx context.Context, p DiscoveredPlace, views int64) DiscoveryCandidate {
+	cand := DiscoveryCandidate{
+		WikidataID:    p.QID,
+		Name:          p.Name,
+		Description:   p.Description,
+		WikipediaURL:  p.WikipediaURL,
+		ArticleTitle:  p.ArticleTitle,
+		Latitude:      p.Latitude,
+		Longitude:     p.Longitude,
+		CountryCode:   p.CountryCode,
+		Country:       isoCountryNames[p.CountryCode],
+		Region:        regionForCountry(p.CountryCode),
+		SitelinkCount: p.SitelinkCount,
+		PageViewsYear: views,
+		Categories:    []string{"city"},
+	}
+	if cand.Country == "" {
+		cand.Country = p.CountryCode
+	}
+
+	if p.ArticleTitle != "" {
+		if info, err := s.wiki.GetCitySummary(ctx, p.ArticleTitle); err == nil && info != nil {
+			if info.Description != "" {
+				cand.Description = info.Description
+			}
+			if info.ImageURL != "" {
+				cand.ImageURL = info.ImageURL
+			}
+		}
+	}
+
+	// Mark already-in-DB so the UI can dim the row and pre-skip it on
+	// confirm. Cheap query per row; for a 30-row batch this is ~30
+	// indexed point reads and not worth batching.
+	if existing, err := s.repo.FindByName(ctx, p.Name); err == nil && existing != nil {
+		cand.AlreadyExists = true
+	}
+
+	return cand
+}
+
+// minSitelinksForAutoInsert is the popularity floor for a place added without
+// a human in the loop. The admin discovery flow can afford a floor of 3
+// because someone reviews the list before confirming; ResolveAndInsertByName
+// has no such review, so it asks for a place documented in a handful of
+// languages rather than one obscure stub. Under this, a model that reaches for
+// a hamlet would quietly grow the catalog with rows nobody wants.
+const minSitelinksForAutoInsert = 5
+
+// ResolveAndInsertByName verifies one free-text place name against Wikidata
+// and, when it turns out to be a real and reasonably documented place, enriches
+// and stores it as a destination — returning the stored row.
+//
+// This is the unattended counterpart to Discover + ConfirmAndInsert, and it
+// exists for the activity finder. That flow regularly produces the name of a
+// place that genuinely suits the request but is absent from the seeded
+// catalog; without this, the only options are to drop it or to trust the model
+// enough to render an unverified row. Wikidata is what makes the third path
+// safe: the model supplies a name, and every fact attached to it comes from
+// Wikidata and Wikipedia.
+//
+// Returns (nil, nil) when the name does not resolve or falls under the
+// popularity floor, so callers can report it as dropped.
+func (s *DestinationDiscoveryService) ResolveAndInsertByName(ctx context.Context, name string) (*models.Destination, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, nil
+	}
+
+	// A stored row always wins. It may have been curated by an admin or
+	// enriched by another flow, and re-deriving it from Wikidata would
+	// overwrite that with the generic version.
+	if existing, err := s.repo.FindByName(ctx, name); err == nil && existing != nil {
+		return existing, nil
+	}
+
+	place, err := s.wikidata.PlaceByName(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("resolve %q: %w", name, err)
+	}
+	// Models qualify a place with its country even when told not to, and
+	// "Banff, Canada" is a worse search string than "Banff" — the comma makes
+	// it look like a phrase rather than a name. Retry on the leading segment,
+	// mirroring what catalog matching already does for the same reason.
+	if place == nil {
+		if base, _, found := strings.Cut(name, ","); found {
+			if base = strings.TrimSpace(base); base != "" {
+				if place, err = s.wikidata.PlaceByName(ctx, base); err != nil {
+					return nil, fmt.Errorf("resolve %q: %w", base, err)
+				}
+			}
+		}
+	}
+	if place == nil || place.SitelinkCount < minSitelinksForAutoInsert {
+		return nil, nil
+	}
+
+	// PlaceByName may have canonicalised the name, which can collide with a
+	// row the caller's spelling missed.
+	if place.Name != name {
+		if existing, err := s.repo.FindByName(ctx, place.Name); err == nil && existing != nil {
+			return existing, nil
+		}
+	}
+
+	cand := s.buildCandidate(ctx, *place, 0)
+	if _, _, err := s.ConfirmAndInsert(ctx, []DiscoveryCandidate{cand}); err != nil {
+		return nil, err
+	}
+
+	stored, err := s.repo.FindByName(ctx, cand.Name)
+	if err != nil {
+		return nil, fmt.Errorf("reload %q after insert: %w", cand.Name, err)
+	}
+	return stored, nil
 }
 
 // ConfirmAndInsert upserts the given candidates into the destinations

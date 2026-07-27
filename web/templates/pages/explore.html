@@ -56,7 +56,7 @@
             </svg>
             <div>
                 <h2 class="font-display text-xl font-medium">Not sure where to go?</h2>
-                <p class="text-muted text-sm">Tell us what you want to do and we'll match it against destinations we actually cover.</p>
+                <p class="text-muted text-sm">Tell us what you want to do and we'll find real places to go — starting with the ones we cover, and looking further out when somewhere else fits better.</p>
             </div>
         </div>
 
@@ -95,7 +95,7 @@
         <!-- Generation runs 10-30s against a local model, so say so rather
              than leaving a spinner to imply something is stuck. -->
         <p x-show="ai.busy" x-cloak class="mt-3 text-xs text-soft">
-            Thinking through <span x-text="ai.catalogHint"></span> destinations — this usually takes 10–30 seconds.
+            Thinking through <span x-text="ai.catalogHint"></span> destinations, then checking anywhere else it suggests — this usually takes 15–40 seconds.
         </p>
 
         <div x-show="ai.ran && !ai.busy" x-cloak class="mt-6">
@@ -122,6 +122,13 @@
                                 <h4 class="font-display text-lg font-medium" x-text="m.destination.name"></h4>
                                 <span class="text-xs text-soft" x-text="m.destination.country"></span>
                             </div>
+                            <!-- Flagged because a newly found place has a
+                                 synthesised budget rather than a curated one,
+                                 so its $/day is a weaker number than the rest. -->
+                            <span x-show="m.discovered" x-cloak
+                                  class="inline-block mt-1 px-2 py-0.5 rounded-full bg-primary-50 text-primary-700 text-[11px] font-medium uppercase tracking-wide">
+                                New find
+                            </span>
                             <p class="text-sm text-muted mt-1" x-text="m.why"></p>
 
                             <ul x-show="m.activities && m.activities.length" class="mt-3 space-y-1">
@@ -147,14 +154,21 @@
             </div>
 
             <p x-show="!ai.matches.length" class="text-sm text-muted">
-                Nothing in our catalog fits that yet. Try broader activities, or drop the month and budget limits.
+                Nothing we could confirm fits that yet. Try broader activities, or drop the month and budget limits.
             </p>
 
-            <!-- Surfaced rather than hidden: these are places the model reached
-                 for that we don't cover, which is useful signal for the reader
-                 and a shortlist for whoever curates the catalog. -->
-            <p x-show="ai.dropped.length" x-cloak class="mt-4 text-xs text-soft">
-                Also suggested but not in our catalog:
+            <p x-show="ai.discovered" x-cloak class="mt-4 text-xs text-soft">
+                <span x-text="ai.discovered"></span>
+                <span x-text="ai.discovered === 1 ? ' place was' : ' places were'"></span>
+                new to us and have been added — details come from Wikipedia.
+            </p>
+
+            <!-- Surfaced rather than hidden. Now that off-catalog names get
+                 verified rather than refused, a name reaching this line means
+                 neither we nor Wikidata could confirm the place exists — which
+                 is worth showing, since it's the model making something up. -->
+            <p x-show="ai.dropped.length" x-cloak class="mt-2 text-xs text-soft">
+                Also suggested, but we couldn't verify these as real places:
                 <span x-text="ai.dropped.join(', ')"></span>.
             </p>
         </div>
@@ -387,7 +401,7 @@ function exploreView() {
         ai: {
             activities: '', month: '', maxBudget: '',
             busy: false, ran: false, elapsed: 0,
-            query: '', matches: [], dropped: [], catalogHint: 'our',
+            query: '', matches: [], dropped: [], discovered: 0, catalogHint: 'our',
         },
         _aiTimer: null,
 
@@ -432,6 +446,7 @@ function exploreView() {
                 const out = await window.api('/api/v1/ai/destinations/suggest', { method: 'POST', json: body });
                 this.ai.matches = out.matches || [];
                 this.ai.dropped = out.dropped || [];
+                this.ai.discovered = out.discovered_count || 0;
                 if (out.catalog_size) this.ai.catalogHint = out.catalog_size;
                 this.ai.ran = true;
             } catch (e) {
@@ -455,6 +470,7 @@ function exploreView() {
             this.ai.ran = false;
             this.ai.matches = [];
             this.ai.dropped = [];
+            this.ai.discovered = 0;
             this.ai.query = '';
         },
 

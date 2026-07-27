@@ -327,6 +327,240 @@ type DiscoveredPlace struct {
 	Types         []string `json:"types"` // e.g. ["city","tourist attraction"]
 }
 
+// PlaceByName resolves a single free-text place name into a verified
+// real-world place. It is the one-name counterpart to DiscoverTourismPlaces,
+// which can only work over a region.
+//
+// This is a verification call, not a search: the caller already has a name and
+// needs to know whether it denotes a real place before treating it as a
+// destination. Returns (nil, nil) — not an error — when nothing matches, so
+// "Wikidata has never heard of this" and "the lookup failed" stay
+// distinguishable at the call site.
+//
+// A match is rejected unless it carries coordinates. Every downstream feature
+// a destination feeds — the explore map, weather, nearby highlights — needs a
+// point, and a row without one renders as a broken card rather than a place
+// you can go.
+func (s *WikidataService) PlaceByName(ctx context.Context, name string) (*DiscoveredPlace, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, nil
+	}
+
+	// Deliberately not resolveQID: that one commits to a single QID from the
+	// search endpoint's ordering, and picking the first hit whose description
+	// says "town" is not disambiguation. It resolved "Banff" to the
+	// Aberdeenshire fishing town rather than the Alberta ski resort, and
+	// "Churchill" to a person rather than the Manitoba town. Both are the same
+	// mistake: the search endpoint ranks by string match, which says nothing
+	// about which entity a traveller means.
+	//
+	// Instead: pull several candidates, ask Wikidata about all of them at once,
+	// and let the data decide. Requiring coordinates eliminates people, films,
+	// and companies outright; ranking what remains by sitelink count picks the
+	// famous place over its obscure namesake, which is the right prior for a
+	// travel request.
+	qids, err := s.searchEntityIDs(ctx, name, placeCandidateLimit)
+	if err != nil {
+		return nil, err
+	}
+	if len(qids) == 0 {
+		return nil, nil
+	}
+
+	var values strings.Builder
+	for _, q := range qids {
+		fmt.Fprintf(&values, "wd:%s ", q)
+	}
+
+	query := fmt.Sprintf(`
+SELECT ?place ?placeLabel ?desc ?countryCode ?coord ?sitelinks ?article
+WHERE {
+  VALUES ?place { %s }
+  ?place wikibase:sitelinks ?sitelinks ;
+         wdt:P625 ?coord .
+  OPTIONAL {
+    ?place wdt:P17 ?country .
+    ?country wdt:P297 ?countryCode .
+  }
+  OPTIONAL { ?place schema:description ?desc . FILTER(LANG(?desc) = "en") }
+  OPTIONAL {
+    ?article schema:about ?place ; schema:isPartOf <https://en.wikipedia.org/> .
+  }
+  SERVICE wikibase:label { bd:serviceParam wikibase:language "en" . }
+}
+ORDER BY DESC(?sitelinks)
+LIMIT 20
+`, strings.TrimSpace(values.String()))
+
+	rows, err := s.sparqlBindings(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	return pickBestPlace(name, rows), nil
+}
+
+// pickBestPlace chooses the intended place from the candidates that share a
+// name, and is where the disambiguation actually happens.
+//
+// Two rules, in order. A candidate must have usable coordinates and an English
+// Wikipedia article — that alone discards the people, films, and companies the
+// search endpoint returns alongside the place. Among what survives, the one
+// with the most Wikipedia language editions wins, which is the closest
+// available proxy for "the one a traveller means": Banff, Alberta outranks
+// Banff, Aberdeenshire by an order of magnitude.
+//
+// Returns nil when no candidate qualifies, which the caller reports as
+// unverifiable rather than guessing.
+func pickBestPlace(name string, rows []sparqlRow) *DiscoveredPlace {
+	var best *DiscoveredPlace
+	for _, b := range rows {
+		p := &DiscoveredPlace{Name: name}
+		if v, ok := b["place"]; ok {
+			p.QID = lastPathSegment(v.Value)
+		}
+		// Prefer Wikidata's own label over the caller's spelling so the stored
+		// row gets the canonical name. A row labelled with its own QID has no
+		// English label, so keep what the caller passed.
+		if v, ok := b["placeLabel"]; ok && v.Value != "" {
+			if !strings.HasPrefix(v.Value, "Q") || !isAllDigitsAfter(v.Value, 1) {
+				p.Name = v.Value
+			}
+		}
+		if v, ok := b["desc"]; ok {
+			p.Description = v.Value
+		}
+		if v, ok := b["countryCode"]; ok {
+			p.CountryCode = v.Value
+		}
+		if v, ok := b["coord"]; ok {
+			lat, lng, parsed := parseWKTPoint(v.Value)
+			if !parsed {
+				continue
+			}
+			p.Latitude = lat
+			p.Longitude = lng
+		}
+		if p.Latitude == 0 && p.Longitude == 0 {
+			continue
+		}
+		if v, ok := b["sitelinks"]; ok {
+			if n, err := strconv.Atoi(v.Value); err == nil {
+				p.SitelinkCount = n
+			}
+		}
+		if v, ok := b["article"]; ok {
+			p.WikipediaURL = v.Value
+			p.ArticleTitle = decodeArticleTitle(v.Value)
+		}
+
+		// An English Wikipedia article is required, not preferred: it is what
+		// the description and hero image are read from downstream, and a place
+		// without one produces a blank card.
+		if p.ArticleTitle == "" {
+			continue
+		}
+		if best == nil || p.SitelinkCount > best.SitelinkCount {
+			best = p
+		}
+	}
+	return best
+}
+
+// placeCandidateLimit is how many search hits PlaceByName considers before
+// ranking. Enough to reach past a same-named person or film to the place, but
+// small enough to keep the follow-up SPARQL cheap.
+const placeCandidateLimit = 8
+
+// searchEntityIDs returns the top wbsearchentities QIDs for a name, in the
+// endpoint's own relevance order and without interpretation. Callers that need
+// to choose between them should do so on Wikidata facts, not on this ordering.
+func (s *WikidataService) searchEntityIDs(ctx context.Context, name string, limit int) ([]string, error) {
+	q := url.Values{}
+	q.Set("action", "wbsearchentities")
+	q.Set("format", "json")
+	q.Set("language", "en")
+	q.Set("type", "item")
+	q.Set("limit", strconv.Itoa(limit))
+	q.Set("search", name)
+	u := "https://www.wikidata.org/w/api.php?" + q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Real-Estayer/1.0 (https://real-estayer.app)")
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("wikidata search: status %d", resp.StatusCode)
+	}
+
+	var raw struct {
+		Search []struct {
+			ID string `json:"id"`
+		} `json:"search"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(raw.Search))
+	for _, r := range raw.Search {
+		// Guard the SPARQL VALUES clause: anything not shaped like a QID would
+		// be injected straight into the query text.
+		if len(r.ID) > 1 && r.ID[0] == 'Q' && isAllDigitsAfter(r.ID, 1) {
+			out = append(out, r.ID)
+		}
+	}
+	return out, nil
+}
+
+// sparqlValue is one cell of a SPARQL result; sparqlRow is one result row
+// keyed by the SELECT variable name.
+type sparqlValue struct {
+	Value string `json:"value"`
+}
+
+type sparqlRow map[string]sparqlValue
+
+// sparqlBindings POSTs a SPARQL query and returns the raw result rows.
+// POST rather than GET because query length is unbounded and some proxies cap
+// query strings below what Wikidata itself accepts.
+func (s *WikidataService) sparqlBindings(ctx context.Context, query string) ([]sparqlRow, error) {
+	form := url.Values{}
+	form.Set("query", query)
+	form.Set("format", "json")
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://query.wikidata.org/sparql", strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/sparql-results+json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", "Real-Estayer/1.0 (https://real-estayer.app)")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("wikidata sparql: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("wikidata sparql: status %d", resp.StatusCode)
+	}
+
+	var raw struct {
+		Results struct {
+			Bindings []sparqlRow `json:"bindings"`
+		} `json:"results"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, err
+	}
+	return raw.Results.Bindings, nil
+}
+
 // DiscoverTourismPlaces returns tourism-relevant places located (transitively)
 // within the given region QID, pre-filtered by Wikipedia sitelink count as a
 // rough popularity floor. Returns up to ~200 candidates; the caller ranks
@@ -373,40 +607,14 @@ ORDER BY DESC(?sitelinks)
 LIMIT 200
 `, regionQID)
 
-	// POST the query so it doesn't ride in the URL — SPARQL queries over large
-	// regions can exceed practical GET length limits, and some proxies cap
-	// query strings below what Wikidata will accept.
-	form := url.Values{}
-	form.Set("query", query)
-	form.Set("format", "json")
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "https://query.wikidata.org/sparql", strings.NewReader(form.Encode()))
-	req.Header.Set("Accept", "application/sparql-results+json")
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", "Real-Estayer/1.0 (https://real-estayer.app)")
-
-	resp, err := s.client.Do(req)
+	bindings, err := s.sparqlBindings(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("wikidata discover: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("wikidata discover: status %d", resp.StatusCode)
-	}
-
-	var raw struct {
-		Results struct {
-			Bindings []map[string]struct {
-				Value string `json:"value"`
-			} `json:"bindings"`
-		} `json:"results"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, err
 	}
 
-	out := make([]DiscoveredPlace, 0, len(raw.Results.Bindings))
+	out := make([]DiscoveredPlace, 0, len(bindings))
 	seen := map[string]struct{}{}
-	for _, b := range raw.Results.Bindings {
+	for _, b := range bindings {
 		p := DiscoveredPlace{}
 
 		if v, ok := b["place"]; ok {
