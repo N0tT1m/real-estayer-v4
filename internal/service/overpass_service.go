@@ -49,8 +49,14 @@ func NewOverpassService() *OverpassService {
 }
 
 // Nearby returns POIs within `radiusM` metres of (lat,lng) for the given
-// category. Supported categories: food, coffee, sight, park, shop, museum,
-// bar, nightclub.
+// category.
+//
+// Places: food, coffee, sight, park, shop, museum, bar, nightclub.
+// Activities: climbing, surf, dive, hiking, cycling, beach, swimming, golf,
+// ski, spa, wildlife.
+//
+// The full list lives in buildOverpassQuery; anything else is an error rather
+// than an empty result, so a typo in a caller is loud.
 func (s *OverpassService) Nearby(ctx context.Context, category string, lat, lng float64, radiusM int) ([]Place, error) {
 	if radiusM <= 0 || radiusM > 10000 {
 		radiusM = 1500
@@ -151,6 +157,35 @@ func buildOverpassQuery(category string, lat, lng float64, radius int) string {
 		filters = []string{`["leisure"~"park|garden|nature_reserve"]`}
 	case "shop":
 		filters = []string{`["shop"]`}
+
+	// Activity categories. These answer "where can I actually do X here",
+	// which the categories above can't — they only cover eating, drinking,
+	// and sightseeing. OSM tags a sport two ways: sport=* on a venue, and
+	// route=* on a linear feature (a trail is a relation, not a node), so
+	// the ones with routes list both filters.
+	case "climbing":
+		filters = []string{`["sport"="climbing"]`, `["climbing"]`}
+	case "surf":
+		filters = []string{`["sport"="surfing"]`}
+	case "dive":
+		filters = []string{`["sport"="scuba_diving"]`, `["shop"="scuba_diving"]`}
+	case "hiking":
+		filters = []string{`["route"="hiking"]`, `["information"="guidepost"]`}
+	case "cycling":
+		filters = []string{`["route"="bicycle"]`, `["shop"="bicycle"]`}
+	case "beach":
+		filters = []string{`["natural"="beach"]`, `["leisure"="beach_resort"]`}
+	case "swimming":
+		filters = []string{`["sport"="swimming"]`, `["leisure"="swimming_pool"]`}
+	case "golf":
+		filters = []string{`["leisure"="golf_course"]`}
+	case "ski":
+		filters = []string{`["landuse"="winter_sports"]`, `["sport"="skiing"]`}
+	case "spa":
+		filters = []string{`["leisure"="spa"]`, `["amenity"="spa"]`}
+	case "wildlife":
+		filters = []string{`["leisure"="nature_reserve"]`, `["tourism"="zoo"]`}
+
 	default:
 		return ""
 	}

@@ -45,6 +45,127 @@
         {{end}}
     </div>
 
+    {{if .AISuggest}}
+    <!-- Activity finder: the inverse of the filters below. Those narrow a list
+         you're already browsing; this starts from what you want to do and works
+         back to where. Hidden entirely when the AI backend is unconfigured. -->
+    <div class="surface p-6 mb-10">
+        <div class="flex items-start gap-3 mb-4">
+            <svg class="h-6 w-6 text-primary-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+            </svg>
+            <div>
+                <h2 class="font-display text-xl font-medium">Not sure where to go?</h2>
+                <p class="text-muted text-sm">Tell us what you want to do and we'll match it against destinations we actually cover.</p>
+            </div>
+        </div>
+
+        {{if .User}}
+        <form @submit.prevent="findByActivity()" class="grid gap-3 md:grid-cols-[1fr_auto_auto_auto] md:items-end">
+            <div>
+                <label for="ai-activities" class="block text-xs font-medium text-soft uppercase tracking-wide mb-1">Activities</label>
+                <input id="ai-activities" type="text" x-model="ai.activities"
+                       placeholder="e.g. scuba diving, hiking volcanoes"
+                       class="w-full px-4 py-2.5 border border-[color:var(--re-border)] rounded-lg bg-[color:var(--re-surface)] focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+            </div>
+            <div>
+                <label for="ai-month" class="block text-xs font-medium text-soft uppercase tracking-wide mb-1">Month</label>
+                <select id="ai-month" x-model="ai.month"
+                        class="px-3 py-2.5 border border-[color:var(--re-border)] rounded-lg bg-[color:var(--re-surface)] text-sm focus:ring-2 focus:ring-primary-500">
+                    <option value="">Any</option>
+                    <template x-for="(m, i) in ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']" :key="m">
+                        <option :value="i + 1" x-text="m"></option>
+                    </template>
+                </select>
+            </div>
+            <div>
+                <label for="ai-budget" class="block text-xs font-medium text-soft uppercase tracking-wide mb-1">Max $/day</label>
+                <input id="ai-budget" type="number" min="0" x-model.number="ai.maxBudget" placeholder="Any"
+                       class="w-28 px-3 py-2.5 border border-[color:var(--re-border)] rounded-lg bg-[color:var(--re-surface)] text-sm focus:ring-2 focus:ring-primary-500">
+            </div>
+            <button type="submit" class="btn btn-primary h-[42px]" :disabled="ai.busy || !ai.activities.trim()">
+                <span x-show="!ai.busy">Find destinations</span>
+                <span x-show="ai.busy" x-cloak class="flex items-center gap-2">
+                    <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3a9 9 0 109 9"/></svg>
+                    <span x-text="ai.elapsed + 's'"></span>
+                </span>
+            </button>
+        </form>
+
+        <!-- Generation runs 10-30s against a local model, so say so rather
+             than leaving a spinner to imply something is stuck. -->
+        <p x-show="ai.busy" x-cloak class="mt-3 text-xs text-soft">
+            Thinking through <span x-text="ai.catalogHint"></span> destinations — this usually takes 10–30 seconds.
+        </p>
+
+        <div x-show="ai.ran && !ai.busy" x-cloak class="mt-6">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="font-semibold text-sm">
+                    <span x-show="ai.matches.length">Matches for “<span x-text="ai.query"></span>”</span>
+                    <span x-show="!ai.matches.length">No matches for “<span x-text="ai.query"></span>”</span>
+                </h3>
+                <button type="button" class="btn btn-ghost text-xs" @click="clearSuggestions()">Clear</button>
+            </div>
+
+            <div x-show="ai.matches.length" class="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+                <template x-for="m in ai.matches" :key="m.destination.id || m.destination.name">
+                    <a :href="'/explore/' + encodeURIComponent(m.destination.name)"
+                       class="group block border border-[color:var(--re-border)] rounded-xl overflow-hidden hover:shadow-lift hover:-translate-y-0.5 transition-all fade-in bg-[color:var(--re-surface)]">
+                        <div class="aspect-[16/9] overflow-hidden bg-[color:var(--re-surface-muted)]">
+                            <img :src="m.destination.image_url || placeholderImage(m.destination.name)"
+                                 :alt="m.destination.name" loading="lazy"
+                                 class="w-full h-full object-cover group-hover:scale-[1.04] transition duration-500"
+                                 @error="$el.src = placeholderImage(m.destination.name)">
+                        </div>
+                        <div class="p-4">
+                            <div class="flex items-baseline justify-between gap-2">
+                                <h4 class="font-display text-lg font-medium" x-text="m.destination.name"></h4>
+                                <span class="text-xs text-soft" x-text="m.destination.country"></span>
+                            </div>
+                            <p class="text-sm text-muted mt-1" x-text="m.why"></p>
+
+                            <ul x-show="m.activities && m.activities.length" class="mt-3 space-y-1">
+                                <template x-for="a in (m.activities || [])" :key="a">
+                                    <li class="text-sm flex gap-2">
+                                        <span class="text-primary-600" aria-hidden="true">→</span>
+                                        <span x-text="a"></span>
+                                    </li>
+                                </template>
+                            </ul>
+
+                            <p x-show="m.timing" class="mt-3 text-xs text-soft italic" x-text="m.timing"></p>
+
+                            <div class="mt-3 pt-3 border-t border-[color:var(--re-border)] flex items-center justify-between text-xs text-soft">
+                                <span x-show="m.destination.avg_daily_budget">
+                                    $<span x-text="m.destination.avg_daily_budget"></span> / day
+                                </span>
+                                <span x-show="m.destination.airport_code" class="font-mono" x-text="m.destination.airport_code"></span>
+                            </div>
+                        </div>
+                    </a>
+                </template>
+            </div>
+
+            <p x-show="!ai.matches.length" class="text-sm text-muted">
+                Nothing in our catalog fits that yet. Try broader activities, or drop the month and budget limits.
+            </p>
+
+            <!-- Surfaced rather than hidden: these are places the model reached
+                 for that we don't cover, which is useful signal for the reader
+                 and a shortlist for whoever curates the catalog. -->
+            <p x-show="ai.dropped.length" x-cloak class="mt-4 text-xs text-soft">
+                Also suggested but not in our catalog:
+                <span x-text="ai.dropped.join(', ')"></span>.
+            </p>
+        </div>
+        {{else}}
+        <p class="text-sm text-muted">
+            <a href="/auth/login" class="text-primary-600 underline">Sign in</a> to search destinations by activity.
+        </p>
+        {{end}}
+    </div>
+    {{end}}
+
     <div class="flex flex-col lg:flex-row gap-8">
         <!-- Filters -->
         <aside class="lg:w-64 flex-shrink-0">
@@ -249,6 +370,16 @@ function exploreView() {
         map: null,
         _markers: [],
 
+        // Activity finder state. Separate from `filters` on purpose: these
+        // never touch the URL or the destination grid below, so a suggestion
+        // run can't quietly change what the normal browse view is showing.
+        ai: {
+            activities: '', month: '', maxBudget: '',
+            busy: false, ran: false, elapsed: 0,
+            query: '', matches: [], dropped: [], catalogHint: 'our',
+        },
+        _aiTimer: null,
+
         init() {
             // Restore filters + view from the URL so deep-links and
             // browser navigation work.
@@ -267,6 +398,52 @@ function exploreView() {
             this.view = v;
             this._syncURL();
             if (v === 'map') this.$nextTick(() => this._refreshMap());
+        },
+
+        // ----- Activity finder -----
+
+        async findByActivity() {
+            const activities = this.ai.activities.split(',').map((s) => s.trim()).filter(Boolean);
+            if (!activities.length || this.ai.busy) return;
+
+            this.ai.busy = true;
+            this.ai.elapsed = 0;
+            this.ai.query = activities.join(', ');
+            // A 10-30s wait with no feedback reads as a hang, so count up.
+            this._aiTimer = setInterval(() => { this.ai.elapsed += 1; }, 1000);
+
+            const body = { activities, limit: 6 };
+            if (this.ai.month) body.month = Number(this.ai.month);
+            if (this.ai.maxBudget) body.max_daily_budget = Number(this.ai.maxBudget);
+
+            try {
+                const out = await window.api('/api/v1/ai/destinations/suggest', { method: 'POST', json: body });
+                this.ai.matches = out.matches || [];
+                this.ai.dropped = out.dropped || [];
+                if (out.catalog_size) this.ai.catalogHint = out.catalog_size;
+                this.ai.ran = true;
+            } catch (e) {
+                // 429 comes from the per-account AI rate limit; say so plainly
+                // rather than showing the raw upstream message.
+                if (e.status === 429) {
+                    toast.error('You have run several searches in a row — give it a minute and try again.');
+                } else if (e.status === 503) {
+                    toast.error('Destination suggestions are not configured on this server.');
+                } else {
+                    toast.error(e.message || 'Could not find destinations.');
+                }
+            } finally {
+                clearInterval(this._aiTimer);
+                this._aiTimer = null;
+                this.ai.busy = false;
+            }
+        },
+
+        clearSuggestions() {
+            this.ai.ran = false;
+            this.ai.matches = [];
+            this.ai.dropped = [];
+            this.ai.query = '';
         },
 
         clearFilters() {

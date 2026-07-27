@@ -93,6 +93,33 @@ func TestChatTextOpenAIRequestShape(t *testing.T) {
 	if _, present := body["system"]; present {
 		t.Error("OpenAI request must not carry a top-level system block")
 	}
+	// Every caller parses the reply as JSON. Without this, local models wrap
+	// the payload in a ```json fence or emit invalid JSON outright and the
+	// unmarshal fails — see the comment in chatText.
+	rf, ok := body["response_format"].(map[string]any)
+	if !ok {
+		t.Fatalf("response_format = %v, want a JSON-mode object", body["response_format"])
+	}
+	if rf["type"] != "json_object" {
+		t.Errorf("response_format.type = %v, want json_object", rf["type"])
+	}
+}
+
+// json_object is an OpenAI-dialect parameter. Anthropic rejects unknown
+// top-level fields, so it must not leak onto that branch.
+func TestChatBodyAnthropicOmitsResponseFormat(t *testing.T) {
+	s := NewAIItineraryService("key", "claude-opus-5", "")
+	url, body := s.chatBody("SYS", "USER", 100)
+
+	if url != anthropicBaseURL+"/v1/messages" {
+		t.Errorf("url = %q", url)
+	}
+	if _, present := body["response_format"]; present {
+		t.Error("response_format is OpenAI-only and must not be sent to Anthropic")
+	}
+	if _, present := body["system"]; !present {
+		t.Error("Anthropic request should carry a top-level system block")
+	}
 }
 
 func TestChatTextOpenAISendsKeyWhenPresent(t *testing.T) {

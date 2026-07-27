@@ -25,16 +25,17 @@ type RateLimiter interface {
 // interface.
 type InMemoryRateLimiter struct {
 	rate, burst int
+	key         KeyFunc
 }
 
 // NewInMemoryRateLimiter keeps the original `RateLimit` call site working —
 // same constructor signature, different type.
 func NewInMemoryRateLimiter(ratePerMinute, burst int) *InMemoryRateLimiter {
-	return &InMemoryRateLimiter{rate: ratePerMinute, burst: burst}
+	return &InMemoryRateLimiter{rate: ratePerMinute, burst: burst, key: KeyByIP}
 }
 
 func (l *InMemoryRateLimiter) Middleware() func(http.Handler) http.Handler {
-	return RateLimit(l.rate, l.burst)
+	return RateLimitKeyed(l.rate, l.burst, l.key)
 }
 
 // NewRateLimiter picks the Redis-backed implementation when redisURL is
@@ -42,10 +43,24 @@ func (l *InMemoryRateLimiter) Middleware() func(http.Handler) http.Handler {
 // multiple limiters share a single Redis without colliding — pass something
 // like "auth" or "api" per mount.
 func NewRateLimiter(redisURL, keyPrefix string, ratePerMinute, burst int) RateLimiter {
-	if redisURL == "" {
-		return NewInMemoryRateLimiter(ratePerMinute, burst)
+	return NewRateLimiterKeyed(redisURL, keyPrefix, ratePerMinute, burst, KeyByIP)
+}
+
+// NewRateLimiterKeyed is NewRateLimiter with a caller-chosen bucket key, for
+// mounts where per-IP accounting is the wrong unit. Note that a key func
+// reading request context (KeyByUserOrIP) only sees what earlier middleware
+// put there, so mount it inside the authenticated group, not above it.
+func NewRateLimiterKeyed(redisURL, keyPrefix string, ratePerMinute, burst int, key KeyFunc) RateLimiter {
+	if key == nil {
+		key = KeyByIP
 	}
-	return NewRedisRateLimiter(redisURL, keyPrefix, ratePerMinute, burst)
+	if redisURL == "" {
+		return &InMemoryRateLimiter{rate: ratePerMinute, burst: burst, key: key}
+	}
+	l := NewRedisRateLimiter(redisURL, keyPrefix, ratePerMinute, burst)
+	l.key = key
+	l.fallback.key = key
+	return l
 }
 
 // RedisRateLimiter implements the token-bucket algorithm using Redis' INCR
@@ -59,6 +74,7 @@ type RedisRateLimiter struct {
 	prefix   string
 	rate     int // per minute
 	burst    int
+	key      KeyFunc
 	fallback *InMemoryRateLimiter // used when Redis is unreachable
 }
 
@@ -72,6 +88,7 @@ func NewRedisRateLimiter(redisURL, prefix string, ratePerMinute, burst int) *Red
 		prefix:   prefix,
 		rate:     ratePerMinute,
 		burst:    burst,
+		key:      KeyByIP,
 		fallback: NewInMemoryRateLimiter(ratePerMinute, burst),
 	}
 }
@@ -90,8 +107,7 @@ func (l *RedisRateLimiter) Middleware() func(http.Handler) http.Handler {
 		// global) accounting.
 		fallbackHandler := fallback(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := clientIP(r)
-			key := "rl:" + l.prefix + ":" + ip
+			key := "rl:" + l.prefix + ":" + l.key(r)
 			count, err := l.client.incrWithExpire(key, window)
 			if err != nil {
 				slog.Warn("rate limiter: redis error, falling back to in-memory", "error", err)

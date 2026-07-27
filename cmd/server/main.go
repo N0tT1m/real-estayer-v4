@@ -123,6 +123,9 @@ func main() {
 	unsplashService := service.NewUnsplashService(cfg.UnsplashKey)
 	airportService := service.NewAirportService()
 	destService := service.NewDestinationService(destRepo, geocodingService, airportService)
+	// Shared by the API handler and the explore page, which needs it only to
+	// decide whether to render the activity finder at all.
+	destSuggestService := service.NewDestinationSuggestService(aiItineraryService, destService)
 	flightStatusService := service.NewFlightStatusService(cfg.AviationStackAPIKey)
 	wikidataService := service.NewWikidataService()
 	natureService := service.NewNatureService(cfg.EBirdAPIKey)
@@ -180,31 +183,32 @@ func main() {
 			AIItinerary: aiItineraryService,
 		},
 		Enrich: handler.EnrichDeps{
-			Weather:      weatherService,
-			Currency:     currencyService,
-			Places:       placesService,
-			Events:       eventsService,
-			Country:      countryService,
-			Sun:          sunService,
-			Air:          airService,
-			Routing:      routingService,
-			Geocoding:    geocodingService,
-			Advisory:     advisoryService,
-			Carbon:       carbonService,
-			Affiliate:    affiliateService,
-			Unsplash:     unsplashService,
-			Airport:      airportService,
-			FlightStatus: flightStatusService,
-			Wikidata:     wikidataService,
-			Nature:       natureService,
-			Visa:         visaService,
-			Transit:      transitService,
+			Weather:            weatherService,
+			Currency:           currencyService,
+			Places:             placesService,
+			Events:             eventsService,
+			Country:            countryService,
+			Sun:                sunService,
+			Air:                airService,
+			Routing:            routingService,
+			Geocoding:          geocodingService,
+			Advisory:           advisoryService,
+			Carbon:             carbonService,
+			Affiliate:          affiliateService,
+			Unsplash:           unsplashService,
+			Airport:            airportService,
+			FlightStatus:       flightStatusService,
+			Wikidata:           wikidataService,
+			Nature:             natureService,
+			Visa:               visaService,
+			Transit:            transitService,
+			DestinationSuggest: destSuggestService,
 		},
 		Flight: flightService,
 	})
 
 	discoveryService := service.NewDestinationDiscoveryService(destRepo, wikidataService, wikipedia.NewClient())
-	destHandler := handler.NewDestinationHandler(h.Templates(), destService, discoveryService, scraperService)
+	destHandler := handler.NewDestinationHandler(h.Templates(), destService, discoveryService, scraperService, destSuggestService)
 
 	r := chi.NewRouter()
 
@@ -268,6 +272,19 @@ func main() {
 	// Generating tokens and sending emails is expensive, and a loose limit here
 	// lets an attacker spam reset emails to known addresses.
 	resetLimiter := authMiddleware.NewRateLimiter(cfg.RedisURL, "pwreset", 3, 2).Middleware()
+	// AI generation is the most expensive thing a logged-in user can trigger:
+	// one call is 17-45s of upstream work, either billed per token against a
+	// hosted provider or monopolising the GPU on a self-hosted one. Keyed per
+	// account rather than per IP because the budget being spent belongs to the
+	// account — see KeyByUserOrIP. 4/min + burst 2 still allows an interactive
+	// generate-then-refine loop, since a single call takes most of a minute.
+	aiLimiter := authMiddleware.NewRateLimiterKeyed(
+		cfg.RedisURL, "ai", 4, 2, authMiddleware.KeyByUserOrIP).Middleware()
+	// AI handlers outlive the server's 15s WriteTimeout, which would otherwise
+	// discard the response and drop the connection. 90s covers a 10-day
+	// itinerary against a local model (measured 45s) and leaves room above the
+	// 60s request timeout for its 504 to reach the wire.
+	aiSlowResponse := authMiddleware.ExtendWriteDeadline(90 * time.Second)
 	r.Route("/auth", func(r chi.Router) {
 		r.Get("/login", h.LoginPage)
 		r.Get("/register", h.RegisterPage)
@@ -416,14 +433,18 @@ func main() {
 			r.Get("/trips/{id}/reviews", h.TripListReviews)
 			r.Put("/trips/{id}/reviews", h.TripUpsertReview)
 			r.Get("/trips/{id}/weather", h.TripWeather)
-			r.Post("/ai/itinerary", h.AIItinerary)
+			r.With(aiLimiter, aiSlowResponse).Post("/ai/itinerary", h.AIItinerary)
+			// Inverse of the above: activities in, destinations out.
+			r.With(aiLimiter, aiSlowResponse).Post("/ai/destinations/suggest", h.SuggestDestinations)
 			r.Post("/currency/convert", h.ConvertCurrency)
 			r.Get("/trips/{id}/carbon", h.TripCarbon)
 			r.Get("/me/travel-stats", h.UserTravelStats)
 			r.Get("/me/travel-profile", h.UserTravelProfile)
 
-			// Email confirmation parser
-			r.Post("/trips/{id}/import-email", h.ImportEmail)
+			// Email confirmation parser. Not under /ai/, but it falls back to
+			// the model when the regex parser can't read the email, so it
+			// spends the same budget and needs the same write deadline.
+			r.With(aiLimiter, aiSlowResponse).Post("/trips/{id}/import-email", h.ImportEmail)
 
 			// Itinerary conflict checker
 			r.Get("/trips/{id}/conflicts", h.TripConflicts)
@@ -433,7 +454,7 @@ func main() {
 
 			// Photo uploads + receipt OCR
 			r.Post("/uploads/photo", h.UploadPhoto)
-			r.Post("/receipts/ocr", h.ReceiptOCRUpload)
+			r.With(aiLimiter, aiSlowResponse).Post("/receipts/ocr", h.ReceiptOCRUpload)
 
 			// Availability polls
 			r.Post("/polls", h.CreatePoll)
@@ -441,7 +462,7 @@ func main() {
 			r.Delete("/polls/{id}", h.DeletePoll)
 
 			// AI itinerary refinement
-			r.Post("/ai/itinerary/refine", h.AIItineraryRefine)
+			r.With(aiLimiter, aiSlowResponse).Post("/ai/itinerary/refine", h.AIItineraryRefine)
 		})
 
 		r.Route("/admin", func(r chi.Router) {

@@ -81,33 +81,7 @@ func (s *AIItineraryService) chatText(ctx context.Context, system, userMsg strin
 		return "", ErrAIItineraryNotConfigured
 	}
 
-	var (
-		url  string
-		body map[string]any
-	)
-	if s.usesOpenAIFormat() {
-		url = s.baseURL + "/chat/completions"
-		body = map[string]any{
-			"model":      s.model,
-			"max_tokens": maxTokens,
-			"messages": []map[string]any{
-				{"role": "system", "content": system},
-				{"role": "user", "content": userMsg},
-			},
-		}
-	} else {
-		url = anthropicBaseURL + "/v1/messages"
-		body = map[string]any{
-			"model":      s.model,
-			"max_tokens": maxTokens,
-			"system": []map[string]any{{
-				"type":          "text",
-				"text":          system,
-				"cache_control": map[string]string{"type": "ephemeral"},
-			}},
-			"messages": []map[string]any{{"role": "user", "content": userMsg}},
-		}
-	}
+	url, body := s.chatBody(system, userMsg, maxTokens)
 
 	buf, err := json.Marshal(body)
 	if err != nil {
@@ -136,6 +110,51 @@ func (s *AIItineraryService) chatText(ctx context.Context, system, userMsg strin
 		return "", fmt.Errorf("ai: status %d", resp.StatusCode)
 	}
 	return decodeChatReply(resp.Body, s.usesOpenAIFormat())
+}
+
+// chatBody builds the endpoint and request body for whichever backend is
+// configured. Split out from chatText so both dialects are testable without a
+// live server — chatText hardcodes the Anthropic host, which httptest can't
+// intercept.
+func (s *AIItineraryService) chatBody(system, userMsg string, maxTokens int) (string, map[string]any) {
+	var (
+		url  string
+		body map[string]any
+	)
+	if s.usesOpenAIFormat() {
+		url = s.baseURL + "/chat/completions"
+		body = map[string]any{
+			"model":      s.model,
+			"max_tokens": maxTokens,
+			"messages": []map[string]any{
+				{"role": "system", "content": system},
+				{"role": "user", "content": userMsg},
+			},
+			// Every caller of chatText asks for a JSON object and parses the
+			// reply with json.Unmarshal, so ask the server to guarantee it.
+			// Local backends (ollama, vLLM) honour this by constraining
+			// generation with a grammar, which removes both failure modes seen
+			// without it: a ```json fence wrapping the payload, and outright
+			// malformed JSON (mistral-small3.2 closed a string with ' and the
+			// parse failed). It also cuts generation time measurably. Every
+			// prompt here names JSON, which hosted OpenAI-compatible servers
+			// require before they will accept this parameter.
+			"response_format": map[string]string{"type": "json_object"},
+		}
+	} else {
+		url = anthropicBaseURL + "/v1/messages"
+		body = map[string]any{
+			"model":      s.model,
+			"max_tokens": maxTokens,
+			"system": []map[string]any{{
+				"type":          "text",
+				"text":          system,
+				"cache_control": map[string]string{"type": "ephemeral"},
+			}},
+			"messages": []map[string]any{{"role": "user", "content": userMsg}},
+		}
+	}
+	return url, body
 }
 
 // decodeChatReply pulls the assistant text out of whichever envelope came back.
