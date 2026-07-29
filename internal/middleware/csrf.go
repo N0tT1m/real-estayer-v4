@@ -23,9 +23,22 @@ const (
 
 // CSRF implements the double-submit cookie pattern. Each response sets a random
 // token in a readable cookie; state-changing requests must echo it either in the
-// X-CSRF-Token header or a csrf_token form field. The token is bound to a server
-// secret via HMAC so attackers can't forge one by setting the cookie via a
-// sub-domain.
+// X-CSRF-Token header or a csrf_token form field.
+//
+// What the HMAC does and does not buy: it stops an attacker *inventing* a token
+// value, since only the server can sign one. It does not stop them replaying a
+// token the server legitimately issued to them — tokens carry a random nonce and
+// are not bound to a session, so any valid token verifies for any user. An
+// attacker able to write cookies on the parent domain (a compromised or
+// untrusted sub-domain) could therefore plant a token they hold and submit the
+// matching value.
+//
+// That gap is closed elsewhere rather than here: the session cookie is
+// SameSite=Strict (see auth_handler.go), so it is never attached to a
+// cross-site request in the first place and a forged submission arrives
+// unauthenticated. This layer is defence in depth on top of that. Binding the
+// token to the session token would close it independently, and is the thing to
+// do if the session cookie's SameSite is ever relaxed.
 func CSRF(secret string, secure bool) func(http.Handler) http.Handler {
 	key := []byte(secret)
 	return func(next http.Handler) http.Handler {
