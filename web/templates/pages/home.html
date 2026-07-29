@@ -193,7 +193,7 @@
 
     <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6" x-data="featuredDestinations()" x-init="loadDestinations()">
         <template x-for="dest in destinations" :key="dest.name">
-            <a :href="'/explore/' + dest.name"
+            <a :href="'/explore/' + encodeURIComponent(dest.name)"
                class="group relative h-80 rounded-xl2 overflow-hidden shadow-soft hover:shadow-lift transition">
                 <img :src="dest.image_url" :alt="dest.name"
                      class="w-full h-full object-cover group-hover:scale-[1.04] transition duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"

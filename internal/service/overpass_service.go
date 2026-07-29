@@ -12,6 +12,32 @@ import (
 	"time"
 )
 
+// safeExternalURL returns raw only when it is an http(s) URL, and "" otherwise.
+//
+// OpenStreetMap tags are world-editable free text, so a `website` tag can hold
+// anything — including `javascript:...`, which becomes a live script the moment
+// the front end binds it to an anchor's href. The client sanitises too (see
+// safeUrl in app.js), but filtering here means the value never reaches a
+// browser at all, and any future consumer of Place.Website inherits the
+// guarantee rather than having to remember it.
+func safeExternalURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return ""
+	}
+	if u.Host == "" {
+		return ""
+	}
+	return raw
+}
+
 // OverpassService queries OpenStreetMap for restaurants, cafes, sights, and
 // other POIs around a coordinate. Keyless and free; we're polite about it
 // (low timeout, lightweight queries, cache responses in-process for 5 min).
@@ -149,7 +175,7 @@ func (s *OverpassService) Nearby(ctx context.Context, category string, lat, lng 
 			Category: category,
 			Subtype:  firstNonEmpty(e.Tags["amenity"], e.Tags["tourism"], e.Tags["shop"], e.Tags["leisure"]),
 			Address:  joinNonEmpty(", ", e.Tags["addr:housenumber"]+" "+e.Tags["addr:street"], e.Tags["addr:city"]),
-			Website:  firstNonEmpty(e.Tags["website"], e.Tags["contact:website"]),
+			Website:  safeExternalURL(firstNonEmpty(e.Tags["website"], e.Tags["contact:website"])),
 			Phone:    firstNonEmpty(e.Tags["phone"], e.Tags["contact:phone"]),
 			Cuisine:  e.Tags["cuisine"],
 			Source:   "osm",
