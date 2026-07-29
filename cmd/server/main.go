@@ -297,6 +297,14 @@ func main() {
 	// itinerary against a local model (measured 45s) and leaves room above the
 	// 60s request timeout for its 504 to reach the wire.
 	aiSlowResponse := authMiddleware.ExtendWriteDeadline(90 * time.Second)
+	// TOTP verification is a guessable secret: 6 digits with a ±1 step window
+	// leaves 3 valid values out of a million at any moment. Login's TOTP check
+	// already sits behind authLimiter; the enrollment endpoints did not, so a
+	// stolen session could grind codes as fast as the server would answer.
+	// Keyed per account rather than per IP — the secret under attack belongs to
+	// the account, so rotating addresses must not buy more attempts.
+	totpLimiter := authMiddleware.NewRateLimiterKeyed(
+		cfg.RedisURL, "totp", 10, 5, authMiddleware.KeyByUserOrIP).Middleware()
 	r.Route("/auth", func(r chi.Router) {
 		r.Get("/login", h.LoginPage)
 		r.Get("/register", h.RegisterPage)
@@ -393,10 +401,11 @@ func main() {
 			r.Put("/users/me/notifications", h.UpdateNotifications)
 			r.Post("/users/me/notifications/test-discord", h.TestDiscordWebhook)
 
-			// Two-factor auth
-			r.Post("/users/me/totp/start", h.StartTOTP)
-			r.Post("/users/me/totp/confirm", h.ConfirmTOTP)
-			r.Post("/users/me/totp/disable", h.DisableTOTP)
+			// Two-factor auth. All three are rate limited: confirm and disable
+			// verify a guessable code, and start rotates the pending secret.
+			r.With(totpLimiter).Post("/users/me/totp/start", h.StartTOTP)
+			r.With(totpLimiter).Post("/users/me/totp/confirm", h.ConfirmTOTP)
+			r.With(totpLimiter).Post("/users/me/totp/disable", h.DisableTOTP)
 
 			r.Post("/flights/book", h.BookFlight)
 			r.Get("/bookings", h.GetUserBookings)

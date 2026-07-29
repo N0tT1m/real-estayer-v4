@@ -26,6 +26,10 @@ var (
 	// or it failed to verify. The handler uses this to render the OTP step.
 	ErrTOTPRequired = errors.New("two-factor code required")
 	ErrTOTPInvalid  = errors.New("two-factor code invalid")
+	// ErrTOTPAlreadyEnabled rejects enrollment over an already-active factor.
+	// Replacing a live secret is a disable followed by an enroll, and the
+	// disable half requires proving possession — see StartTOTPEnrollment.
+	ErrTOTPAlreadyEnabled = errors.New("two-factor is already enabled; disable it first")
 )
 
 var emailRegex = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
@@ -189,13 +193,22 @@ func (s *AuthService) StartTOTPEnrollment(ctx context.Context, userIDHex, issuer
 	if err != nil {
 		return "", "", err
 	}
+	// Refuse to enroll over an active factor. Overwriting the secret here
+	// would replace the user's second factor without ever proving possession
+	// of the enrolled device — routing around the exact check DisableTOTP
+	// exists to enforce. Anyone holding a hijacked session could swap in a
+	// secret they control and read it straight out of this response, taking
+	// over the factor rather than merely bypassing it. Going through
+	// DisableTOTP first is the only path, and that needs a current code.
+	if user.TOTPEnabled {
+		return "", "", ErrTOTPAlreadyEnabled
+	}
 	secret, err = TOTPSecret()
 	if err != nil {
 		return "", "", err
 	}
-	user.TOTPSecret = secret
-	user.TOTPEnabled = false
-	if err := s.userRepo.Update(ctx, user); err != nil {
+	// Pending enrollment: secret stored, factor not yet active until Confirm.
+	if err := s.userRepo.SetTOTP(ctx, user.ID, secret, false); err != nil {
 		return "", "", err
 	}
 	return secret, TOTPProvisioningURI(secret, issuer, user.Email), nil
@@ -218,8 +231,7 @@ func (s *AuthService) ConfirmTOTP(ctx context.Context, userIDHex, code string) e
 	if !TOTPVerify(user.TOTPSecret, code) {
 		return ErrTOTPInvalid
 	}
-	user.TOTPEnabled = true
-	return s.userRepo.Update(ctx, user)
+	return s.userRepo.SetTOTP(ctx, user.ID, user.TOTPSecret, true)
 }
 
 // DisableTOTP removes the 2FA factor after the user proves they still
@@ -239,9 +251,10 @@ func (s *AuthService) DisableTOTP(ctx context.Context, userIDHex, code string) e
 	if !TOTPVerify(user.TOTPSecret, code) {
 		return ErrTOTPInvalid
 	}
-	user.TOTPEnabled = false
-	user.TOTPSecret = ""
-	return s.userRepo.Update(ctx, user)
+	// Written by name rather than through Update: both fields are `omitempty`,
+	// so a struct-level $set silently drops the cleared values and leaves the
+	// factor live. See UserRepository.SetTOTP.
+	return s.userRepo.SetTOTP(ctx, user.ID, "", false)
 }
 
 // Logout invalidates a session
