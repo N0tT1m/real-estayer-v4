@@ -16,6 +16,7 @@ import (
 	"github.com/realestayer/v4/internal/config"
 	"github.com/realestayer/v4/internal/crypto"
 	"github.com/realestayer/v4/internal/database"
+	"github.com/realestayer/v4/internal/denden"
 	"github.com/realestayer/v4/internal/handler"
 	"github.com/realestayer/v4/internal/mailer"
 	authMiddleware "github.com/realestayer/v4/internal/middleware"
@@ -29,10 +30,17 @@ import (
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
-	slog.SetDefault(logger)
+	// den-den-mushi's canonical logger rather than a bare JSON handler. The
+	// plain handler emitted slog's default keys, and the log hub reads `ts`
+	// (falling back to `timestamp`) — never `time` — so every line was stored
+	// with its ingest time instead of when it happened, and carried no `app`
+	// field to attribute it. This renames the keys the hub expects, lowercases
+	// the level, and stamps app/host/pid. Level still comes from the
+	// environment (DENDEN_LEVEL / LOG_LEVEL), defaulting to info as before.
+	//
+	// Vendored via den-den-mushi's tools/vendor-shim.sh — edit it there, not
+	// in internal/denden.
+	denden.SetDefault("real-estayer")
 
 	cfg, err := config.Load()
 	if err != nil {
