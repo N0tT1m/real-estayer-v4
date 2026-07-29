@@ -44,6 +44,29 @@ func NewDestinationHandler(
 	}
 }
 
+// maxPageLimit caps how many rows any destination endpoint will return for a
+// caller-supplied `limit`. These endpoints are unauthenticated and sit outside
+// the rate limiter, and the service layer only floors at <= 0 — so an unbounded
+// value reaches Mongo's SetLimit verbatim and dumps the collection.
+const maxPageLimit = 100
+
+// boundedLimit parses a caller-supplied limit, falling back to def unless the
+// value is a positive integer no greater than max.
+//
+// Written once and shared: this bound previously existed inline in SearchAPI
+// but was simply missing from FeaturedAPI, which is the failure mode two copies
+// of the same parse invite.
+func boundedLimit(raw string, def, max int) int {
+	if raw == "" {
+		return def
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 || n > max {
+		return def
+	}
+	return n
+}
+
 func (h *DestinationHandler) ExplorePage(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -164,12 +187,7 @@ func (h *DestinationHandler) DestinationPage(w http.ResponseWriter, r *http.Requ
 func (h *DestinationHandler) FeaturedAPI(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	limit := 6
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil {
-			limit = parsed
-		}
-	}
+	limit := boundedLimit(r.URL.Query().Get("limit"), 6, maxPageLimit)
 
 	destinations, err := h.destService.GetFeaturedDestinations(ctx, limit)
 	if err != nil {
@@ -387,11 +405,7 @@ func (h *DestinationHandler) SearchAPI(w http.ResponseWriter, r *http.Request) {
 		Limit:    24,
 	}
 
-	if v := q.Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 100 {
-			filter.Limit = n
-		}
-	}
+	filter.Limit = boundedLimit(q.Get("limit"), filter.Limit, maxPageLimit)
 	if v := q.Get("offset"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			filter.Offset = n
