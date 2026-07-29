@@ -19,7 +19,19 @@ import (
 // Strictly the minimal shape needed for PUT requests against
 // `s3.{region}.amazonaws.com/{bucket}/{key}` or an S3-compatible endpoint.
 func signAWSv4(req *http.Request, body []byte, accessKey, secretKey, region, service string) error {
-	now := time.Now().UTC()
+	return signAWSv4At(req, body, accessKey, secretKey, region, service, time.Now())
+}
+
+// signAWSv4At is signAWSv4 with the signing instant supplied by the caller.
+//
+// Split out purely so the signature is testable: a signature is a pure
+// function of its inputs, but reading the clock inside made every output
+// unreproducible, which is why this had no tests. Signing code is exactly
+// where a silent, untested mistake costs you — every upload fails with an
+// opaque 403, or worse, works until a request happens to contain a character
+// the escaping got wrong.
+func signAWSv4At(req *http.Request, body []byte, accessKey, secretKey, region, service string, at time.Time) error {
+	now := at.UTC()
 	amzDate := now.Format("20060102T150405Z")
 	dateStamp := now.Format("20060102")
 
@@ -96,8 +108,15 @@ func canonicalQueryString(req *http.Request) string {
 	return b.String()
 }
 
-// awsEscape implements AWS's specific URI escaping rules: unreserved chars
-// stay, spaces become %20, slashes are NOT escaped.
+// awsEscape implements AWS's URI escaping for *query* components: the
+// unreserved set (A-Z a-z 0-9 - _ . ~) passes through, everything else is
+// percent-encoded byte by byte, including "/" as %2F and a space as %20.
+//
+// Note this is deliberately not the rule for the canonical *path*, where "/"
+// must stay literal — that half comes from url.URL.EscapedPath() above rather
+// than from this function. An earlier comment here claimed slashes were left
+// alone, which described the path rule while the code implemented the query
+// rule; the code was right.
 func awsEscape(s string) string {
 	var b strings.Builder
 	for _, r := range s {
