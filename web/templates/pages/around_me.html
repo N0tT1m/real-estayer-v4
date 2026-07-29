@@ -34,7 +34,8 @@
                         <div class="text-xs text-gray-500" x-text="[p.subtype, p.cuisine].filter(Boolean).join(' · ')"></div>
                         <div x-show="p.address" class="text-xs text-gray-500" x-text="p.address"></div>
                         <div class="flex gap-3 mt-1 text-xs">
-                            <a x-show="p.website" :href="p.website" target="_blank" rel="noopener" class="text-primary-600 hover:underline">Website</a>
+                            <!-- safeUrl: p.website is a raw OpenStreetMap tag, which anyone can edit. -->
+                            <a x-show="safeUrl(p.website)" :href="safeUrl(p.website)" target="_blank" rel="noopener" class="text-primary-600 hover:underline">Website</a>
                             <span x-show="p.phone" class="text-gray-500" x-text="p.phone"></span>
                         </div>
                     </li>

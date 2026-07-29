@@ -159,6 +159,42 @@
 	};
 	window.toast = toast;
 
+	// ---------- URL sanitising ----------
+	//
+	// Alpine's :href does not sanitise anything, and Go's html/template never
+	// sees these values — they arrive as JSON and are bound in the browser. So
+	// a `javascript:` URL from a third-party feed becomes a live script that
+	// runs on click, which our CSP cannot stop (it allows 'unsafe-inline').
+	//
+	// Everything we bind that we did not construct ourselves goes through
+	// this: OpenStreetMap tags (anyone can edit them, and /around-me is a
+	// public page), scraped listing URLs, and Wikidata sitelinks. Data we do
+	// build server-side is already constrained — trip journal media, for one,
+	// is prefix-checked before storage — but binding it here too costs nothing
+	// and removes the need to know which is which at every call site.
+	//
+	// Returns null rather than "" for a rejected value: Alpine drops an
+	// attribute bound to null, so the anchor renders as plain text instead of
+	// a link that silently goes nowhere.
+	function safeUrl(raw) {
+		if (typeof raw !== "string") return null;
+		const candidate = raw.trim();
+		if (candidate === "") return null;
+		// Root-relative paths are ours by construction. Reject "//host" —
+		// that is protocol-relative and points off-origin.
+		if (candidate.startsWith("/") && !candidate.startsWith("//")) return candidate;
+		try {
+			const parsed = new URL(candidate, window.location.origin);
+			if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+				return parsed.href;
+			}
+		} catch (err) {
+			// Unparseable is not linkable.
+		}
+		return null;
+	}
+	window.safeUrl = safeUrl;
+
 	// ---------- Theme ----------
 	// Applies the theme as early as possible so there's no FOUC. The inline
 	// script in base.html <head> handles the first paint; this manager owns
