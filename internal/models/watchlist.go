@@ -8,16 +8,23 @@ import (
 
 // WatchlistItem represents a listing being watched for price changes
 type WatchlistItem struct {
-	ID           primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	UserID       primitive.ObjectID `bson:"user_id" json:"user_id"`
-	ListingID    primitive.ObjectID `bson:"listing_id" json:"listing_id"`
-	TargetPrice  float64            `bson:"target_price" json:"target_price"`
-	Notes        string             `bson:"notes,omitempty" json:"notes,omitempty"`
-	PriceHistory []PricePoint       `bson:"price_history" json:"price_history"`
-	AlertSent    bool               `bson:"alert_sent" json:"alert_sent"`
-	IsActive     bool               `bson:"is_active" json:"is_active"`
-	CreatedAt    time.Time          `bson:"created_at" json:"created_at"`
-	UpdatedAt    time.Time          `bson:"updated_at" json:"updated_at"`
+	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	UserID      primitive.ObjectID `bson:"user_id" json:"user_id"`
+	ListingID   primitive.ObjectID `bson:"listing_id" json:"listing_id"`
+	TargetPrice float64            `bson:"target_price" json:"target_price"`
+	// No bson `omitempty`: WatchlistRepository.Update writes this struct
+	// through a single $set, and omitempty would drop an empty string from
+	// that update rather than store it — so clearing a note would answer 200
+	// and change nothing. UpdateWatchlistRequest.Notes is a *string precisely
+	// so callers can distinguish "leave alone" from "clear it", and that
+	// distinction has to survive the write. The json tag keeps omitempty;
+	// only the bson side is load-bearing here.
+	Notes        string       `bson:"notes" json:"notes,omitempty"`
+	PriceHistory []PricePoint `bson:"price_history" json:"price_history"`
+	AlertSent    bool         `bson:"alert_sent" json:"alert_sent"`
+	IsActive     bool         `bson:"is_active" json:"is_active"`
+	CreatedAt    time.Time    `bson:"created_at" json:"created_at"`
+	UpdatedAt    time.Time    `bson:"updated_at" json:"updated_at"`
 }
 
 // PricePoint represents a historical price record
