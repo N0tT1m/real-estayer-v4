@@ -88,14 +88,15 @@ type ActivityMatch struct {
 	Why         string             `json:"why"`
 	Activities  []string           `json:"activities,omitempty"`
 	Timing      string             `json:"timing,omitempty"`
-	// Discovered marks a place that was not in the catalog when this search
-	// ran and was resolved through Wikidata to answer it. Worth surfacing:
-	// its budget figure is synthesised rather than curated, so it is a
-	// weaker number than the one on an established row.
-	Discovered bool `json:"discovered,omitempty"`
 	// AwaitingReview means there is no destinations row behind this match yet
 	// — it sits in the admin queue. The UI must not link it to /explore/<name>,
 	// which would 404.
+	//
+	// This doubles as the "discovered" signal: a match has no row precisely
+	// when the catalog could not answer and Wikidata did, which is also when
+	// the budget figure is synthesised rather than curated. There was a
+	// separate Discovered field carrying the same bit — nothing read it, and
+	// two names for one fact invite them to drift apart.
 	AwaitingReview bool `json:"awaiting_review,omitempty"`
 }
 
@@ -379,7 +380,6 @@ func (s *DestinationSuggestService) resolveUngrounded(ctx context.Context, out *
 				Why:            strings.TrimSpace(u.pick.Why),
 				Activities:     trimmedNonEmpty(u.pick.Activities),
 				Timing:         strings.TrimSpace(u.pick.Timing),
-				Discovered:     found.Awaiting,
 				AwaitingReview: found.Awaiting,
 			}
 			if found.Awaiting {
