@@ -3,6 +3,7 @@ package middleware
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -76,6 +77,35 @@ type RedisRateLimiter struct {
 	burst    int
 	key      KeyFunc
 	fallback *InMemoryRateLimiter // used when Redis is unreachable
+
+	// downMu guards downUntil only. It is never held across a Redis call.
+	downMu    sync.Mutex
+	downUntil time.Time
+}
+
+// redisDownCooldown is how long a Redis failure diverts traffic straight to the
+// in-memory limiter before we probe again.
+//
+// Per-command deadlines bound one request, but not the system: incrWithExpire
+// serialises on the client mutex, so with a wedged Redis every request would
+// still pay the timeout in turn and throughput would collapse to roughly one
+// request per timeout across the whole limiter — requests queueing on the lock
+// rather than being served. The breaker means a single probe absorbs that cost
+// per window and everyone else takes the fallback immediately.
+const redisDownCooldown = 5 * time.Second
+
+// tripBreaker diverts subsequent requests to the fallback for the cooldown.
+func (l *RedisRateLimiter) tripBreaker() {
+	l.downMu.Lock()
+	l.downUntil = time.Now().Add(redisDownCooldown)
+	l.downMu.Unlock()
+}
+
+// breakerOpen reports whether Redis is being skipped right now.
+func (l *RedisRateLimiter) breakerOpen() bool {
+	l.downMu.Lock()
+	defer l.downMu.Unlock()
+	return time.Now().Before(l.downUntil)
 }
 
 func NewRedisRateLimiter(redisURL, prefix string, ratePerMinute, burst int) *RedisRateLimiter {
@@ -107,10 +137,19 @@ func (l *RedisRateLimiter) Middleware() func(http.Handler) http.Handler {
 		// global) accounting.
 		fallbackHandler := fallback(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Skip Redis entirely while the breaker is open, so a wedged
+			// instance costs one probe per cooldown rather than one timeout
+			// per request.
+			if l.breakerOpen() {
+				fallbackHandler.ServeHTTP(w, r)
+				return
+			}
 			key := "rl:" + l.prefix + ":" + l.key(r)
 			count, err := l.client.incrWithExpire(key, window)
 			if err != nil {
-				slog.Warn("rate limiter: redis error, falling back to in-memory", "error", err)
+				l.tripBreaker()
+				slog.Warn("rate limiter: redis error, falling back to in-memory",
+					"error", err, "cooldown", redisDownCooldown)
 				fallbackHandler.ServeHTTP(w, r)
 				return
 			}
@@ -166,7 +205,24 @@ func dialRedis(raw string) (*redisClient, error) {
 	return c, nil
 }
 
+// redisOpTimeout bounds a single command's write+read. Without it a Redis that
+// accepts the connection and then stops answering (partition, swap, a blocking
+// command on the server) parks the caller in net.Conn.Read forever — and since
+// incrWithExpire holds c.mu for the whole round-trip, every later request on
+// this limiter queues behind it permanently. The router's 60s Timeout does not
+// save us: it answers the client but leaves the goroutine blocked holding the
+// lock. This sits in front of login/register/reset, so "fails closed and slow"
+// has to mean "gives up and falls back", not "hangs".
+const redisOpTimeout = 2 * time.Second
+
 func (c *redisClient) dial() error {
+	// Close the connection being replaced. Reconnect is the error path, so
+	// leaking here means leaking a descriptor per Redis blip.
+	if c.conn != nil {
+		_ = c.conn.Close()
+		c.conn = nil
+		c.rw = nil
+	}
 	conn, err := net.DialTimeout("tcp", c.addr, 3*time.Second)
 	if err != nil {
 		return err
@@ -210,18 +266,53 @@ func (c *redisClient) incrWithExpire(key string, ttlSeconds int) (int64, error) 
 	return count, nil
 }
 
+// redisServerError is a well-formed "-ERR ..." reply. The stream stays in sync
+// after one, so it must not tear the connection down — unlike an I/O failure,
+// which leaves an unknown number of bytes pending.
+type redisServerError struct{ msg string }
+
+func (e *redisServerError) Error() string { return "redis: " + e.msg }
+
+// invalidate drops the connection so the next call redials. Used after any I/O
+// error, including a deadline expiry: a command that timed out mid-flight may
+// still have a reply in transit, and reading it as the answer to the *next*
+// command would silently corrupt every subsequent count.
+func (c *redisClient) invalidate() {
+	if c.conn != nil {
+		_ = c.conn.Close()
+	}
+	c.conn = nil
+	c.rw = nil
+}
+
 // cmd sends one command and reads one reply. Replies are int64, string,
 // nil (interface{}(nil)), or error.
 func (c *redisClient) cmd(args ...string) (any, error) {
+	if c.conn == nil || c.rw == nil {
+		return nil, errors.New("redis: not connected")
+	}
+	if err := c.conn.SetDeadline(time.Now().Add(redisOpTimeout)); err != nil {
+		c.invalidate()
+		return nil, err
+	}
 	// Wire up RESP2 inline array.
 	_, _ = fmt.Fprintf(c.rw, "*%d\r\n", len(args))
 	for _, a := range args {
 		_, _ = fmt.Fprintf(c.rw, "$%d\r\n%s\r\n", len(a), a)
 	}
 	if err := c.rw.Flush(); err != nil {
+		c.invalidate()
 		return nil, err
 	}
-	return c.readReply()
+	reply, err := c.readReply()
+	if err != nil {
+		var serverErr *redisServerError
+		if !errors.As(err, &serverErr) {
+			c.invalidate()
+		}
+		return nil, err
+	}
+	return reply, nil
 }
 
 func (c *redisClient) readReply() (any, error) {
@@ -236,7 +327,7 @@ func (c *redisClient) readReply() (any, error) {
 	case '+':
 		return strings.TrimRight(line[1:], "\r\n"), nil
 	case '-':
-		return nil, fmt.Errorf("redis: %s", strings.TrimRight(line[1:], "\r\n"))
+		return nil, &redisServerError{msg: strings.TrimRight(line[1:], "\r\n")}
 	case ':':
 		return strconv.ParseInt(strings.TrimRight(line[1:], "\r\n"), 10, 64)
 	case '$':
