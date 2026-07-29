@@ -2,6 +2,8 @@ module github.com/realestayer/v4
 
 go 1.25.0
 
+toolchain go1.25.12
+
 require (
 	github.com/go-chi/chi/v5 v5.3.1
 	github.com/go-chi/cors v1.2.2
