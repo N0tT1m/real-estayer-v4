@@ -76,6 +76,33 @@ func (r *UserRepository) Update(ctx context.Context, user *models.User) error {
 	return err
 }
 
+// SetTOTP writes the two-factor fields by name.
+//
+// It exists because Update marshals the whole User struct into $set, and both
+// TOTP fields carry `omitempty` — so a false/"" value is dropped from the
+// update rather than written, leaving the old value in place. That made
+// DisableTOTP a silent no-op: it returned success, the API answered 200, and
+// the factor stayed active with its original secret, so a user could never
+// actually turn 2FA off.
+//
+// Security state is written explicitly here so clearing it can never depend on
+// struct-tag semantics. Anything that must be settable back to its zero value
+// needs this treatment rather than Update.
+func (r *UserRepository) SetTOTP(ctx context.Context, userID primitive.ObjectID, secret string, enabled bool) error {
+	_, err := r.collection.UpdateOne(
+		ctx,
+		bson.M{"_id": userID},
+		bson.M{
+			"$set": bson.M{
+				"totp_secret":  secret,
+				"totp_enabled": enabled,
+				"updated_at":   time.Now(),
+			},
+		},
+	)
+	return err
+}
+
 // UpdatePassword updates only the password hash
 func (r *UserRepository) UpdatePassword(ctx context.Context, userID primitive.ObjectID, passwordHash string) error {
 	_, err := r.collection.UpdateOne(

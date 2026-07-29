@@ -13,6 +13,13 @@ import (
 func (h *Handler) StartTOTP(w http.ResponseWriter, r *http.Request) {
 	secret, uri, err := h.Core.Auth.StartTOTPEnrollment(r.Context(), h.getUserID(r), "Real-Estayer")
 	if err != nil {
+		// Re-enrolling over a live factor is a client-state problem, not a
+		// server fault: the caller must disable first, which needs a current
+		// code. Answering 500 would read as "retry later".
+		if errors.Is(err, service.ErrTOTPAlreadyEnabled) {
+			h.jsonError(w, http.StatusConflict, err.Error())
+			return
+		}
 		h.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
