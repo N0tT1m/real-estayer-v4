@@ -1,18 +1,19 @@
-// Package denden is the canonical structured logger for the megaverse.
+// Package denden is the structured logger used across this project.
 //
-// It wraps the stdlib log/slog with a JSON handler that emits the den-den-mushi
-// schema ({ts, level, app, host, pid, msg, ...}) to stdout. Apps keep using
-// slog's normal API; the collector tails stdout and ships it to ClickHouse.
+// It wraps the stdlib log/slog with a JSON handler that emits a fixed envelope
+// ({ts, level, app, host, pid, msg, ...}) to stdout. Callers keep using slog's
+// normal API; a log collector tails stdout and ships it onward to a log store.
 //
-//	log := denden.New("waifu-foundry")
-//	log.Info("morph baked", "donor", "boa", "drift", 0.12)
-//	log.Error("img2img failed", "err", err)
+//	log := denden.New("real-estayer")
+//	log.Info("listing scraped", "city", "lisbon", "results", 42)
+//	log.Error("enrichment failed", "err", err)
 //
-// Dockerized apps need nothing else — the docker_logs forwarder tails stdout.
-// NATIVE apps that no forwarder watches (e.g. an agent on a remote Windows box)
-// set $DENDEN_HUB_HTTP to the hub's http_server URL and the logger ALSO ships
-// each line there over HTTP, batched and non-blocking (see hub.go). Either way
-// stdout always gets every line, so there's no data loss if the hub is down.
+// Containerized deployments need nothing else — the container log forwarder
+// tails stdout. A process that no forwarder watches (for example the scraper
+// running as a native binary on a separate host) sets $DENDEN_HUB_HTTP to a
+// log hub's ingest URL, and the logger ALSO ships each line there over HTTP,
+// batched and non-blocking (see hub.go). Either way stdout always gets every
+// line, so nothing is lost when the hub is unreachable.
 package denden
 
 import (

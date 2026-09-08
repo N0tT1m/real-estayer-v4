@@ -30,7 +30,7 @@ import (
 )
 
 func main() {
-	// den-den-mushi's canonical logger rather than a bare JSON handler. The
+	// Use the shared denden logger rather than a bare JSON handler. The
 	// plain handler emitted slog's default keys, and the log hub reads `ts`
 	// (falling back to `timestamp`) — never `time` — so every line was stored
 	// with its ingest time instead of when it happened, and carried no `app`
@@ -38,8 +38,9 @@ func main() {
 	// the level, and stamps app/host/pid. Level still comes from the
 	// environment (DENDEN_LEVEL / LOG_LEVEL), defaulting to info as before.
 	//
-	// Vendored via den-den-mushi's tools/vendor-shim.sh — edit it there, not
-	// in internal/denden.
+	// internal/denden is vendored from the shared logging shim by
+	// tools/vendor-shim.sh — change it upstream and re-vendor, rather than
+	// editing the copy here, or the next vendor run reverts you.
 	denden.SetDefault("real-estayer")
 
 	cfg, err := config.Load()

@@ -104,13 +104,13 @@ func TestSplitCSVTrims(t *testing.T) {
 // and silently reported the AI feature as disabled, so pin the wiring here.
 func TestLoadReadsAIBaseURL(t *testing.T) {
 	t.Setenv("SESSION_SECRET", strings.Repeat("x", 32))
-	t.Setenv("AI_BASE_URL", "http://REMOTE_HOST_REMOVED:11434/v1")
+	t.Setenv("AI_BASE_URL", "http://ollama.internal:11434/v1")
 
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.AIBaseURL != "http://REMOTE_HOST_REMOVED:11434/v1" {
+	if cfg.AIBaseURL != "http://ollama.internal:11434/v1" {
 		t.Errorf("AIBaseURL = %q, want the AI_BASE_URL value", cfg.AIBaseURL)
 	}
 }

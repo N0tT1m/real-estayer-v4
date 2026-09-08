@@ -3,7 +3,11 @@
 
 param(
     [switch]$Force,
-    [switch]$Headless
+    [switch]$Headless,
+    # Mongo the scraper writes listings into. The scraper commonly runs on a
+    # different host than the database, so pass the database host's URI here,
+    # e.g. -MongoUri mongodb://10.0.0.5:27017/real_estayer
+    [string]$MongoUri = "mongodb://localhost:27017/real_estayer"
 )
 
 $ErrorActionPreference = "Stop"
@@ -206,7 +210,8 @@ function Update-EnvFile {
     param(
         [string]$ChromePath,
         [bool]$Headless,
-        [string]$DestDir
+        [string]$DestDir,
+        [string]$MongoUri
     )
 
     $envPath = Join-Path $DestDir ".env"
@@ -214,7 +219,7 @@ function Update-EnvFile {
     $envContent = @"
 # Rust Scraper Environment Configuration (runs outside Docker)
 RUST_LOG=debug
-MONGODB_URI=mongodb://REMOTE_HOST_REMOVED:27017/real_estayer
+MONGODB_URI=$MongoUri
 ENVIRONMENT=development
 
 # Chrome/Selenium Configuration for Windows
@@ -267,7 +272,7 @@ if (-not $driverInstalled) {
 
 Write-Host ""
 Write-Host "Step 3: Updating configuration..." -ForegroundColor Cyan
-Update-EnvFile -ChromePath $chromePath -Headless:$Headless -DestDir $ScriptDir
+Update-EnvFile -ChromePath $chromePath -Headless:$Headless -DestDir $ScriptDir -MongoUri $MongoUri
 
 Write-Host ""
 Write-Host "=========================================" -ForegroundColor Green
@@ -279,8 +284,8 @@ Write-Host ""
 Write-Host "To start the Rust scraper:" -ForegroundColor Cyan
 Write-Host "  cargo run --release" -ForegroundColor Yellow
 Write-Host ""
-Write-Host "The scraper will be available at:" -ForegroundColor Cyan
-Write-Host "  http://REMOTE_HOST_REMOVED:3001" -ForegroundColor Yellow
+Write-Host "The scraper will listen on:" -ForegroundColor Cyan
+Write-Host "  http://localhost:3001  (reachable from other hosts at this machine's LAN address)" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "To verify the setup, run:" -ForegroundColor Cyan
 Write-Host "  curl http://localhost:3001/health" -ForegroundColor Yellow

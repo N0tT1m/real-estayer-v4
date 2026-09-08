@@ -1,15 +1,14 @@
 package denden
 
-// hub.go adds an OPTIONAL HTTP shipper to the denden shim, for apps that the
-// docker_logs forwarder can't see — chiefly the nami-agent, which runs as a
-// plain native binary on a remote Windows host with the media mounted.
+// hub.go adds an OPTIONAL HTTP shipper to the denden logger, for processes a
+// container log forwarder can't see — chiefly a component deployed as a plain
+// native binary on a host of its own, such as the Rust scraper.
 //
-// When $DENDEN_HUB_HTTP is set to the hub's http_server URL (e.g.
-// http://REMOTE_HOST_REMOVED:9000), every log line is ALSO POSTed there as
-// newline-delimited JSON — the exact framing den-den-mushi's `http` source
-// expects (framing: newline_delimited, decoding: bytes), so lines land in
-// ClickHouse identically to docker/file sources. Empty (the default) means
-// stdout only, exactly as before — zero overhead, no network dependency.
+// When $DENDEN_HUB_HTTP is set to a log hub's ingest URL (e.g.
+// http://logs.internal:9000), every log line is ALSO POSTed there as
+// newline-delimited JSON (framing: newline_delimited, decoding: bytes), so
+// lines land in the log store identically to container and file sources. Empty
+// (the default) means stdout only — zero overhead, no network dependency.
 //
 // Everything here is pure net/http, so it behaves identically on
 // Windows/Linux/macOS — no shell, no vendor script, no platform build tags.
@@ -28,11 +27,10 @@ const HubEnv = "DENDEN_HUB_HTTP"
 
 // HubEnvAliases are accepted as fallbacks for HubEnv.
 //
-// The fleet independently grew three names for the same setting: this shim and
-// nami use DENDEN_HUB_HTTP, uta-foundry's ship.go reads DENDEN_HTTP_URL, and
-// the hand-rolled shippers in frost-tit-thermals and monet-snowfall read
-// DENDEN_HUB_URL. Setting one did nothing for services expecting another,
-// which is a large part of why platform-wide logging never actually landed.
+// Three names for the same setting grew up independently across deployments:
+// DENDEN_HUB_HTTP here, and DENDEN_HTTP_URL and DENDEN_HUB_URL in other
+// shippers. Setting one did nothing for a service that expected another, which
+// is a large part of why centralized logging kept not landing.
 //
 // Rather than force every deployment to change at once, resolve all three in
 // priority order. New deployments should set DENDEN_HUB_HTTP.
@@ -92,7 +90,7 @@ func (t *teeHub) Write(p []byte) (int, error) {
 
 // httpSink batches log lines and POSTs them to the hub on a background
 // goroutine. Enqueue is non-blocking and drops on overload, so a slow or down
-// hub can never stall the transcode agent — stdout still has every line.
+// hub can never stall the app — stdout still has every line.
 type httpSink struct {
 	url    string
 	ch     chan []byte
